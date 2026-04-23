@@ -29,6 +29,33 @@ service cloud.firestore {
       return currentRole() == "coach";
     }
 
+    function teamOwnerId(teamId) {
+      return get(/databases/$(database)/documents/teams/$(teamId)).data.ownerUserId;
+    }
+
+    function canManageTeamMember(teamId, userId) {
+      return isCoach() &&
+        sameTeam(teamId) &&
+        teamOwnerId(teamId) != userId;
+    }
+
+    function validManagedUserUpdate() {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(["role", "currentTeamId", "updatedAt"]) &&
+        request.resource.data.email == resource.data.email &&
+        request.resource.data.displayName == resource.data.displayName &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        (request.resource.data.role == "coach" || request.resource.data.role == "athlete") &&
+        (request.resource.data.currentTeamId == currentTeamId() || request.resource.data.currentTeamId == "");
+    }
+
+    function validManagedTeamMemberUpdate() {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(["role", "updatedAt"]) &&
+        request.resource.data.teamId == resource.data.teamId &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        (request.resource.data.role == "coach" || request.resource.data.role == "athlete");
+    }
+
     function practicePlanTeamId(planId) {
       return get(/databases/$(database)/documents/practice_plans/$(planId)).data.teamId;
     }
@@ -88,9 +115,26 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if signedIn() && request.auth.uid == userId;
+      allow read: if signedIn() &&
+        (
+          request.auth.uid == userId ||
+          (
+            isCoach() &&
+            resource.data.currentTeamId != null &&
+            resource.data.currentTeamId == currentTeamId()
+          )
+        );
       allow create: if signedIn() && request.auth.uid == userId;
-      allow update: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() &&
+        (
+          request.auth.uid == userId ||
+          (
+            hasUserDoc() &&
+            exists(/databases/$(database)/documents/users/$(userId)) &&
+            canManageTeamMember(resource.data.currentTeamId, userId) &&
+            validManagedUserUpdate()
+          )
+        );
       allow delete: if false;
     }
 
@@ -107,7 +151,11 @@ service cloud.firestore {
       allow create: if signedIn() &&
         request.resource.data.userId == request.auth.uid &&
         (request.resource.data.role == "athlete" || request.resource.data.role == "coach");
-      allow update, delete: if false;
+      allow update: if signedIn() &&
+        canManageTeamMember(resource.data.teamId, resource.data.userId) &&
+        validManagedTeamMemberUpdate();
+      allow delete: if signedIn() &&
+        canManageTeamMember(resource.data.teamId, resource.data.userId);
     }
 
     match /library_items/{itemId} {

@@ -11,3 +11,4 @@ export * from "./announcements";
 export * from "./push-registrations";
 export * from "./team-notifications";
 export * from "./library-taxonomy";
+export * from "./team-management";

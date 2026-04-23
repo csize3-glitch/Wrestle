@@ -120,6 +120,13 @@ export interface TeamMember {
   updatedAt: string;
 }
 
+export interface TeamMemberRecord extends TeamMember {
+  displayName: string;
+  email: string;
+  currentTeamId?: string;
+  isOwner: boolean;
+}
+
 export interface Tournament {
   id: string;
   teamId: string;

@@ -39,6 +39,11 @@ function createInitialAuthForm(): AuthFormState {
 
 const dashboardCards = [
   {
+    title: "Team Management",
+    href: "/team",
+    copy: "Manage assistant coaches, athlete membership, and team join codes from one admin view.",
+  },
+  {
     title: "Roster",
     href: "/wrestlers",
     copy: "Manage shared wrestler profiles, style notes, and mat-side summaries.",
@@ -529,11 +534,11 @@ export default function HomePage() {
             </p>
 
             <div className="hero-actions">
-              <Link href="/wrestlers" className="button-primary">
-                {appUser.role === "coach" ? "Open Roster" : "View Team Roster"}
+              <Link href={appUser.role === "coach" ? "/team" : "/wrestlers"} className="button-primary">
+                {appUser.role === "coach" ? "Open Team Management" : "View Team Roster"}
               </Link>
-              <Link href="/practice-plans" className="button-secondary">
-                {appUser.role === "coach" ? "Open Practice Plans" : "Review Practice Plans"}
+              <Link href={appUser.role === "coach" ? "/wrestlers" : "/practice-plans"} className="button-secondary">
+                {appUser.role === "coach" ? "Open Roster" : "Review Practice Plans"}
               </Link>
             </div>
           </div>
