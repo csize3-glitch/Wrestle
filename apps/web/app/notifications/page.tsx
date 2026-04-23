@@ -80,7 +80,10 @@ function createTeamNotificationCards(items: TeamNotification[]): NotificationCar
     kind: item.type === "tournament_registration" ? "tournament" : "announcement",
     title: item.title,
     body: item.body,
-    href: item.type === "tournament_registration" ? "/tournaments" : "/notifications",
+    href:
+      item.type === "tournament_registration" && item.tournamentId
+        ? `/tournaments?open=${item.tournamentId}`
+        : "/notifications",
     meta:
       item.type === "tournament_registration"
         ? `Registration alert • ${formatDateLabel(item.createdAt)}`
@@ -127,7 +130,7 @@ function createTournamentCards(args: {
               ? "1 wrestler is currently on the WrestleWell tournament roster."
               : `${entryCount} wrestlers are currently on the WrestleWell tournament roster.`,
           meta: "Tournament update",
-          href: "/tournaments",
+          href: `/tournaments?open=${tournament.id}`,
         };
       });
   }
@@ -149,7 +152,7 @@ function createTournamentCards(args: {
       title: `${tournament.name} registration`,
       body: "You are listed on the WrestleWell roster for this tournament.",
       meta: "Tournament update",
-      href: "/tournaments",
+      href: `/tournaments?open=${tournament.id}`,
     }));
 }
 

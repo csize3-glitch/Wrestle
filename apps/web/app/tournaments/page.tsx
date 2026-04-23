@@ -60,6 +60,23 @@ export default function TournamentsPage() {
     appUser?.role === "athlete" && ownWrestler
       ? entries.find((entry) => entry.wrestlerId === ownWrestler.id) || null
       : null;
+  const plannedCount = entries.filter((entry) => entry.status === "planned").length;
+  const submittedCount = entries.filter((entry) => entry.status === "submitted").length;
+  const verifiedCount = entries.filter((entry) => entry.status === "confirmed").length;
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const search = new URLSearchParams(window.location.search);
+    const requestedTournamentId = search.get("open");
+    if (!requestedTournamentId) {
+      return;
+    }
+
+    setActiveTournamentId(requestedTournamentId);
+  }, []);
 
   async function refreshTournaments(nextSelectedId?: string | null) {
     if (!currentTeam?.id) {
@@ -543,140 +560,174 @@ export default function TournamentsPage() {
                   </button>
                 </div>
               ) : null}
+              {activeTournamentId ? (
+                <div
+                  style={{
+                    marginTop: 20,
+                    borderTop: "1px solid #e5e7eb",
+                    paddingTop: 20,
+                    display: "grid",
+                    gap: 16,
+                  }}
+                >
+                  <div>
+                    <h2 style={{ marginTop: 0, marginBottom: 8 }}>Tournament Roster</h2>
+                    <p style={{ color: "#666", fontSize: 14, marginBottom: 0 }}>
+                      Verify registrations and keep the full attending roster in one place.
+                    </p>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                      gap: 12,
+                    }}
+                  >
+                    {[
+                      { label: "Attending", value: entries.length },
+                      { label: "Planned", value: plannedCount },
+                      { label: "Submitted", value: submittedCount },
+                      { label: "Verified", value: verifiedCount },
+                    ].map((item) => (
+                      <div
+                        key={item.label}
+                        style={{
+                          border: "1px solid #e5e7eb",
+                          borderRadius: 12,
+                          padding: 14,
+                          background: "#f8fafc",
+                        }}
+                      >
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                          {item.label}
+                        </div>
+                        <div style={{ fontSize: 28, fontWeight: 800, color: "#0f172a", marginTop: 6 }}>{item.value}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {isCoach ? (
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      <select
+                        value={selectedWrestlerId}
+                        onChange={(e) => setSelectedWrestlerId(e.target.value)}
+                        disabled={!isCoach}
+                        style={{ padding: 10, minWidth: 260 }}
+                      >
+                        <option value="">Select wrestler</option>
+                        {wrestlers.map((wrestler) => (
+                          <option key={wrestler.id} value={wrestler.id}>
+                            {wrestler.firstName} {wrestler.lastName}
+                          </option>
+                        ))}
+                      </select>
+
+                      <button onClick={addEntry} disabled={savingEntry || !isCoach} className="button-primary">
+                        {savingEntry ? "Adding..." : "Add Wrestler"}
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {entries.length === 0 ? (
+                    <p>{isCoach ? "No wrestlers added to this tournament yet." : "You are not listed for this tournament yet."}</p>
+                  ) : (
+                    <div style={{ display: "grid", gap: 12 }}>
+                      {entries.map((entry) => (
+                        <div
+                          key={entry.id}
+                          style={{
+                            border: "1px solid #eee",
+                            borderRadius: 10,
+                            padding: 12,
+                            background: "#fafafa",
+                          }}
+                        >
+                          <strong>{entry.wrestlerName}</strong>
+                          <div style={{ fontSize: 14, marginTop: 6, color: "#555" }}>
+                            {[entry.style, entry.weightClass, formatEntryStatus(entry.status)].filter(Boolean).join(" · ")}
+                          </div>
+
+                          {entry.notes ? (
+                            <p style={{ marginTop: 8, marginBottom: 8 }}>{entry.notes}</p>
+                          ) : null}
+
+                          {isCoach ? (
+                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+                              {entry.status !== "planned" ? (
+                                <button
+                                  onClick={() => setEntryStatus(entry, "planned")}
+                                  disabled={savingEntry}
+                                  className="button-secondary"
+                                >
+                                  Reset to Planned
+                                </button>
+                              ) : null}
+
+                              {entry.status !== "submitted" ? (
+                                <button
+                                  onClick={() => setEntryStatus(entry, "submitted")}
+                                  disabled={savingEntry}
+                                  className="button-secondary"
+                                >
+                                  Mark Submitted
+                                </button>
+                              ) : null}
+
+                              {entry.status !== "confirmed" ? (
+                                <button
+                                  onClick={() => setEntryStatus(entry, "confirmed")}
+                                  disabled={savingEntry}
+                                  className="button-primary"
+                                >
+                                  Verify External Registration
+                                </button>
+                              ) : null}
+
+                              <button
+                                onClick={() => removeEntry(entry.id)}
+                                disabled={deletingEntryId === entry.id}
+                                className="button-secondary"
+                                style={{ color: "#911022" }}
+                              >
+                                {deletingEntryId === entry.id ? "Removing..." : "Remove Entry"}
+                              </button>
+                            </div>
+                          ) : ownWrestler?.id === entry.wrestlerId ? (
+                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+                              {entry.status === "planned" ? (
+                                <button
+                                  onClick={() => athleteRegisterCurrentTournament()}
+                                  disabled={savingEntry}
+                                  className="button-primary"
+                                >
+                                  {savingEntry ? "Saving..." : "I Registered"}
+                                </button>
+                              ) : (
+                                <span
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    padding: "8px 12px",
+                                    borderRadius: 999,
+                                    background: entry.status === "confirmed" ? "#d7f4df" : "#f5d7dc",
+                                    color: entry.status === "confirmed" ? "#166534" : "#911022",
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {entry.status === "confirmed" ? "Verified by Coach" : "Submitted"}
+                                </span>
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : null}
             </div>
           </section>
-
-          {activeTournamentId ? (
-            <section
-              style={{
-                border: "1px solid #ddd",
-                borderRadius: 12,
-                padding: 16,
-                background: "#fff",
-              }}
-            >
-              <h2 style={{ marginTop: 0 }}>Tournament Roster</h2>
-              <p style={{ color: "#666", fontSize: 14 }}>
-                Link team wrestlers to this event so registrations, bout tracking, and future alerts have a real roster.
-              </p>
-
-              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-                <select
-                  value={selectedWrestlerId}
-                  onChange={(e) => setSelectedWrestlerId(e.target.value)}
-                  disabled={!isCoach}
-                  style={{ padding: 10, minWidth: 260 }}
-                >
-                  <option value="">Select wrestler</option>
-                  {wrestlers.map((wrestler) => (
-                    <option key={wrestler.id} value={wrestler.id}>
-                      {wrestler.firstName} {wrestler.lastName}
-                    </option>
-                  ))}
-                </select>
-
-                <button onClick={addEntry} disabled={savingEntry || !isCoach} className="button-primary">
-                  {savingEntry ? "Adding..." : "Add Wrestler"}
-                </button>
-              </div>
-
-              {entries.length === 0 ? (
-                <p>{isCoach ? "No wrestlers added to this tournament yet." : "You are not listed for this tournament yet."}</p>
-              ) : (
-                <div style={{ display: "grid", gap: 12 }}>
-                  {entries.map((entry) => (
-                    <div
-                      key={entry.id}
-                      style={{
-                        border: "1px solid #eee",
-                        borderRadius: 10,
-                        padding: 12,
-                        background: "#fafafa",
-                      }}
-                    >
-                      <strong>{entry.wrestlerName}</strong>
-                      <div style={{ fontSize: 14, marginTop: 6, color: "#555" }}>
-                        {[entry.style, entry.weightClass, formatEntryStatus(entry.status)].filter(Boolean).join(" · ")}
-                      </div>
-
-                      {entry.notes ? (
-                        <p style={{ marginTop: 8, marginBottom: 8 }}>{entry.notes}</p>
-                      ) : null}
-
-                      {isCoach ? (
-                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
-                          {entry.status !== "planned" ? (
-                            <button
-                              onClick={() => setEntryStatus(entry, "planned")}
-                              disabled={savingEntry}
-                              className="button-secondary"
-                            >
-                              Reset to Planned
-                            </button>
-                          ) : null}
-
-                          {entry.status !== "submitted" ? (
-                            <button
-                              onClick={() => setEntryStatus(entry, "submitted")}
-                              disabled={savingEntry}
-                              className="button-secondary"
-                            >
-                              Mark Submitted
-                            </button>
-                          ) : null}
-
-                          {entry.status !== "confirmed" ? (
-                            <button
-                              onClick={() => setEntryStatus(entry, "confirmed")}
-                              disabled={savingEntry}
-                              className="button-primary"
-                            >
-                              Verify External Registration
-                            </button>
-                          ) : null}
-
-                          <button
-                            onClick={() => removeEntry(entry.id)}
-                            disabled={deletingEntryId === entry.id}
-                            className="button-secondary"
-                            style={{ color: "#911022" }}
-                          >
-                            {deletingEntryId === entry.id ? "Removing..." : "Remove Entry"}
-                          </button>
-                        </div>
-                      ) : ownWrestler?.id === entry.wrestlerId ? (
-                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
-                          {entry.status === "planned" ? (
-                            <button
-                              onClick={() => athleteRegisterCurrentTournament()}
-                              disabled={savingEntry}
-                              className="button-primary"
-                            >
-                              {savingEntry ? "Saving..." : "I Registered"}
-                            </button>
-                          ) : (
-                            <span
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                padding: "8px 12px",
-                                borderRadius: 999,
-                                background: entry.status === "confirmed" ? "#d7f4df" : "#f5d7dc",
-                                color: entry.status === "confirmed" ? "#166534" : "#911022",
-                                fontWeight: 700,
-                              }}
-                            >
-                              {entry.status === "confirmed" ? "Verified by Coach" : "Submitted"}
-                            </span>
-                          )}
-                        </div>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          ) : null}
         </div>
       </main>
     </RequireAuth>
