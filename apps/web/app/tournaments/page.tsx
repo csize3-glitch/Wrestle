@@ -56,6 +56,10 @@ export default function TournamentsPage() {
   const [selectedWrestlerId, setSelectedWrestlerId] = useState("");
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null);
   const isCoach = appUser?.role === "coach";
+  const activeTournament =
+    tournaments.find((tournament) => tournament.id === activeTournamentId) || null;
+  const canDirectlyEditActiveTournament =
+    !activeTournament || activeTournament.teamId === currentTeam?.id || activeTournament.source === "manual";
   const ownWrestler =
     appUser?.role === "athlete" && firebaseUser
       ? wrestlers.find((wrestler) => wrestler.ownerUserId === firebaseUser.uid) || null
@@ -168,7 +172,7 @@ export default function TournamentsPage() {
       }
       setSaving(true);
 
-      if (activeTournamentId) {
+      if (activeTournamentId && canDirectlyEditActiveTournament) {
         await updateTournament(db, activeTournamentId, {
           teamId: currentTeam.id,
           name: form.name,
@@ -189,7 +193,13 @@ export default function TournamentsPage() {
           source: "manual",
         });
         await refreshTournaments(nextId);
-        setStatusMessage({ tone: "success", text: "Tournament created." });
+        setStatusMessage({
+          tone: "success",
+          text:
+            activeTournamentId && !canDirectlyEditActiveTournament
+              ? "A team-owned tournament copy was created so you can manage this event."
+              : "Tournament created.",
+        });
       }
     } catch (error) {
       console.error("Failed to save tournament:", error);
@@ -500,6 +510,15 @@ export default function TournamentsPage() {
             <h2 style={{ marginTop: 0 }}>{activeTournamentId ? "Tournament Details" : "Add Tournament"}</h2>
 
             <div style={{ display: "grid", gap: 16 }}>
+              {isCoach && activeTournamentId && !canDirectlyEditActiveTournament ? (
+                <StatusBanner
+                  message={{
+                    tone: "info",
+                    text: "This event came from the shared tournament import. Saving will create a team-owned copy you can edit and manage.",
+                  }}
+                />
+              ) : null}
+
               <label style={{ display: "grid", gap: 6 }}>
                 <span>Tournament name</span>
                 <input
@@ -550,14 +569,20 @@ export default function TournamentsPage() {
 
               <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                 <button onClick={saveTournament} disabled={saving || !isCoach} className="button-primary">
-                  {saving ? "Saving..." : activeTournamentId ? "Update Tournament" : "Create Tournament"}
+                  {saving
+                    ? "Saving..."
+                    : activeTournamentId
+                      ? canDirectlyEditActiveTournament
+                        ? "Update Tournament"
+                        : "Save as Team Event"
+                      : "Create Tournament"}
                 </button>
 
                 <button onClick={startNewTournament} disabled={!isCoach} className="button-secondary">
                   Reset
                 </button>
 
-                {isCoach && activeTournamentId ? (
+                {isCoach && activeTournamentId && canDirectlyEditActiveTournament ? (
                   <button
                     onClick={() => removeTournament(activeTournamentId)}
                     disabled={deletingId === activeTournamentId}
