@@ -75,7 +75,22 @@ export default function CalendarPage() {
   const [selectedPlanByDate, setSelectedPlanByDate] = useState<Record<string, string>>({});
   const [notesByDate, setNotesByDate] = useState<Record<string, string>>({});
   const [weekOffset, setWeekOffset] = useState(0);
+  const [viewportWidth, setViewportWidth] = useState(1440);
   const isCoach = appUser?.role === "coach";
+
+  useEffect(() => {
+    function handleResize() {
+      setViewportWidth(window.innerWidth);
+    }
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const calendarColumns =
+    viewportWidth <= 640 ? 1 : viewportWidth <= 960 ? 2 : viewportWidth <= 1280 ? 4 : 7;
+  const isDenseLayout = calendarColumns === 7;
 
   const weekDates = useMemo(() => {
     const start = getStartOfWeek();
@@ -243,7 +258,7 @@ export default function CalendarPage() {
       title="Weekly Calendar"
       description="Assign saved practice plans to specific days of the week."
     >
-    <main style={{ padding: 24 }}>
+    <main style={{ padding: viewportWidth <= 768 ? 16 : 24, width: "100%", boxSizing: "border-box" }}>
       <h1 style={{ fontSize: 32, marginBottom: 8 }}>Weekly Calendar</h1>
       <p style={{ marginBottom: 24 }}>
         Assign saved practice plans to specific days of the week.
@@ -282,9 +297,10 @@ export default function CalendarPage() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(7, minmax(220px, 1fr))",
-          gap: 16,
+          gridTemplateColumns: `repeat(${calendarColumns}, minmax(0, 1fr))`,
+          gap: isDenseLayout ? 12 : 16,
           alignItems: "start",
+          width: "100%",
         }}
       >
         {weekDates.map((date) => {
@@ -297,12 +313,15 @@ export default function CalendarPage() {
               style={{
                 border: "1px solid #ddd",
                 borderRadius: 12,
-                padding: 16,
+                padding: isDenseLayout ? 12 : 16,
                 background: "#fff",
-                minHeight: 500,
+                minHeight: isDenseLayout ? 420 : 500,
+                minWidth: 0,
               }}
             >
-              <h2 style={{ marginTop: 0, fontSize: 18 }}>{formatPrettyDate(date)}</h2>
+              <h2 style={{ marginTop: 0, marginBottom: 6, fontSize: isDenseLayout ? 16 : 18 }}>
+                {formatPrettyDate(date)}
+              </h2>
               <div style={{ fontSize: 12, color: "#666", marginBottom: 12 }}>{dateKey}</div>
 
               <select
@@ -311,7 +330,7 @@ export default function CalendarPage() {
                   setSelectedPlanByDate((prev) => ({ ...prev, [dateKey]: e.target.value }))
                 }
                 disabled={!isCoach}
-                style={{ width: "100%", padding: 10, marginBottom: 10 }}
+                style={{ width: "100%", padding: isDenseLayout ? 8 : 10, marginBottom: 10, minWidth: 0 }}
               >
                 <option value="">Select a practice plan</option>
                 {savedPlans.map((plan) => (
@@ -331,16 +350,17 @@ export default function CalendarPage() {
                 rows={3}
                 style={{
                   width: "100%",
-                  padding: 10,
+                  padding: isDenseLayout ? 8 : 10,
                   resize: "vertical",
                   marginBottom: 10,
+                  boxSizing: "border-box",
                 }}
               />
 
               <button
                 onClick={() => assignPlanToDate(dateKey)}
                 disabled={assigningDate === dateKey || !isCoach}
-                style={{ width: "100%", padding: "10px 14px", marginBottom: 16 }}
+                style={{ width: "100%", padding: isDenseLayout ? "8px 12px" : "10px 14px", marginBottom: 16 }}
               >
                 {assigningDate === dateKey ? "Assigning..." : "Assign Plan"}
               </button>
@@ -355,24 +375,27 @@ export default function CalendarPage() {
                       style={{
                         border: "1px solid #eee",
                         borderRadius: 10,
-                        padding: 12,
+                        padding: isDenseLayout ? 10 : 12,
                         background: "#fafafa",
+                        minWidth: 0,
                       }}
                     >
                       <strong>{event.practicePlanTitle}</strong>
 
-                      <div style={{ fontSize: 14, marginTop: 6 }}>
+                      <div style={{ fontSize: isDenseLayout ? 13 : 14, marginTop: 6 }}>
                         {event.practicePlanStyle || "Mixed"} ·{" "}
                         {formatDurationLabel(event.totalSeconds || event.totalMinutes * 60 || 0)}
                       </div>
 
                       {event.notes ? (
-                        <p style={{ fontSize: 14, marginTop: 8, marginBottom: 8 }}>{event.notes}</p>
+                        <p style={{ fontSize: isDenseLayout ? 13 : 14, marginTop: 8, marginBottom: 8 }}>
+                          {event.notes}
+                        </p>
                       ) : null}
 
                       <a
                         href={`/practice-plans?open=${event.practicePlanId}`}
-                        style={{ display: "inline-block", marginRight: 10 }}
+                        style={{ display: "inline-block", marginRight: 10, marginBottom: 8 }}
                       >
                         Open Plan
                       </a>
