@@ -285,6 +285,40 @@ export default function TournamentsScreen() {
             <Text style={{ fontSize: 14, color: "#5f6d83", marginTop: 8 }}>
               Source: {tournament.source === "excel_import" ? "Workbook import" : "Manual"}
             </Text>
+            {tournament.eventDate ? (
+              <Text style={{ fontSize: 14, color: "#5f6d83", marginTop: 4 }}>
+                Event Date: {tournament.eventDate}
+              </Text>
+            ) : null}
+            {tournament.weighInTime ? (
+              <Text style={{ fontSize: 14, color: "#0f2748", marginTop: 4, fontWeight: "700" }}>
+                Weigh-In Time: {tournament.weighInTime}
+              </Text>
+            ) : null}
+            {tournament.notes ? (
+              <Text style={{ fontSize: 14, color: "#374151", marginTop: 8, lineHeight: 20 }}>
+                {tournament.notes}
+              </Text>
+            ) : null}
+            {appUser.role === "coach" && tournament.coachEventNotes ? (
+              <View
+                style={{
+                  marginTop: 12,
+                  borderWidth: 1,
+                  borderColor: "#e5e7eb",
+                  borderRadius: 12,
+                  padding: 12,
+                  backgroundColor: "#f8fafc",
+                }}
+              >
+                <Text style={{ fontSize: 14, fontWeight: "800", color: "#0f2748", marginBottom: 6 }}>
+                  Coach Event Notes
+                </Text>
+                <Text style={{ fontSize: 14, color: "#374151", lineHeight: 20 }}>
+                  {tournament.coachEventNotes}
+                </Text>
+              </View>
+            ) : null}
 
             {appUser.role === "coach" ? (
               <View

@@ -173,6 +173,8 @@ export interface Tournament {
   registrationUrl: string;
   eventDate?: string;
   notes?: string;
+  weighInTime?: string;
+  coachEventNotes?: string;
   source: "excel_import" | "manual";
   createdAt: string;
   updatedAt: string;

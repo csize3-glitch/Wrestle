@@ -24,6 +24,8 @@ type TournamentFormState = {
   registrationUrl: string;
   eventDate: string;
   notes: string;
+  weighInTime: string;
+  coachEventNotes: string;
 };
 
 function createEmptyForm(): TournamentFormState {
@@ -32,6 +34,8 @@ function createEmptyForm(): TournamentFormState {
     registrationUrl: "",
     eventDate: "",
     notes: "",
+    weighInTime: "",
+    coachEventNotes: "",
   };
 }
 
@@ -107,6 +111,8 @@ export default function TournamentsPage() {
         registrationUrl: selected.registrationUrl,
         eventDate: selected.eventDate || "",
         notes: selected.notes || "",
+        weighInTime: selected.weighInTime || "",
+        coachEventNotes: selected.coachEventNotes || "",
       });
       return;
     }
@@ -179,6 +185,8 @@ export default function TournamentsPage() {
           registrationUrl: form.registrationUrl,
           eventDate: form.eventDate,
           notes: form.notes,
+          weighInTime: form.weighInTime,
+          coachEventNotes: form.coachEventNotes,
           source: "manual",
         });
         await refreshTournaments(activeTournamentId);
@@ -190,6 +198,8 @@ export default function TournamentsPage() {
           registrationUrl: form.registrationUrl,
           eventDate: form.eventDate,
           notes: form.notes,
+          weighInTime: form.weighInTime,
+          coachEventNotes: form.coachEventNotes,
           source: "manual",
         });
         await refreshTournaments(nextId);
@@ -487,6 +497,8 @@ export default function TournamentsPage() {
                           registrationUrl: tournament.registrationUrl,
                           eventDate: tournament.eventDate || "",
                           notes: tournament.notes || "",
+                          weighInTime: tournament.weighInTime || "",
+                          coachEventNotes: tournament.coachEventNotes || "",
                         });
                       }}
                       style={{ marginTop: 10, padding: "8px 12px", cursor: "pointer" }}
@@ -551,12 +563,34 @@ export default function TournamentsPage() {
               </label>
 
               <label style={{ display: "grid", gap: 6 }}>
+                <span>Weigh-in time</span>
+                <input
+                  type="time"
+                  value={form.weighInTime}
+                  onChange={(e) => setForm((prev) => ({ ...prev, weighInTime: e.target.value }))}
+                  disabled={!isCoach}
+                  style={{ padding: 10 }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 6 }}>
                 <span>Tournament notes</span>
                 <textarea
                   value={form.notes}
                   onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
                   disabled={!isCoach}
                   rows={3}
+                  style={{ padding: 10, resize: "vertical" }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Coach event notes</span>
+                <textarea
+                  value={form.coachEventNotes}
+                  onChange={(e) => setForm((prev) => ({ ...prev, coachEventNotes: e.target.value }))}
+                  disabled={!isCoach}
+                  rows={4}
                   style={{ padding: 10, resize: "vertical" }}
                 />
               </label>
@@ -647,10 +681,29 @@ export default function TournamentsPage() {
                         Event date: <strong>{form.eventDate}</strong>
                       </p>
                     ) : null}
+                    {form.weighInTime ? (
+                      <p style={{ color: "#0f2748", fontSize: 14, marginTop: 8, marginBottom: 0 }}>
+                        Weigh-ins: <strong>{form.weighInTime}</strong>
+                      </p>
+                    ) : null}
                     {form.notes ? (
                       <p style={{ color: "#555", fontSize: 14, marginTop: 8, marginBottom: 0 }}>
                         {form.notes}
                       </p>
+                    ) : null}
+                    {form.coachEventNotes && isCoach ? (
+                      <div
+                        style={{
+                          marginTop: 12,
+                          padding: 12,
+                          borderRadius: 12,
+                          background: "#f8fafc",
+                          border: "1px solid #e5e7eb",
+                        }}
+                      >
+                        <strong style={{ display: "block", marginBottom: 6 }}>Coach Event Notes</strong>
+                        <p style={{ margin: 0, color: "#555", whiteSpace: "pre-wrap" }}>{form.coachEventNotes}</p>
+                      </div>
                     ) : null}
                   </div>
 

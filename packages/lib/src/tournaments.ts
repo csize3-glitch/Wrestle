@@ -18,6 +18,8 @@ export type TournamentInput = {
   registrationUrl: string;
   eventDate?: string;
   notes?: string;
+  weighInTime?: string;
+  coachEventNotes?: string;
   source?: Tournament["source"];
 };
 
@@ -29,6 +31,9 @@ function normalizeTournament(id: string, value: Record<string, unknown>): Tourna
     registrationUrl: typeof value.registrationUrl === "string" ? value.registrationUrl : "",
     eventDate: typeof value.eventDate === "string" ? value.eventDate : undefined,
     notes: typeof value.notes === "string" ? value.notes : undefined,
+    weighInTime: typeof value.weighInTime === "string" ? value.weighInTime : undefined,
+    coachEventNotes:
+      typeof value.coachEventNotes === "string" ? value.coachEventNotes : undefined,
     source: value.source === "manual" ? "manual" : "excel_import",
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
@@ -74,6 +79,8 @@ export async function createTournament(db: Firestore, input: TournamentInput): P
     registrationUrl: input.registrationUrl.trim(),
     eventDate: input.eventDate?.trim() || "",
     notes: input.notes?.trim() || "",
+    weighInTime: input.weighInTime?.trim() || "",
+    coachEventNotes: input.coachEventNotes?.trim() || "",
     source: input.source || "manual",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -93,6 +100,8 @@ export async function updateTournament(
     registrationUrl: input.registrationUrl.trim(),
     eventDate: input.eventDate?.trim() || "",
     notes: input.notes?.trim() || "",
+    weighInTime: input.weighInTime?.trim() || "",
+    coachEventNotes: input.coachEventNotes?.trim() || "",
     source: input.source || "manual",
     updatedAt: serverTimestamp(),
   });
