@@ -4,10 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { db } from "@wrestlewell/firebase/client";
 import {
   WRESTLING_STYLES,
+  createWrestlerMatch,
   createWrestler,
+  deleteWrestlerMatch,
   deleteWrestler,
   emptyMatSideSummary,
   getMatSideSummary,
+  listWrestlerMatches,
   listWrestlers,
   removeMatSideSummary,
   updateWrestler,
@@ -15,7 +18,14 @@ import {
   type MatSideSummaryInput,
   type WrestlerInput,
 } from "@wrestlewell/lib/index";
-import type { MatSideSummary, WrestlerProfile, WrestlingStyle } from "@wrestlewell/types/index";
+import type {
+  MatSideSummary,
+  StyleMatSidePlans,
+  StyleProfiles,
+  WrestlerMatch,
+  WrestlerProfile,
+  WrestlingStyle,
+} from "@wrestlewell/types/index";
 import { RequireAuth } from "../require-auth";
 import { useAuthState } from "../auth-provider";
 import { StatusBanner, type StatusMessage } from "../status-banner";
@@ -36,6 +46,7 @@ type WrestlerFormState = {
   keyDefense: string;
   goals: string;
   coachNotes: string;
+  styleProfiles: Record<WrestlingStyle, StyleFormState>;
 };
 
 type MatSideFormState = {
@@ -45,7 +56,82 @@ type MatSideFormState = {
   weaknesses: string;
   gamePlan: string;
   recentNotes: string;
+  stylePlans: Record<WrestlingStyle, StyleMatSideFormState>;
 };
+
+type StyleFormState = {
+  strengths: string;
+  weaknesses: string;
+  keyAttacks: string;
+  keyDefense: string;
+  goals: string;
+  coachNotes: string;
+};
+
+type StyleMatSideFormState = {
+  quickReminders: string;
+  focusPoints: string;
+  gamePlan: string;
+  recentNotes: string;
+};
+
+type MatchFormState = {
+  eventName: string;
+  opponentName: string;
+  result: WrestlerMatch["result"];
+  style: WrestlingStyle;
+  weightClass: string;
+  matchDate: string;
+  score: string;
+  method: string;
+  notes: string;
+};
+
+function createEmptyStyleForm(): StyleFormState {
+  return {
+    strengths: "",
+    weaknesses: "",
+    keyAttacks: "",
+    keyDefense: "",
+    goals: "",
+    coachNotes: "",
+  };
+}
+
+function createEmptyStyleMatSideForm(): StyleMatSideFormState {
+  return {
+    quickReminders: "",
+    focusPoints: "",
+    gamePlan: "",
+    recentNotes: "",
+  };
+}
+
+function createEmptyStyleProfilesForm() {
+  return Object.fromEntries(
+    WRESTLING_STYLES.map((style) => [style, createEmptyStyleForm()])
+  ) as Record<WrestlingStyle, StyleFormState>;
+}
+
+function createEmptyStylePlansForm() {
+  return Object.fromEntries(
+    WRESTLING_STYLES.map((style) => [style, createEmptyStyleMatSideForm()])
+  ) as Record<WrestlingStyle, StyleMatSideFormState>;
+}
+
+function createEmptyMatchForm(): MatchFormState {
+  return {
+    eventName: "",
+    opponentName: "",
+    result: "win",
+    style: "Folkstyle",
+    weightClass: "",
+    matchDate: "",
+    score: "",
+    method: "",
+    notes: "",
+  };
+}
 
 function createEmptyForm(): WrestlerFormState {
   return {
@@ -64,6 +150,7 @@ function createEmptyForm(): WrestlerFormState {
     keyDefense: "",
     goals: "",
     coachNotes: "",
+    styleProfiles: createEmptyStyleProfilesForm(),
   };
 }
 
@@ -75,6 +162,7 @@ function createEmptyMatSideForm(): MatSideFormState {
     weaknesses: "",
     gamePlan: "",
     recentNotes: "",
+    stylePlans: createEmptyStylePlansForm(),
   };
 }
 
@@ -90,6 +178,19 @@ function parseList(value: string) {
 }
 
 function buildFormFromWrestler(wrestler: WrestlerProfile): WrestlerFormState {
+  const styleProfiles = createEmptyStyleProfilesForm();
+  for (const style of WRESTLING_STYLES) {
+    const section = wrestler.styleProfiles?.[style];
+    styleProfiles[style] = {
+      strengths: toTextareaValue(section?.strengths || []),
+      weaknesses: toTextareaValue(section?.weaknesses || []),
+      keyAttacks: toTextareaValue(section?.keyAttacks || []),
+      keyDefense: toTextareaValue(section?.keyDefense || []),
+      goals: toTextareaValue(section?.goals || []),
+      coachNotes: section?.coachNotes || "",
+    };
+  }
+
   return {
     firstName: wrestler.firstName,
     lastName: wrestler.lastName,
@@ -106,11 +207,23 @@ function buildFormFromWrestler(wrestler: WrestlerProfile): WrestlerFormState {
     keyDefense: toTextareaValue(wrestler.keyDefense),
     goals: toTextareaValue(wrestler.goals),
     coachNotes: wrestler.coachNotes || "",
+    styleProfiles,
   };
 }
 
 function buildMatSideForm(summary: MatSideSummary | null): MatSideFormState {
   const baseSummary = summary ?? emptyMatSideSummary("");
+  const stylePlans = createEmptyStylePlansForm();
+
+  for (const style of WRESTLING_STYLES) {
+    const section = baseSummary.stylePlans?.[style];
+    stylePlans[style] = {
+      quickReminders: toTextareaValue(section?.quickReminders || []),
+      focusPoints: toTextareaValue(section?.focusPoints || []),
+      gamePlan: toTextareaValue(section?.gamePlan || []),
+      recentNotes: toTextareaValue(section?.recentNotes || []),
+    };
+  }
 
   return {
     quickReminders: toTextareaValue(baseSummary.quickReminders),
@@ -119,11 +232,25 @@ function buildMatSideForm(summary: MatSideSummary | null): MatSideFormState {
     weaknesses: toTextareaValue(baseSummary.weaknesses),
     gamePlan: toTextareaValue(baseSummary.gamePlan),
     recentNotes: toTextareaValue(baseSummary.recentNotes),
+    stylePlans,
   };
 }
 
 function buildPayload(form: WrestlerFormState, teamId: string, ownerUserId?: string): WrestlerInput {
   const ageValue = Number(form.age);
+  const styleProfiles = Object.fromEntries(
+    WRESTLING_STYLES.map((style) => [
+      style,
+      {
+        strengths: parseList(form.styleProfiles[style].strengths),
+        weaknesses: parseList(form.styleProfiles[style].weaknesses),
+        keyAttacks: parseList(form.styleProfiles[style].keyAttacks),
+        keyDefense: parseList(form.styleProfiles[style].keyDefense),
+        goals: parseList(form.styleProfiles[style].goals),
+        coachNotes: form.styleProfiles[style].coachNotes.trim(),
+      },
+    ])
+  ) as StyleProfiles;
 
   return {
     teamId,
@@ -143,10 +270,23 @@ function buildPayload(form: WrestlerFormState, teamId: string, ownerUserId?: str
     keyDefense: parseList(form.keyDefense),
     goals: parseList(form.goals),
     coachNotes: form.coachNotes,
+    styleProfiles,
   };
 }
 
 function buildMatSidePayload(form: MatSideFormState): MatSideSummaryInput {
+  const stylePlans = Object.fromEntries(
+    WRESTLING_STYLES.map((style) => [
+      style,
+      {
+        quickReminders: parseList(form.stylePlans[style].quickReminders),
+        focusPoints: parseList(form.stylePlans[style].focusPoints),
+        gamePlan: parseList(form.stylePlans[style].gamePlan),
+        recentNotes: parseList(form.stylePlans[style].recentNotes),
+      },
+    ])
+  ) as StyleMatSidePlans;
+
   return {
     quickReminders: parseList(form.quickReminders),
     warmupChecklist: parseList(form.warmupChecklist),
@@ -154,6 +294,7 @@ function buildMatSidePayload(form: MatSideFormState): MatSideSummaryInput {
     weaknesses: parseList(form.weaknesses),
     gamePlan: parseList(form.gamePlan),
     recentNotes: parseList(form.recentNotes),
+    stylePlans,
   };
 }
 
@@ -167,6 +308,17 @@ function snapshotForm(form: WrestlerFormState) {
     schoolOrClub: form.schoolOrClub.trim(),
     photoUrl: form.photoUrl.trim(),
     coachNotes: form.coachNotes.trim(),
+    styleProfiles: WRESTLING_STYLES.reduce<Record<string, unknown>>((acc, style) => {
+      acc[style] = {
+        strengths: parseList(form.styleProfiles[style].strengths),
+        weaknesses: parseList(form.styleProfiles[style].weaknesses),
+        keyAttacks: parseList(form.styleProfiles[style].keyAttacks),
+        keyDefense: parseList(form.styleProfiles[style].keyDefense),
+        goals: parseList(form.styleProfiles[style].goals),
+        coachNotes: form.styleProfiles[style].coachNotes.trim(),
+      };
+      return acc;
+    }, {}),
   });
 }
 
@@ -178,6 +330,15 @@ function snapshotMatSideForm(form: MatSideFormState) {
     weaknesses: parseList(form.weaknesses),
     gamePlan: parseList(form.gamePlan),
     recentNotes: parseList(form.recentNotes),
+    stylePlans: WRESTLING_STYLES.reduce<Record<string, unknown>>((acc, style) => {
+      acc[style] = {
+        quickReminders: parseList(form.stylePlans[style].quickReminders),
+        focusPoints: parseList(form.stylePlans[style].focusPoints),
+        gamePlan: parseList(form.stylePlans[style].gamePlan),
+        recentNotes: parseList(form.stylePlans[style].recentNotes),
+      };
+      return acc;
+    }, {}),
   });
 }
 
@@ -194,6 +355,11 @@ export default function WrestlersPage() {
   const [savedMatSideSnapshot, setSavedMatSideSnapshot] = useState(() =>
     snapshotMatSideForm(createEmptyMatSideForm())
   );
+  const [activeStyleTab, setActiveStyleTab] = useState<WrestlingStyle>("Folkstyle");
+  const [matches, setMatches] = useState<WrestlerMatch[]>([]);
+  const [matchForm, setMatchForm] = useState<MatchFormState>(createEmptyMatchForm);
+  const [savingMatch, setSavingMatch] = useState(false);
+  const [deletingMatchId, setDeletingMatchId] = useState<string | null>(null);
   const [loadingMatSide, setLoadingMatSide] = useState(false);
   const [savingMatSide, setSavingMatSide] = useState(false);
   const [matSideExists, setMatSideExists] = useState(false);
@@ -291,6 +457,10 @@ export default function WrestlersPage() {
   const profileCountLabel = `${wrestlers.length} wrestler${wrestlers.length === 1 ? "" : "s"}`;
   const hasUnsavedChanges = snapshotForm(form) !== savedSnapshot;
   const hasUnsavedMatSideChanges = snapshotMatSideForm(matSideForm) !== savedMatSideSnapshot;
+  const activeStyleProfile = form.styleProfiles[activeStyleTab];
+  const activeStyleMatSide = matSideForm.stylePlans[activeStyleTab];
+  const winCount = matches.filter((match) => match.result === "win").length;
+  const lossCount = matches.filter((match) => match.result === "loss").length;
 
   function updateField<K extends keyof WrestlerFormState>(field: K, value: WrestlerFormState[K]) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -300,6 +470,35 @@ export default function WrestlersPage() {
     setMatSideForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  function updateStyleField<K extends keyof StyleFormState>(field: K, value: StyleFormState[K]) {
+    setForm((prev) => ({
+      ...prev,
+      styleProfiles: {
+        ...prev.styleProfiles,
+        [activeStyleTab]: {
+          ...prev.styleProfiles[activeStyleTab],
+          [field]: value,
+        },
+      },
+    }));
+  }
+
+  function updateStyleMatSideField<K extends keyof StyleMatSideFormState>(
+    field: K,
+    value: StyleMatSideFormState[K]
+  ) {
+    setMatSideForm((prev) => ({
+      ...prev,
+      stylePlans: {
+        ...prev.stylePlans,
+        [activeStyleTab]: {
+          ...prev.stylePlans[activeStyleTab],
+          [field]: value,
+        },
+      },
+    }));
+  }
+
   function toggleStyle(style: WrestlingStyle) {
     setForm((prev) => ({
       ...prev,
@@ -307,6 +506,14 @@ export default function WrestlersPage() {
         ? prev.styles.filter((item) => item !== style)
         : [...prev.styles, style],
     }));
+  }
+
+  function resetMatchForm() {
+    setMatchForm({
+      ...createEmptyMatchForm(),
+      style: form.styles[0] || activeStyleTab,
+      weightClass: form.weightClass,
+    });
   }
 
   function startNewProfile() {
@@ -420,6 +627,15 @@ export default function WrestlersPage() {
     }
   }
 
+  async function refreshMatches(wrestlerId: string | null) {
+    if (!currentTeam?.id || !wrestlerId) {
+      setMatches([]);
+      return;
+    }
+
+    setMatches(await listWrestlerMatches(db, { teamId: currentTeam.id, wrestlerId }));
+  }
+
   async function clearMatSide() {
     if (!isCoach) {
       setStatusMessage({ tone: "info", text: "Mat-side summaries are coach-managed." });
@@ -448,6 +664,92 @@ export default function WrestlersPage() {
       setSavingMatSide(false);
     }
   }
+
+  async function saveMatch() {
+    if (!isCoach) {
+      setStatusMessage({ tone: "info", text: "Match history is coach-managed right now." });
+      return;
+    }
+    if (!activeWrestler || !currentTeam?.id) {
+      setStatusMessage({ tone: "error", text: "Open a wrestler profile before adding match history." });
+      return;
+    }
+    if (!matchForm.eventName.trim() || !matchForm.opponentName.trim() || !matchForm.matchDate) {
+      setStatusMessage({ tone: "error", text: "Event, opponent, and match date are required." });
+      return;
+    }
+
+    try {
+      setSavingMatch(true);
+      await createWrestlerMatch(db, {
+        teamId: currentTeam.id,
+        wrestlerId: activeWrestler.id,
+        eventName: matchForm.eventName,
+        opponentName: matchForm.opponentName,
+        result: matchForm.result,
+        style: matchForm.style,
+        weightClass: matchForm.weightClass,
+        matchDate: matchForm.matchDate,
+        score: matchForm.score,
+        method: matchForm.method,
+        notes: matchForm.notes,
+      });
+      await refreshMatches(activeWrestler.id);
+      resetMatchForm();
+      setStatusMessage({ tone: "success", text: "Match result added." });
+    } catch (error) {
+      console.error("Failed to save wrestler match:", error);
+      setStatusMessage({ tone: "error", text: "Failed to save match history." });
+    } finally {
+      setSavingMatch(false);
+    }
+  }
+
+  async function removeMatch(matchId: string) {
+    if (!isCoach) {
+      return;
+    }
+
+    if (!window.confirm("Delete this match result?")) {
+      return;
+    }
+
+    try {
+      setDeletingMatchId(matchId);
+      await deleteWrestlerMatch(db, matchId);
+      await refreshMatches(activeWrestlerId);
+      setStatusMessage({ tone: "success", text: "Match result deleted." });
+    } catch (error) {
+      console.error("Failed to delete wrestler match:", error);
+      setStatusMessage({ tone: "error", text: "Failed to delete match result." });
+    } finally {
+      setDeletingMatchId(null);
+    }
+  }
+
+  useEffect(() => {
+    if (form.styles.includes(activeStyleTab)) {
+      return;
+    }
+
+    setActiveStyleTab(form.styles[0] || "Folkstyle");
+  }, [activeStyleTab, form.styles]);
+
+  useEffect(() => {
+    refreshMatches(activeWrestlerId).catch((error) => {
+      console.error("Failed to load wrestler matches:", error);
+    });
+
+    if (activeWrestler) {
+      setMatchForm((prev) => ({
+        ...prev,
+        style: activeWrestler.styles[0] || prev.style,
+        weightClass: activeWrestler.weightClass || prev.weightClass,
+      }));
+    } else {
+      setMatchForm(createEmptyMatchForm());
+    }
+  }, [activeWrestler?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <RequireAuth
@@ -731,6 +1033,71 @@ export default function WrestlersPage() {
                 </div>
               </div>
 
+              <div
+                style={{
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 14,
+                  padding: 16,
+                  background: "#f8fafc",
+                }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: 8 }}>Style-specific profile plan</div>
+                <p style={{ color: "#666", fontSize: 14, marginTop: 0, marginBottom: 12 }}>
+                  Keep separate coaching notes for Folkstyle, Freestyle, and Greco-Roman so the profile feels match-ready for each style.
+                </p>
+
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+                  {WRESTLING_STYLES.map((style) => (
+                    <button
+                      key={style}
+                      type="button"
+                      onClick={() => setActiveStyleTab(style)}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: 999,
+                        border: "1px solid #d1d5db",
+                        background: activeStyleTab === style ? "#111827" : "#fff",
+                        color: activeStyleTab === style ? "#fff" : "#111827",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {style}
+                    </button>
+                  ))}
+                </div>
+
+                {[
+                  ["strengths", `${activeStyleTab} strengths`],
+                  ["weaknesses", `${activeStyleTab} weaknesses`],
+                  ["keyAttacks", `${activeStyleTab} attacks`],
+                  ["keyDefense", `${activeStyleTab} defense`],
+                  ["goals", `${activeStyleTab} goals`],
+                ].map(([field, label]) => (
+                  <label key={field} style={{ display: "grid", gap: 6, marginBottom: 12 }}>
+                    <span>{label}</span>
+                    <textarea
+                      value={activeStyleProfile[field as keyof StyleFormState] as string}
+                      onChange={(e) => updateStyleField(field as keyof StyleFormState, e.target.value as never)}
+                      disabled={!isCoach && Boolean(activeWrestler && !canEditActiveProfile)}
+                      rows={3}
+                      placeholder="One item per line"
+                      style={{ padding: 10, resize: "vertical" }}
+                    />
+                  </label>
+                ))}
+
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span>{activeStyleTab} coach notes</span>
+                  <textarea
+                    value={activeStyleProfile.coachNotes}
+                    onChange={(e) => updateStyleField("coachNotes", e.target.value)}
+                    disabled={!isCoach}
+                    rows={4}
+                    style={{ padding: 10, resize: "vertical" }}
+                  />
+                </label>
+              </div>
+
               {[
                 ["strengths", "Strengths"],
                 ["weaknesses", "Weaknesses"],
@@ -809,9 +1176,9 @@ export default function WrestlersPage() {
             ) : loadingMatSide ? (
               <p>Loading mat-side summary...</p>
             ) : (
-              <div style={{ display: "grid", gap: 16 }}>
-                <div
-                  style={{
+                <div style={{ display: "grid", gap: 16 }}>
+                  <div
+                    style={{
                     padding: "12px 14px",
                     borderRadius: 12,
                     border: "1px solid #ddd",
@@ -826,20 +1193,76 @@ export default function WrestlersPage() {
                     : "No custom summary saved yet. Mobile will fall back to the wrestler profile until you save one."}
                 </div>
 
-                {[
-                  ["quickReminders", "Quick reminders"],
-                  ["warmupChecklist", "Warm-up checklist"],
-                  ["strengths", "Strengths override"],
-                  ["weaknesses", "Weaknesses override"],
-                  ["gamePlan", "Game plan"],
-                  ["recentNotes", "Recent notes"],
-                ].map(([field, label]) => (
+                <div
+                  style={{
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 14,
+                    padding: 16,
+                    background: "#f8fafc",
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: 8 }}>Style-specific mat-side plan</div>
+                  <p style={{ color: "#666", fontSize: 14, marginTop: 0, marginBottom: 12 }}>
+                    Build separate corner reminders and game plans for the current style so mobile prep stays specific.
+                  </p>
+
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+                    {WRESTLING_STYLES.map((style) => (
+                      <button
+                        key={`mat-${style}`}
+                        type="button"
+                        onClick={() => setActiveStyleTab(style)}
+                        style={{
+                          padding: "8px 12px",
+                          borderRadius: 999,
+                          border: "1px solid #d1d5db",
+                          background: activeStyleTab === style ? "#111827" : "#fff",
+                          color: activeStyleTab === style ? "#fff" : "#111827",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {style}
+                      </button>
+                    ))}
+                  </div>
+
+                  {[
+                    ["quickReminders", `${activeStyleTab} quick reminders`],
+                    ["focusPoints", `${activeStyleTab} focus points`],
+                    ["gamePlan", `${activeStyleTab} game plan`],
+                    ["recentNotes", `${activeStyleTab} recent notes`],
+                  ].map(([field, label]) => (
+                    <label key={field} style={{ display: "grid", gap: 6, marginBottom: 12 }}>
+                      <span>{label}</span>
+                      <textarea
+                        value={activeStyleMatSide[field as keyof StyleMatSideFormState]}
+                        onChange={(e) =>
+                          updateStyleMatSideField(field as keyof StyleMatSideFormState, e.target.value as never)
+                        }
+                        rows={3}
+                        placeholder="One item per line"
+                        style={{ padding: 10, resize: "vertical" }}
+                      />
+                    </label>
+                  ))}
+                </div>
+
+                {(
+                  [
+                    ["quickReminders", "Quick reminders"],
+                    ["warmupChecklist", "Warm-up checklist"],
+                    ["strengths", "Strengths override"],
+                    ["weaknesses", "Weaknesses override"],
+                    ["gamePlan", "Game plan"],
+                    ["recentNotes", "Recent notes"],
+                  ] as const
+                ).map(([field, label]) => (
                   <label key={field} style={{ display: "grid", gap: 6 }}>
                     <span>{label}</span>
                     <textarea
-                      value={matSideForm[field as keyof MatSideFormState]}
+                      value={matSideForm[field]}
                       onChange={(e) =>
-                        updateMatSideField(field as keyof MatSideFormState, e.target.value as never)
+                        updateMatSideField(field, e.target.value)
                       }
                       rows={4}
                       placeholder="One item per line"
@@ -877,6 +1300,210 @@ export default function WrestlersPage() {
                     </button>
                   ) : null}
                 </div>
+              </div>
+            )}
+          </section>
+
+          <section
+            style={{
+              border: "1px solid #ddd",
+              borderRadius: 12,
+              padding: 16,
+              background: "#fff",
+            }}
+          >
+            <h2 style={{ marginTop: 0 }}>Match History</h2>
+            <p style={{ color: "#666", fontSize: 14, marginTop: 0 }}>
+              Track wins, losses, event history, notes, weight, and style right inside the wrestler workflow.
+            </p>
+
+            {!activeWrestler ? (
+              <p>Open a wrestler to view or track match history.</p>
+            ) : (
+              <div style={{ display: "grid", gap: 18 }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                    gap: 12,
+                  }}
+                >
+                  {[
+                    { label: "Total Matches", value: String(matches.length) },
+                    { label: "Wins", value: String(winCount) },
+                    { label: "Losses", value: String(lossCount) },
+                    { label: "Current Weight", value: activeWrestler.weightClass || "Not set" },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 14, background: "#f8fafc" }}
+                    >
+                      <div style={{ fontSize: 12, textTransform: "uppercase", color: "#666", marginBottom: 6 }}>
+                        {item.label}
+                      </div>
+                      <strong style={{ fontSize: 18 }}>{item.value}</strong>
+                    </div>
+                  ))}
+                </div>
+
+                {isCoach ? (
+                  <div
+                    style={{
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 14,
+                      padding: 16,
+                      background: "#f8fafc",
+                      display: "grid",
+                      gap: 12,
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>Add match result</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+                      <label style={{ display: "grid", gap: 6 }}>
+                        <span>Event</span>
+                        <input
+                          value={matchForm.eventName}
+                          onChange={(e) => setMatchForm((prev) => ({ ...prev, eventName: e.target.value }))}
+                          style={{ padding: 10 }}
+                        />
+                      </label>
+                      <label style={{ display: "grid", gap: 6 }}>
+                        <span>Opponent</span>
+                        <input
+                          value={matchForm.opponentName}
+                          onChange={(e) => setMatchForm((prev) => ({ ...prev, opponentName: e.target.value }))}
+                          style={{ padding: 10 }}
+                        />
+                      </label>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}>
+                      <label style={{ display: "grid", gap: 6 }}>
+                        <span>Date</span>
+                        <input
+                          type="date"
+                          value={matchForm.matchDate}
+                          onChange={(e) => setMatchForm((prev) => ({ ...prev, matchDate: e.target.value }))}
+                          style={{ padding: 10 }}
+                        />
+                      </label>
+                      <label style={{ display: "grid", gap: 6 }}>
+                        <span>Style</span>
+                        <select
+                          value={matchForm.style}
+                          onChange={(e) => setMatchForm((prev) => ({ ...prev, style: e.target.value as WrestlingStyle }))}
+                          style={{ padding: 10 }}
+                        >
+                          {WRESTLING_STYLES.map((style) => (
+                            <option key={`match-style-${style}`} value={style}>
+                              {style}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label style={{ display: "grid", gap: 6 }}>
+                        <span>Result</span>
+                        <select
+                          value={matchForm.result}
+                          onChange={(e) => setMatchForm((prev) => ({ ...prev, result: e.target.value as WrestlerMatch["result"] }))}
+                          style={{ padding: 10 }}
+                        >
+                          <option value="win">Win</option>
+                          <option value="loss">Loss</option>
+                        </select>
+                      </label>
+                      <label style={{ display: "grid", gap: 6 }}>
+                        <span>Weight</span>
+                        <input
+                          value={matchForm.weightClass}
+                          onChange={(e) => setMatchForm((prev) => ({ ...prev, weightClass: e.target.value }))}
+                          style={{ padding: 10 }}
+                        />
+                      </label>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+                      <label style={{ display: "grid", gap: 6 }}>
+                        <span>Score</span>
+                        <input
+                          value={matchForm.score}
+                          onChange={(e) => setMatchForm((prev) => ({ ...prev, score: e.target.value }))}
+                          style={{ padding: 10 }}
+                        />
+                      </label>
+                      <label style={{ display: "grid", gap: 6 }}>
+                        <span>Method</span>
+                        <input
+                          value={matchForm.method}
+                          onChange={(e) => setMatchForm((prev) => ({ ...prev, method: e.target.value }))}
+                          placeholder="Decision, fall, tech, etc."
+                          style={{ padding: 10 }}
+                        />
+                      </label>
+                    </div>
+                    <label style={{ display: "grid", gap: 6 }}>
+                      <span>Notes</span>
+                      <textarea
+                        value={matchForm.notes}
+                        onChange={(e) => setMatchForm((prev) => ({ ...prev, notes: e.target.value }))}
+                        rows={3}
+                        style={{ padding: 10, resize: "vertical" }}
+                      />
+                    </label>
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      <button onClick={saveMatch} disabled={savingMatch} style={{ padding: "10px 14px", cursor: "pointer" }}>
+                        {savingMatch ? "Saving..." : "Add Match Result"}
+                      </button>
+                      <button onClick={resetMatchForm} style={{ padding: "10px 14px", cursor: "pointer" }}>
+                        Reset Match Form
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p style={{ margin: 0 }}>Coaches manage match logging. Athletes can view the running history here.</p>
+                )}
+
+                {matches.length === 0 ? (
+                  <p style={{ margin: 0 }}>No match history logged yet.</p>
+                ) : (
+                  <div style={{ display: "grid", gap: 12 }}>
+                    {matches.map((match) => (
+                      <article
+                        key={match.id}
+                        style={{
+                          border: "1px solid #e5e7eb",
+                          borderRadius: 12,
+                          padding: 14,
+                          background: "#fff",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                          <div>
+                            <strong>
+                              {match.result === "win" ? "Win" : "Loss"} vs. {match.opponentName}
+                            </strong>
+                            <div style={{ color: "#666", marginTop: 6, fontSize: 14 }}>
+                              {[match.eventName, match.matchDate, match.style, match.weightClass, match.score, match.method]
+                                .filter(Boolean)
+                                .join(" • ")}
+                            </div>
+                            {match.notes ? (
+                              <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.5 }}>{match.notes}</div>
+                            ) : null}
+                          </div>
+
+                          {isCoach ? (
+                            <button
+                              onClick={() => removeMatch(match.id)}
+                              disabled={deletingMatchId === match.id}
+                              style={{ padding: "8px 12px", cursor: "pointer", color: "#8a1c1c" }}
+                            >
+                              {deletingMatchId === match.id ? "Deleting..." : "Delete"}
+                            </button>
+                          ) : null}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </section>

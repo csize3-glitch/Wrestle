@@ -34,6 +34,7 @@ export default function MatSideScreen() {
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [activeStyle, setActiveStyle] = useState<"Folkstyle" | "Freestyle" | "Greco-Roman">("Folkstyle");
   const [summary, setSummary] = useState<MatSideSummary | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const isCoach = appUser?.role === "coach";
@@ -112,6 +113,21 @@ export default function MatSideScreen() {
 
     return mergeMatSideSummaryWithProfile(selectedWrestler, summary);
   }, [selectedWrestler, summary]);
+
+  useEffect(() => {
+    if (!selectedWrestler) {
+      setActiveStyle("Folkstyle");
+      return;
+    }
+
+    if (selectedWrestler.styles.includes(activeStyle)) {
+      return;
+    }
+
+    setActiveStyle(selectedWrestler.styles[0] || "Folkstyle");
+  }, [activeStyle, selectedWrestler]);
+
+  const activeStylePlan = resolvedSummary?.stylePlans?.[activeStyle] || null;
 
   return (
     <ScreenShell>
@@ -285,6 +301,27 @@ export default function MatSideScreen() {
                   .join(" • ") || "Add more wrestler details on the web app."}
               </Text>
 
+              {selectedWrestler.styles.length > 0 ? (
+                <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
+                  {selectedWrestler.styles.map((style) => (
+                    <Pressable
+                      key={`style-${style}`}
+                      onPress={() => setActiveStyle(style)}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: 999,
+                        backgroundColor: activeStyle === style ? "#111827" : "#e5e7eb",
+                      }}
+                    >
+                      <Text style={{ color: activeStyle === style ? "#fff" : "#111827", fontWeight: "700" }}>
+                        {style}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+
               <Link href={{ pathname: "/wrestlers", params: { wrestlerId: selectedWrestler.id } }} asChild>
                 <Pressable
                   style={{
@@ -316,6 +353,15 @@ export default function MatSideScreen() {
                       : "No saved summary yet. Using wrestler profile fallback."}
                 </Text>
               </View>
+
+              {activeStylePlan ? (
+                <>
+                  <SummarySection title={`${activeStyle} Quick Reminders`} items={activeStylePlan.quickReminders} />
+                  <SummarySection title={`${activeStyle} Focus Points`} items={activeStylePlan.focusPoints} />
+                  <SummarySection title={`${activeStyle} Game Plan`} items={activeStylePlan.gamePlan} />
+                  <SummarySection title={`${activeStyle} Recent Notes`} items={activeStylePlan.recentNotes} />
+                </>
+              ) : null}
 
               <SummarySection title="Quick Reminders" items={resolvedSummary.quickReminders} />
               <SummarySection title="Warm-up Checklist" items={resolvedSummary.warmupChecklist} />

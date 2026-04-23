@@ -10,7 +10,13 @@ import {
   where,
   type Firestore,
 } from "firebase/firestore";
-import { COLLECTIONS, type WrestlerProfile, type WrestlingStyle } from "@wrestlewell/types/index";
+import {
+  COLLECTIONS,
+  type StyleProfileSection,
+  type StyleProfiles,
+  type WrestlerProfile,
+  type WrestlingStyle,
+} from "@wrestlewell/types/index";
 
 export type WrestlerInput = {
   teamId: string;
@@ -30,6 +36,7 @@ export type WrestlerInput = {
   keyDefense: string[];
   goals: string[];
   coachNotes?: string;
+  styleProfiles?: StyleProfiles;
 };
 
 export const WRESTLING_STYLES: WrestlingStyle[] = [
@@ -54,6 +61,40 @@ function ensureStyles(value: unknown): WrestlingStyle[] {
   );
 }
 
+function ensureStyleProfileSection(value: unknown): StyleProfileSection | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    strengths: ensureStringArray(record.strengths),
+    weaknesses: ensureStringArray(record.weaknesses),
+    keyAttacks: ensureStringArray(record.keyAttacks),
+    keyDefense: ensureStringArray(record.keyDefense),
+    goals: ensureStringArray(record.goals),
+    coachNotes: typeof record.coachNotes === "string" ? record.coachNotes : undefined,
+  };
+}
+
+function ensureStyleProfiles(value: unknown): StyleProfiles | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const nextProfiles: StyleProfiles = {};
+
+  for (const style of WRESTLING_STYLES) {
+    const section = ensureStyleProfileSection(record[style]);
+    if (section) {
+      nextProfiles[style] = section;
+    }
+  }
+
+  return Object.keys(nextProfiles).length > 0 ? nextProfiles : undefined;
+}
+
 function normalizeWrestlerRecord(id: string, value: Record<string, unknown>): WrestlerProfile {
   return {
     id,
@@ -74,6 +115,7 @@ function normalizeWrestlerRecord(id: string, value: Record<string, unknown>): Wr
     keyDefense: ensureStringArray(value.keyDefense),
     goals: ensureStringArray(value.goals),
     coachNotes: typeof value.coachNotes === "string" ? value.coachNotes : undefined,
+    styleProfiles: ensureStyleProfiles(value.styleProfiles),
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
   };
@@ -98,6 +140,7 @@ function buildWrestlerPayload(input: WrestlerInput) {
     keyDefense: input.keyDefense,
     goals: input.goals,
     coachNotes: input.coachNotes?.trim() || "",
+    styleProfiles: input.styleProfiles || {},
   };
 }
 

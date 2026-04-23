@@ -1,6 +1,26 @@
 export type WrestlingStyle = "Freestyle" | "Folkstyle" | "Greco-Roman";
 export type UserRole = "coach" | "athlete";
 
+export interface StyleProfileSection {
+  strengths: string[];
+  weaknesses: string[];
+  keyAttacks: string[];
+  keyDefense: string[];
+  goals: string[];
+  coachNotes?: string;
+}
+
+export type StyleProfiles = Partial<Record<WrestlingStyle, StyleProfileSection>>;
+
+export interface StyleMatSideSection {
+  quickReminders: string[];
+  focusPoints: string[];
+  gamePlan: string[];
+  recentNotes: string[];
+}
+
+export type StyleMatSidePlans = Partial<Record<WrestlingStyle, StyleMatSideSection>>;
+
 export interface LibraryItem {
   id: string;
   title: string;
@@ -76,6 +96,7 @@ export interface WrestlerProfile {
   keyDefense: string[];
   goals: string[];
   coachNotes?: string;
+  styleProfiles?: StyleProfiles;
   createdAt: string;
   updatedAt: string;
 }
@@ -88,6 +109,24 @@ export interface MatSideSummary {
   weaknesses: string[];
   gamePlan: string[];
   recentNotes: string[];
+  stylePlans?: StyleMatSidePlans;
+  updatedAt: string;
+}
+
+export interface WrestlerMatch {
+  id: string;
+  teamId: string;
+  wrestlerId: string;
+  eventName: string;
+  opponentName: string;
+  result: "win" | "loss";
+  style: WrestlingStyle;
+  weightClass?: string;
+  matchDate: string;
+  score?: string;
+  method?: string;
+  notes?: string;
+  createdAt: string;
   updatedAt: string;
 }
 
@@ -203,6 +242,7 @@ export const COLLECTIONS = {
   TEAM_MEMBERS: "team_members",
   TOURNAMENTS: "tournaments",
   TOURNAMENT_ENTRIES: "tournament_entries",
+  WRESTLER_MATCHES: "wrestler_matches",
   TEAM_ANNOUNCEMENTS: "team_announcements",
   TEAM_NOTIFICATIONS: "team_notifications",
   DEVICE_PUSH_REGISTRATIONS: "device_push_registrations",

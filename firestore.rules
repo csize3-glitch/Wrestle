@@ -206,6 +206,18 @@ service cloud.firestore {
       allow create, update, delete: if signedIn() && canWriteWrestler(summaryId);
     }
 
+    match /wrestler_matches/{matchId} {
+      allow read: if signedIn() && sameTeam(resource.data.teamId);
+      allow create: if signedIn() &&
+        isCoach() &&
+        request.resource.data.teamId == currentTeamId() &&
+        canReadWrestler(request.resource.data.wrestlerId);
+      allow update, delete: if signedIn() &&
+        isCoach() &&
+        sameTeam(resource.data.teamId) &&
+        canReadWrestler(resource.data.wrestlerId);
+    }
+
     match /tournaments/{tournamentId} {
       allow read: if signedIn() &&
         (

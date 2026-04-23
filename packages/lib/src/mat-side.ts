@@ -6,7 +6,15 @@ import {
   setDoc,
   type Firestore,
 } from "firebase/firestore";
-import { COLLECTIONS, type MatSideSummary, type WrestlerProfile } from "@wrestlewell/types/index";
+import {
+  COLLECTIONS,
+  type MatSideSummary,
+  type StyleMatSidePlans,
+  type StyleMatSideSection,
+  type WrestlerProfile,
+  type WrestlingStyle,
+} from "@wrestlewell/types/index";
+import { WRESTLING_STYLES } from "./wrestlers";
 
 export type MatSideSummaryInput = {
   quickReminders: string[];
@@ -15,6 +23,7 @@ export type MatSideSummaryInput = {
   weaknesses: string[];
   gamePlan: string[];
   recentNotes: string[];
+  stylePlans?: StyleMatSidePlans;
 };
 
 function ensureStringArray(value: unknown): string[] {
@@ -27,6 +36,49 @@ function ensureStringArray(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function ensureStyleMatSideSection(value: unknown): StyleMatSideSection | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    quickReminders: ensureStringArray(record.quickReminders),
+    focusPoints: ensureStringArray(record.focusPoints),
+    gamePlan: ensureStringArray(record.gamePlan),
+    recentNotes: ensureStringArray(record.recentNotes),
+  };
+}
+
+function ensureStyleMatSidePlans(value: unknown): StyleMatSidePlans | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const nextPlans: StyleMatSidePlans = {};
+
+  for (const style of WRESTLING_STYLES) {
+    const section = ensureStyleMatSideSection(record[style]);
+    if (section) {
+      nextPlans[style] = section;
+    }
+  }
+
+  return Object.keys(nextPlans).length > 0 ? nextPlans : undefined;
+}
+
+function mergeStylePlanFromProfile(wrestler: WrestlerProfile, style: WrestlingStyle): StyleMatSideSection {
+  const profile = wrestler.styleProfiles?.[style];
+
+  return {
+    quickReminders: profile?.coachNotes ? [profile.coachNotes] : [],
+    focusPoints: profile?.goals || [],
+    gamePlan: profile?.keyAttacks || [],
+    recentNotes: [],
+  };
+}
+
 export function emptyMatSideSummary(wrestlerId: string): MatSideSummary {
   return {
     wrestlerId,
@@ -36,6 +88,7 @@ export function emptyMatSideSummary(wrestlerId: string): MatSideSummary {
     weaknesses: [],
     gamePlan: [],
     recentNotes: [],
+    stylePlans: undefined,
     updatedAt: "",
   };
 }
@@ -58,6 +111,12 @@ export function mergeMatSideSummaryWithProfile(
       baseSummary.quickReminders.length > 0
         ? baseSummary.quickReminders
         : [wrestler.coachNotes || ""].filter(Boolean),
+    stylePlans:
+      baseSummary.stylePlans && Object.keys(baseSummary.stylePlans).length > 0
+        ? baseSummary.stylePlans
+        : Object.fromEntries(
+            wrestler.styles.map((style) => [style, mergeStylePlanFromProfile(wrestler, style)])
+          ),
   };
 }
 
@@ -81,6 +140,7 @@ export async function getMatSideSummary(
     weaknesses: ensureStringArray(data.weaknesses),
     gamePlan: ensureStringArray(data.gamePlan),
     recentNotes: ensureStringArray(data.recentNotes),
+    stylePlans: ensureStyleMatSidePlans(data.stylePlans),
     updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : "",
   };
 }
@@ -100,6 +160,7 @@ export async function upsertMatSideSummary(
       weaknesses: input.weaknesses,
       gamePlan: input.gamePlan,
       recentNotes: input.recentNotes,
+      stylePlans: input.stylePlans || {},
       updatedAt: serverTimestamp(),
     },
     { merge: true }
