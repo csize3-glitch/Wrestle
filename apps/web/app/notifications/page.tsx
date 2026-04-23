@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { db } from "@wrestlewell/firebase/client";
 import {
@@ -28,6 +29,7 @@ type NotificationCard = {
   title: string;
   body: string;
   meta: string;
+  href: string;
 };
 
 function formatDateLabel(value: string) {
@@ -68,6 +70,7 @@ function createAnnouncementCards(items: TeamAnnouncement[]): NotificationCard[] 
     title: item.title,
     body: item.body,
     meta: `Coach announcement • ${formatDateLabel(item.createdAt)}`,
+    href: "/notifications",
   }));
 }
 
@@ -77,6 +80,7 @@ function createTeamNotificationCards(items: TeamNotification[]): NotificationCar
     kind: item.type === "tournament_registration" ? "tournament" : "announcement",
     title: item.title,
     body: item.body,
+    href: item.type === "tournament_registration" ? "/tournaments" : "/notifications",
     meta:
       item.type === "tournament_registration"
         ? `Registration alert • ${formatDateLabel(item.createdAt)}`
@@ -98,6 +102,7 @@ function createPracticeCards(events: CalendarEventRecord[]): NotificationCard[] 
         event.notes ||
         `Your team has ${event.practicePlanStyle || "Mixed"} practice scheduled on ${formatPracticeDate(event.date)}.`,
       meta: `Practice reminder • ${formatPracticeDate(event.date)}`,
+      href: "/calendar",
     }));
 }
 
@@ -122,6 +127,7 @@ function createTournamentCards(args: {
               ? "1 wrestler is currently on the WrestleWell tournament roster."
               : `${entryCount} wrestlers are currently on the WrestleWell tournament roster.`,
           meta: "Tournament update",
+          href: "/tournaments",
         };
       });
   }
@@ -143,6 +149,7 @@ function createTournamentCards(args: {
       title: `${tournament.name} registration`,
       body: "You are listed on the WrestleWell roster for this tournament.",
       meta: "Tournament update",
+      href: "/tournaments",
     }));
 }
 
@@ -267,13 +274,16 @@ export default function NotificationsPage() {
 
         <div style={{ display: "grid", gap: 14 }}>
           {cards.map((card) => (
-            <article
+            <Link
               key={card.id}
+              href={card.href}
               style={{
+                display: "block",
                 border: "1px solid #ddd",
                 borderRadius: 16,
                 padding: 18,
                 background: "#fff",
+                transition: "transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease",
               }}
             >
               <div style={{ fontSize: 12, fontWeight: 700, color: "#0f2748", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -282,7 +292,7 @@ export default function NotificationsPage() {
               <strong style={{ display: "block", fontSize: 18, marginBottom: 8 }}>{card.title}</strong>
               <p style={{ marginTop: 0, marginBottom: 10, color: "#334155" }}>{card.body}</p>
               <div style={{ fontSize: 13, color: "#64748b" }}>{card.meta}</div>
-            </article>
+            </Link>
           ))}
         </div>
       </main>
