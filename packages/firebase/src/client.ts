@@ -13,9 +13,6 @@ declare const navigator:
       product?: string;
     }
   | undefined;
-declare const require:
-  | ((id: string) => unknown)
-  | undefined;
 
 const firebaseConfig = {
   apiKey: process?.env?.NEXT_PUBLIC_FIREBASE_API_KEY || process?.env?.EXPO_PUBLIC_FIREBASE_API_KEY,
@@ -36,15 +33,23 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 const isReactNative = navigator?.product === "ReactNative";
 
 function createAuthInstance(): Auth {
-  if (!isReactNative || typeof require !== "function") {
+  if (!isReactNative) {
     return getAuth(app);
   }
 
   try {
-    const storageModule = require("@react-native-async-storage/async-storage") as {
+    const nativeRequire = new Function("return typeof require === 'function' ? require : undefined;")() as
+      | ((id: string) => unknown)
+      | undefined;
+
+    if (typeof nativeRequire !== "function") {
+      return getAuth(app);
+    }
+
+    const storageModule = nativeRequire("@react-native-async-storage/async-storage") as {
       default?: unknown;
     };
-    const authModule = require("firebase/auth") as {
+    const authModule = nativeRequire("firebase/auth") as {
       getReactNativePersistence?: (storage: unknown) => unknown;
     };
     const asyncStorage = storageModule?.default;
