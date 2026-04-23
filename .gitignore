@@ -12,3 +12,4 @@ apps/web/.next
 apps/mobile/.expo
 apps/mobile/.expo-shared
 firebase-debug.log
+service-account.json
