@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   addDoc,
@@ -110,7 +110,7 @@ function parseDurationInput(value: string) {
   return Math.max(5, Math.round(numericMinutes * 60));
 }
 
-export default function PracticePlansPage() {
+function PracticePlansPageContent() {
   const { appUser, currentTeam, firebaseUser } = useAuthState();
   const searchParams = useSearchParams();
   const openPlanId = searchParams.get("open");
@@ -968,5 +968,13 @@ export default function PracticePlansPage() {
       </div>
     </main>
     </RequireAuth>
+  );
+}
+
+export default function PracticePlansPage() {
+  return (
+    <Suspense fallback={null}>
+      <PracticePlansPageContent />
+    </Suspense>
   );
 }
