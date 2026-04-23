@@ -1,0 +1,10 @@
+{
+  "name": "@wrestlewell/firebase",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/client.ts",
+  "types": "src/client.ts",
+  "dependencies": {
+    "firebase": "^12.1.0"
+  }
+}

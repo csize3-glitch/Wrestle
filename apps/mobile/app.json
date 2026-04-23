@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "WrestleWell",
+    "slug": "wrestlewell",
+    "scheme": "wrestlewell",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "cover",
+      "backgroundColor": "#0f2748"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-video",
+      "expo-notifications"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.csize8.wrestlewell",
+      "infoPlist": {
+        "NSUserNotificationsUsageDescription": "WrestleWell uses notifications for coach announcements, practice reminders, and tournament registration updates."
+      }
+    },
+    "android": {
+      "package": "com.csize8.wrestlewell",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#0f2748"
+      },
+      "permissions": [
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d27873ba-78af-4020-8900-b701311cf9c3"
+      }
+    },
+    "owner": "csize8"
+  }
+}

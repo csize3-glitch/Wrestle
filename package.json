@@ -1,0 +1,25 @@
+{
+  "name": "wrestlewell",
+  "private": true,
+  "packageManager": "pnpm@10.0.0",
+  "scripts": {
+    "dev:web": "pnpm --filter web dev",
+    "dev:mobile": "pnpm --filter mobile start",
+    "build:web": "pnpm --filter web build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "import:library": "tsx scripts/import-library-from-excel.ts ./data/wrestling_youtube_drills_all_styles_expanded.xlsx"
+  },
+  "devDependencies": {
+    "eas-cli": "^18.8.0",
+    "firebase-tools": "^15.15.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "firebase": "^12.1.0",
+    "firebase-admin": "^13.8.0",
+    "xlsx": "^0.18.5"
+  }
+}

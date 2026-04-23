@@ -1,0 +1,219 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function hasUserDoc() {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function currentRole() {
+      return hasUserDoc() ? userDoc().data.role : null;
+    }
+
+    function currentTeamId() {
+      return hasUserDoc() ? userDoc().data.currentTeamId : null;
+    }
+
+    function sameTeam(teamId) {
+      return hasUserDoc() && currentTeamId() != null && currentTeamId() == teamId;
+    }
+
+    function isCoach() {
+      return currentRole() == "coach";
+    }
+
+    function practicePlanTeamId(planId) {
+      return get(/databases/$(database)/documents/practice_plans/$(planId)).data.teamId;
+    }
+
+    function canReadPracticePlan(planId) {
+      return exists(/databases/$(database)/documents/practice_plans/$(planId)) &&
+        sameTeam(practicePlanTeamId(planId));
+    }
+
+    function canWritePracticePlan(planId) {
+      return isCoach() && canReadPracticePlan(planId);
+    }
+
+    function wrestlerTeamId(wrestlerId) {
+      return get(/databases/$(database)/documents/wrestlers/$(wrestlerId)).data.teamId;
+    }
+
+    function canReadWrestler(wrestlerId) {
+      return exists(/databases/$(database)/documents/wrestlers/$(wrestlerId)) &&
+        sameTeam(wrestlerTeamId(wrestlerId));
+    }
+
+    function canWriteWrestler(wrestlerId) {
+      return isCoach() && canReadWrestler(wrestlerId);
+    }
+
+    function isOwnWrestlerRecord() {
+      return request.resource.data.ownerUserId == request.auth.uid &&
+        request.resource.data.teamId == currentTeamId();
+    }
+
+    function isOwnedWrestler(wrestlerId) {
+      return canReadWrestler(wrestlerId) &&
+        resource.data.ownerUserId == request.auth.uid;
+    }
+
+    function isAthleteSubmittedTournamentUpdate() {
+      return currentRole() == "athlete" &&
+        isOwnedWrestler(resource.data.wrestlerId) &&
+        resource.data.status == "planned" &&
+        request.resource.data.teamId == resource.data.teamId &&
+        request.resource.data.tournamentId == resource.data.tournamentId &&
+        request.resource.data.wrestlerId == resource.data.wrestlerId &&
+        request.resource.data.wrestlerName == resource.data.wrestlerName &&
+        request.resource.data.style == resource.data.style &&
+        request.resource.data.weightClass == resource.data.weightClass &&
+        request.resource.data.notes == resource.data.notes &&
+        request.resource.data.status == "submitted";
+    }
+
+    function isAthletePlannedTournamentCreate() {
+      return currentRole() == "athlete" &&
+        request.resource.data.teamId == currentTeamId() &&
+        (request.resource.data.status == "planned" || request.resource.data.status == "submitted") &&
+        canReadWrestler(request.resource.data.wrestlerId) &&
+        get(/databases/$(database)/documents/wrestlers/$(request.resource.data.wrestlerId)).data.ownerUserId == request.auth.uid;
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() && request.auth.uid == userId;
+      allow delete: if false;
+    }
+
+    match /teams/{teamId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.ownerUserId == request.auth.uid;
+      allow update: if signedIn() && resource.data.ownerUserId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    match /team_members/{memberId} {
+      allow read: if signedIn() &&
+        (resource.data.userId == request.auth.uid || sameTeam(resource.data.teamId));
+      allow create: if signedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        (request.resource.data.role == "athlete" || request.resource.data.role == "coach");
+      allow update, delete: if false;
+    }
+
+    match /library_items/{itemId} {
+      allow read: if signedIn();
+      allow write: if signedIn() && isCoach();
+    }
+
+    match /practice_plans/{planId} {
+      allow read: if signedIn() && sameTeam(resource.data.teamId);
+      allow create: if signedIn() &&
+        isCoach() &&
+        request.resource.data.teamId == currentTeamId() &&
+        request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if signedIn() && isCoach() && sameTeam(resource.data.teamId);
+    }
+
+    match /practice_blocks/{blockId} {
+      allow read: if signedIn() && canReadPracticePlan(resource.data.practicePlanId);
+      allow create: if signedIn() && canWritePracticePlan(request.resource.data.practicePlanId);
+      allow update, delete: if signedIn() && canWritePracticePlan(resource.data.practicePlanId);
+    }
+
+    match /calendar_events/{eventId} {
+      allow read: if signedIn() && sameTeam(resource.data.teamId);
+      allow create: if signedIn() &&
+        isCoach() &&
+        request.resource.data.teamId == currentTeamId();
+      allow update, delete: if signedIn() && isCoach() && sameTeam(resource.data.teamId);
+    }
+
+    match /wrestlers/{wrestlerId} {
+      allow read: if signedIn() && sameTeam(resource.data.teamId);
+      allow create: if signedIn() &&
+        (
+          (isCoach() && request.resource.data.teamId == currentTeamId()) ||
+          (currentRole() == "athlete" && isOwnWrestlerRecord())
+        );
+      allow update: if signedIn() &&
+        (
+          (isCoach() && sameTeam(resource.data.teamId)) ||
+          (currentRole() == "athlete" && isOwnedWrestler(wrestlerId) && isOwnWrestlerRecord())
+        );
+      allow delete: if signedIn() && isCoach() && sameTeam(resource.data.teamId);
+    }
+
+    match /mat_side_summaries/{summaryId} {
+      allow read: if signedIn() && canReadWrestler(summaryId);
+      allow create, update, delete: if signedIn() && canWriteWrestler(summaryId);
+    }
+
+    match /tournaments/{tournamentId} {
+      allow read: if signedIn() &&
+        (
+          resource.data.source == "excel_import" ||
+          sameTeam(resource.data.teamId)
+        );
+      allow create: if signedIn() &&
+        isCoach() &&
+        request.resource.data.teamId == currentTeamId();
+      allow update, delete: if signedIn() &&
+        isCoach() &&
+        sameTeam(resource.data.teamId);
+    }
+
+    match /tournament_entries/{entryId} {
+      allow read: if signedIn() && sameTeam(resource.data.teamId);
+      allow create: if signedIn() &&
+        (
+          (isCoach() && request.resource.data.teamId == currentTeamId()) ||
+          isAthletePlannedTournamentCreate()
+        );
+      allow update: if signedIn() &&
+        (
+          (isCoach() && sameTeam(resource.data.teamId)) ||
+          isAthleteSubmittedTournamentUpdate()
+        );
+      allow delete: if signedIn() && isCoach() && sameTeam(resource.data.teamId);
+    }
+
+    match /team_announcements/{announcementId} {
+      allow read: if signedIn() && sameTeam(resource.data.teamId);
+      allow create: if signedIn() &&
+        isCoach() &&
+        request.resource.data.teamId == currentTeamId() &&
+        request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /team_notifications/{notificationId} {
+      allow read: if signedIn() && sameTeam(resource.data.teamId);
+      allow create: if signedIn() &&
+        request.resource.data.teamId == currentTeamId() &&
+        request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /device_push_registrations/{registrationId} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create: if signedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.teamId == currentTeamId();
+      allow update: if signedIn() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.teamId == currentTeamId();
+      allow delete: if signedIn() && resource.data.userId == request.auth.uid;
+    }
+  }
+}

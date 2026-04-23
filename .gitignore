@@ -1,0 +1,14 @@
+node_modules
+.pnpm-store
+.next
+.expo
+.expo-shared
+dist
+build
+coverage
+.env
+.env.local
+apps/web/.next
+apps/mobile/.expo
+apps/mobile/.expo-shared
+firebase-debug.log
