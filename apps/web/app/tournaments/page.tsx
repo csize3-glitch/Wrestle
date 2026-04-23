@@ -22,12 +22,16 @@ import { StatusBanner, type StatusMessage } from "../status-banner";
 type TournamentFormState = {
   name: string;
   registrationUrl: string;
+  eventDate: string;
+  notes: string;
 };
 
 function createEmptyForm(): TournamentFormState {
   return {
     name: "",
     registrationUrl: "",
+    eventDate: "",
+    notes: "",
   };
 }
 
@@ -97,6 +101,8 @@ export default function TournamentsPage() {
       setForm({
         name: selected.name,
         registrationUrl: selected.registrationUrl,
+        eventDate: selected.eventDate || "",
+        notes: selected.notes || "",
       });
       return;
     }
@@ -167,6 +173,8 @@ export default function TournamentsPage() {
           teamId: currentTeam.id,
           name: form.name,
           registrationUrl: form.registrationUrl,
+          eventDate: form.eventDate,
+          notes: form.notes,
           source: "manual",
         });
         await refreshTournaments(activeTournamentId);
@@ -176,6 +184,8 @@ export default function TournamentsPage() {
           teamId: currentTeam.id,
           name: form.name,
           registrationUrl: form.registrationUrl,
+          eventDate: form.eventDate,
+          notes: form.notes,
           source: "manual",
         });
         await refreshTournaments(nextId);
@@ -454,10 +464,20 @@ export default function TournamentsPage() {
                     <div style={{ fontSize: 13, color: "#666", marginTop: 6 }}>
                       Source: {tournament.source === "excel_import" ? "Workbook import" : "Manual"}
                     </div>
+                    {tournament.eventDate ? (
+                      <div style={{ fontSize: 13, color: "#666", marginTop: 4 }}>
+                        Date: {tournament.eventDate}
+                      </div>
+                    ) : null}
                     <button
                       onClick={() => {
                         setActiveTournamentId(tournament.id);
-                        setForm({ name: tournament.name, registrationUrl: tournament.registrationUrl });
+                        setForm({
+                          name: tournament.name,
+                          registrationUrl: tournament.registrationUrl,
+                          eventDate: tournament.eventDate || "",
+                          notes: tournament.notes || "",
+                        });
                       }}
                       style={{ marginTop: 10, padding: "8px 12px", cursor: "pointer" }}
                     >
@@ -497,6 +517,28 @@ export default function TournamentsPage() {
                   onChange={(e) => setForm((prev) => ({ ...prev, registrationUrl: e.target.value }))}
                   disabled={!isCoach}
                   style={{ padding: 10 }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Tournament date</span>
+                <input
+                  type="date"
+                  value={form.eventDate}
+                  onChange={(e) => setForm((prev) => ({ ...prev, eventDate: e.target.value }))}
+                  disabled={!isCoach}
+                  style={{ padding: 10 }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Tournament notes</span>
+                <textarea
+                  value={form.notes}
+                  onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
+                  disabled={!isCoach}
+                  rows={3}
+                  style={{ padding: 10, resize: "vertical" }}
                 />
               </label>
 
@@ -575,6 +617,16 @@ export default function TournamentsPage() {
                     <p style={{ color: "#666", fontSize: 14, marginBottom: 0 }}>
                       Verify registrations and keep the full attending roster in one place.
                     </p>
+                    {form.eventDate ? (
+                      <p style={{ color: "#0f2748", fontSize: 14, marginTop: 10, marginBottom: 0 }}>
+                        Event date: <strong>{form.eventDate}</strong>
+                      </p>
+                    ) : null}
+                    {form.notes ? (
+                      <p style={{ color: "#555", fontSize: 14, marginTop: 8, marginBottom: 0 }}>
+                        {form.notes}
+                      </p>
+                    ) : null}
                   </div>
 
                   <div

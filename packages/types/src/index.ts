@@ -125,6 +125,8 @@ export interface Tournament {
   teamId: string;
   name: string;
   registrationUrl: string;
+  eventDate?: string;
+  notes?: string;
   source: "excel_import" | "manual";
   createdAt: string;
   updatedAt: string;

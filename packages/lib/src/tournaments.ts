@@ -16,6 +16,8 @@ export type TournamentInput = {
   teamId: string;
   name: string;
   registrationUrl: string;
+  eventDate?: string;
+  notes?: string;
   source?: Tournament["source"];
 };
 
@@ -25,6 +27,8 @@ function normalizeTournament(id: string, value: Record<string, unknown>): Tourna
     teamId: typeof value.teamId === "string" ? value.teamId : "",
     name: typeof value.name === "string" ? value.name : "",
     registrationUrl: typeof value.registrationUrl === "string" ? value.registrationUrl : "",
+    eventDate: typeof value.eventDate === "string" ? value.eventDate : undefined,
+    notes: typeof value.notes === "string" ? value.notes : undefined,
     source: value.source === "manual" ? "manual" : "excel_import",
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
@@ -68,6 +72,8 @@ export async function createTournament(db: Firestore, input: TournamentInput): P
     teamId: input.teamId,
     name: input.name.trim(),
     registrationUrl: input.registrationUrl.trim(),
+    eventDate: input.eventDate?.trim() || "",
+    notes: input.notes?.trim() || "",
     source: input.source || "manual",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -85,6 +91,8 @@ export async function updateTournament(
     teamId: input.teamId,
     name: input.name.trim(),
     registrationUrl: input.registrationUrl.trim(),
+    eventDate: input.eventDate?.trim() || "",
+    notes: input.notes?.trim() || "",
     source: input.source || "manual",
     updatedAt: serverTimestamp(),
   });

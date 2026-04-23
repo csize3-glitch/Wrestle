@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   addDoc,
@@ -14,6 +15,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@wrestlewell/firebase/client";
 import { COLLECTIONS } from "@wrestlewell/types/index";
+import { listTournamentEntries, listTournaments } from "@wrestlewell/lib/index";
 import { RequireAuth } from "../require-auth";
 import { useAuthState } from "../auth-provider";
 import { StatusBanner } from "../status-banner";
@@ -35,6 +37,17 @@ type CalendarEventItem = {
   totalMinutes: number;
   totalSeconds?: number;
   notes?: string;
+};
+
+type TournamentCalendarItem = {
+  id: string;
+  date: string;
+  name: string;
+  registrationUrl: string;
+  notes?: string;
+  rosterCount: number;
+  submittedCount: number;
+  verifiedCount: number;
 };
 
 function getStartOfWeek(date = new Date()) {
@@ -69,6 +82,7 @@ export default function CalendarPage() {
   const { appUser, currentTeam } = useAuthState();
   const [savedPlans, setSavedPlans] = useState<SavedPracticePlan[]>([]);
   const [events, setEvents] = useState<CalendarEventItem[]>([]);
+  const [tournaments, setTournaments] = useState<TournamentCalendarItem[]>([]);
   const [loadingPlans, setLoadingPlans] = useState(true);
   const [loadingEvents, setLoadingEvents] = useState(true);
   const [assigningDate, setAssigningDate] = useState<string | null>(null);
@@ -143,6 +157,7 @@ export default function CalendarPage() {
 
         if (!currentTeam?.id) {
           setEvents([]);
+          setTournaments([]);
           return;
         }
 
@@ -160,6 +175,30 @@ export default function CalendarPage() {
           .filter((event) => event.date >= weekStartKey && event.date <= weekEndKey);
 
         setEvents(rows);
+
+        const tournamentRows = await listTournaments(db, currentTeam.id);
+        const calendarTournaments = await Promise.all(
+          tournamentRows
+            .filter((tournament) => tournament.eventDate && tournament.eventDate >= weekStartKey && tournament.eventDate <= weekEndKey)
+            .map(async (tournament) => {
+              const entries = await listTournamentEntries(db, {
+                teamId: currentTeam.id,
+                tournamentId: tournament.id,
+              });
+
+              return {
+                id: tournament.id,
+                date: tournament.eventDate || "",
+                name: tournament.name,
+                registrationUrl: tournament.registrationUrl,
+                notes: tournament.notes,
+                rosterCount: entries.length,
+                submittedCount: entries.filter((entry) => entry.status === "submitted").length,
+                verifiedCount: entries.filter((entry) => entry.status === "confirmed").length,
+              } satisfies TournamentCalendarItem;
+            })
+        );
+        setTournaments(calendarTournaments);
       } catch (error) {
         console.error("Failed to load calendar events:", error);
       } finally {
@@ -173,6 +212,7 @@ export default function CalendarPage() {
   async function refreshEvents() {
     if (!currentTeam?.id) {
       setEvents([]);
+      setTournaments([]);
       return;
     }
 
@@ -191,6 +231,31 @@ export default function CalendarPage() {
       .filter((event) => event.date >= weekStartKey && event.date <= weekEndKey);
 
     setEvents(rows);
+
+    const tournamentRows = await listTournaments(db, currentTeam.id);
+    const calendarTournaments = await Promise.all(
+      tournamentRows
+        .filter((tournament) => tournament.eventDate && tournament.eventDate >= weekStartKey && tournament.eventDate <= weekEndKey)
+        .map(async (tournament) => {
+          const entries = await listTournamentEntries(db, {
+            teamId: currentTeam.id,
+            tournamentId: tournament.id,
+          });
+
+          return {
+            id: tournament.id,
+            date: tournament.eventDate || "",
+            name: tournament.name,
+            registrationUrl: tournament.registrationUrl,
+            notes: tournament.notes,
+            rosterCount: entries.length,
+            submittedCount: entries.filter((entry) => entry.status === "submitted").length,
+            verifiedCount: entries.filter((entry) => entry.status === "confirmed").length,
+          } satisfies TournamentCalendarItem;
+        })
+    );
+
+    setTournaments(calendarTournaments);
   }
 
   async function assignPlanToDate(dateKey: string) {
@@ -253,6 +318,10 @@ export default function CalendarPage() {
     return events.filter((event) => event.date === dateKey);
   }
 
+  function getTournamentsForDate(dateKey: string) {
+    return tournaments.filter((tournament) => tournament.date === dateKey);
+  }
+
   return (
     <RequireAuth
       title="Weekly Calendar"
@@ -306,6 +375,7 @@ export default function CalendarPage() {
         {weekDates.map((date) => {
           const dateKey = formatDateKey(date);
           const dayEvents = getEventsForDate(dateKey);
+          const dayTournaments = getTournamentsForDate(dateKey);
 
           return (
             <section
@@ -366,10 +436,63 @@ export default function CalendarPage() {
               </button>
 
               <div style={{ display: "grid", gap: 12 }}>
-                {dayEvents.length === 0 ? (
-                  <p style={{ fontSize: 14, color: "#666" }}>No practice assigned.</p>
-                ) : (
-                  dayEvents.map((event) => (
+                {dayEvents.length === 0 && dayTournaments.length === 0 ? (
+                  <p style={{ fontSize: 14, color: "#666" }}>No practice or tournament scheduled.</p>
+                ) : null}
+
+                {dayTournaments.map((tournament) => (
+                  <div
+                    key={`tournament-${tournament.id}`}
+                    style={{
+                      border: "1px solid rgba(191, 16, 41, 0.18)",
+                      borderRadius: 10,
+                      padding: isDenseLayout ? 10 : 12,
+                      background: "rgba(191, 16, 41, 0.08)",
+                      minWidth: 0,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: "4px 8px",
+                        borderRadius: 999,
+                        background: "#bf1029",
+                        color: "#fff",
+                        fontSize: 11,
+                        fontWeight: 800,
+                        letterSpacing: "0.06em",
+                        textTransform: "uppercase",
+                        marginBottom: 8,
+                      }}
+                    >
+                      Tournament
+                    </div>
+
+                    <strong>{tournament.name}</strong>
+
+                    <div style={{ fontSize: isDenseLayout ? 13 : 14, marginTop: 6, color: "#555" }}>
+                      {tournament.rosterCount} attending · {tournament.submittedCount} submitted · {tournament.verifiedCount} verified
+                    </div>
+
+                    {tournament.notes ? (
+                      <p style={{ fontSize: isDenseLayout ? 13 : 14, marginTop: 8, marginBottom: 8 }}>
+                        {tournament.notes}
+                      </p>
+                    ) : null}
+
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8 }}>
+                      <Link href={`/tournaments?open=${tournament.id}`} style={{ display: "inline-block" }}>
+                        Open Tournament
+                      </Link>
+                      <a href={tournament.registrationUrl} target="_blank" rel="noreferrer">
+                        Registration
+                      </a>
+                    </div>
+                  </div>
+                ))}
+
+                {dayEvents.map((event) => (
                     <div
                       key={event.id}
                       style={{
@@ -409,8 +532,7 @@ export default function CalendarPage() {
                         </button>
                       ) : null}
                     </div>
-                  ))
-                )}
+                  ))}
               </div>
             </section>
           );
