@@ -31,6 +31,7 @@ export type AuthAccountInput = {
   role: UserRole;
   teamName?: string;
   teamCode?: string;
+  coachInviteCode?: string;
 };
 
 export type AccountSetupInput = {
@@ -38,6 +39,7 @@ export type AccountSetupInput = {
   role: UserRole;
   teamName?: string;
   teamCode?: string;
+  coachInviteCode?: string;
 };
 
 function normalizeRole(value: unknown): UserRole {
@@ -58,6 +60,16 @@ function createTeamCode(seed: string) {
   return `${slug}-${suffix}`;
 }
 
+function createCoachInviteCode(seed: string) {
+  const slug = seed
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 4)
+    .padEnd(3, "X");
+  const suffix = Math.random().toString(36).slice(2, 7).toUpperCase();
+  return `COACH-${slug}-${suffix}`;
+}
+
 function normalizeAppUser(id: string, value: Record<string, unknown>): AppUser {
   return {
     id,
@@ -75,6 +87,8 @@ function normalizeTeam(id: string, value: Record<string, unknown>): Team {
     id,
     name: typeof value.name === "string" ? value.name : "",
     teamCode: typeof value.teamCode === "string" ? value.teamCode : "",
+    coachInviteCode:
+      typeof value.coachInviteCode === "string" ? value.coachInviteCode : undefined,
     ownerUserId: typeof value.ownerUserId === "string" ? value.ownerUserId : "",
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
@@ -117,6 +131,27 @@ async function findTeamByCode(db: Firestore, teamCode: string): Promise<Team | n
   return normalizeTeam(teamDoc.id, teamDoc.data() as Record<string, unknown>);
 }
 
+async function findTeamByCoachInviteCode(
+  db: Firestore,
+  coachInviteCode: string
+): Promise<Team | null> {
+  const normalizedCode = normalizeTeamCode(coachInviteCode);
+  if (!normalizedCode) {
+    return null;
+  }
+
+  const snapshot = await getDocs(
+    query(collection(db, COLLECTIONS.TEAMS), where("coachInviteCode", "==", normalizedCode))
+  );
+
+  const teamDoc = snapshot.docs[0];
+  if (!teamDoc) {
+    return null;
+  }
+
+  return normalizeTeam(teamDoc.id, teamDoc.data() as Record<string, unknown>);
+}
+
 async function createAccountRecords(
   db: Firestore,
   args: {
@@ -126,6 +161,7 @@ async function createAccountRecords(
     role: UserRole;
     teamName?: string;
     teamCode?: string;
+    coachInviteCode?: string;
   }
 ): Promise<void> {
   const userRef = doc(db, COLLECTIONS.USERS, args.uid);
@@ -134,17 +170,28 @@ async function createAccountRecords(
   let teamId: string | undefined;
 
   if (args.role === "coach") {
-    const teamRef = doc(collection(db, COLLECTIONS.TEAMS));
-    const resolvedTeamName = args.teamName?.trim() || `${args.displayName.trim() || "Coach"} Team`;
-    teamId = teamRef.id;
+    const matchedTeam = await findTeamByCoachInviteCode(db, args.coachInviteCode || "");
 
-    batch.set(teamRef, {
-      name: resolvedTeamName,
-      teamCode: normalizeTeamCode(args.teamCode) || createTeamCode(resolvedTeamName),
-      ownerUserId: args.uid,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    } satisfies Omit<Team, "id" | "createdAt" | "updatedAt"> & Record<string, unknown>);
+    if (args.coachInviteCode && !matchedTeam) {
+      throw new Error("Coach invite code not found. Ask your head coach for the current invite code.");
+    }
+
+    if (matchedTeam) {
+      teamId = matchedTeam.id;
+    } else {
+      const teamRef = doc(collection(db, COLLECTIONS.TEAMS));
+      const resolvedTeamName = args.teamName?.trim() || `${args.displayName.trim() || "Coach"} Team`;
+      teamId = teamRef.id;
+
+      batch.set(teamRef, {
+        name: resolvedTeamName,
+        teamCode: normalizeTeamCode(args.teamCode) || createTeamCode(resolvedTeamName),
+        coachInviteCode: createCoachInviteCode(resolvedTeamName),
+        ownerUserId: args.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      } satisfies Omit<Team, "id" | "createdAt" | "updatedAt"> & Record<string, unknown>);
+    }
   } else {
     const matchedTeam = await findTeamByCode(db, args.teamCode || "");
     if (args.teamCode && !matchedTeam) {
@@ -190,6 +237,7 @@ export async function registerAccount(
     role: input.role,
     teamName: input.teamName,
     teamCode: input.teamCode,
+    coachInviteCode: input.coachInviteCode,
   });
 }
 
@@ -208,6 +256,7 @@ export async function completeAccountSetup(
     role: args.role,
     teamName: args.teamName,
     teamCode: args.teamCode,
+    coachInviteCode: args.coachInviteCode,
   });
 }
 

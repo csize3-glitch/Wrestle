@@ -22,6 +22,7 @@ type AuthFormState = {
   role: UserRole;
   teamName: string;
   teamCode: string;
+  coachInviteCode: string;
 };
 
 function createInitialAuthForm(): AuthFormState {
@@ -32,6 +33,7 @@ function createInitialAuthForm(): AuthFormState {
     role: "coach",
     teamName: "",
     teamCode: "",
+    coachInviteCode: "",
   };
 }
 
@@ -176,6 +178,7 @@ export default function HomePage() {
           role: form.role,
           teamName: form.role === "coach" ? form.teamName : undefined,
           teamCode: form.role === "athlete" ? form.teamCode : undefined,
+          coachInviteCode: form.role === "coach" ? form.coachInviteCode : undefined,
         });
       }
 
@@ -205,6 +208,7 @@ export default function HomePage() {
         role: form.role,
         teamName: form.role === "coach" ? form.teamName : undefined,
         teamCode: form.role === "athlete" ? form.teamCode : undefined,
+        coachInviteCode: form.role === "coach" ? form.coachInviteCode : undefined,
       });
       await refreshAppState();
     } catch (nextError) {
@@ -300,14 +304,25 @@ export default function HomePage() {
             </div>
 
             {form.role === "coach" ? (
-              <label className="field-label">
-                Team name
-                <input
-                  value={form.teamName}
-                  onChange={(e) => updateField("teamName", e.target.value)}
-                  placeholder="Bearcats Wrestling Club"
-                />
-              </label>
+              <div className="field-grid">
+                <label className="field-label">
+                  Team name
+                  <input
+                    value={form.teamName}
+                    onChange={(e) => updateField("teamName", e.target.value)}
+                    placeholder="Bearcats Wrestling Club"
+                  />
+                </label>
+
+                <label className="field-label">
+                  Coach invite code
+                  <input
+                    value={form.coachInviteCode}
+                    onChange={(e) => updateField("coachInviteCode", e.target.value)}
+                    placeholder="Optional existing coach invite code"
+                  />
+                </label>
+              </div>
             ) : (
               <label className="field-label">
                 Team code
@@ -420,14 +435,25 @@ export default function HomePage() {
                     </div>
 
                     {form.role === "coach" ? (
-                      <label className="field-label">
-                        Team name
-                        <input
-                          value={form.teamName}
-                          onChange={(e) => updateField("teamName", e.target.value)}
-                          placeholder="Bearcats Wrestling Club"
-                        />
-                      </label>
+                      <div className="field-grid">
+                        <label className="field-label">
+                          Team name
+                          <input
+                            value={form.teamName}
+                            onChange={(e) => updateField("teamName", e.target.value)}
+                            placeholder="Bearcats Wrestling Club"
+                          />
+                        </label>
+
+                        <label className="field-label">
+                          Coach invite code
+                          <input
+                            value={form.coachInviteCode}
+                            onChange={(e) => updateField("coachInviteCode", e.target.value)}
+                            placeholder="Optional existing coach invite code"
+                          />
+                        </label>
+                      </div>
                     ) : (
                       <label className="field-label">
                         Team code
@@ -534,6 +560,18 @@ export default function HomePage() {
                 <button className="button-secondary" onClick={copyTeamCode} type="button">
                   {teamCodeCopied ? "Copied" : "Copy Team Code"}
                 </button>
+              </div>
+            ) : null}
+
+            {appUser.role === "coach" && currentTeam?.coachInviteCode ? (
+              <div className="stat-card">
+                <span className="stat-card__label">Coach Invite Code</span>
+                <span className="stat-card__value" style={{ fontSize: "1.45rem", letterSpacing: "0.04em" }}>
+                  {currentTeam.coachInviteCode}
+                </span>
+                <p className="stat-card__copy" style={{ marginBottom: 0 }}>
+                  Share this with assistant coaches so they can join the same team as coaches.
+                </p>
               </div>
             ) : null}
           </div>

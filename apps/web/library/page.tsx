@@ -2,6 +2,11 @@
 
 import { db } from "@wrestlewell/firebase/client";
 import { COLLECTIONS, type LibraryItem } from "@wrestlewell/types/index";
+import {
+  getPositionOptionsForStyle,
+  inferLibraryPosition,
+  type LibraryPositionGroup,
+} from "@wrestlewell/lib/index";
 import { collection, getDocs, orderBy, query } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 
@@ -9,6 +14,7 @@ export default function LibraryPage() {
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [styleFilter, setStyleFilter] = useState("");
+  const [positionFilter, setPositionFilter] = useState<LibraryPositionGroup | "">("");
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -32,9 +38,13 @@ export default function LibraryPage() {
     return Array.from(new Set(items.map((item) => item.style))).sort();
   }, [items]);
 
+  const positionOptions = useMemo(() => getPositionOptionsForStyle(styleFilter as LibraryItem["style"] | ""), [styleFilter]);
+
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
       const matchesStyle = !styleFilter || item.style === styleFilter;
+      const itemPosition = inferLibraryPosition(item);
+      const matchesPosition = !positionFilter || itemPosition === positionFilter;
       const needle = search.trim().toLowerCase();
 
       const matchesSearch =
@@ -45,9 +55,9 @@ export default function LibraryPage() {
         item.format.toLowerCase().includes(needle) ||
         item.notes.toLowerCase().includes(needle);
 
-      return matchesStyle && matchesSearch;
+      return matchesStyle && matchesPosition && matchesSearch;
     });
-  }, [items, styleFilter, search]);
+  }, [items, positionFilter, styleFilter, search]);
 
   return (
     <main style={{ padding: 24 }}>
@@ -59,13 +69,29 @@ export default function LibraryPage() {
       <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
         <select
           value={styleFilter}
-          onChange={(e) => setStyleFilter(e.target.value)}
+          onChange={(e) => {
+            setStyleFilter(e.target.value);
+            setPositionFilter("");
+          }}
           style={{ padding: 10, minWidth: 180 }}
         >
           <option value="">All Styles</option>
           {styles.map((style) => (
             <option key={style} value={style}>
               {style}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={positionFilter}
+          onChange={(e) => setPositionFilter(e.target.value as LibraryPositionGroup | "")}
+          style={{ padding: 10, minWidth: 180 }}
+        >
+          <option value="">All Positions</option>
+          {positionOptions.map((position) => (
+            <option key={position} value={position}>
+              {position}
             </option>
           ))}
         </select>
@@ -102,6 +128,7 @@ export default function LibraryPage() {
 
                 <div style={{ marginBottom: 8, fontSize: 14 }}>
                   <span><strong>Style:</strong> {item.style}</span>{" "}
+                  <span><strong>Position:</strong> {inferLibraryPosition(item)}</span>{" "}
                   <span><strong>Category:</strong> {item.category}</span>{" "}
                   <span><strong>Subcategory:</strong> {item.subcategory}</span>{" "}
                   <span><strong>Format:</strong> {item.format}</span>

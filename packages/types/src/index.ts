@@ -105,6 +105,7 @@ export interface Team {
   id: string;
   name: string;
   teamCode: string;
+  coachInviteCode?: string;
   ownerUserId: string;
   createdAt: string;
   updatedAt: string;

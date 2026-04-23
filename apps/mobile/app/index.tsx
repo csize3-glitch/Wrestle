@@ -20,6 +20,7 @@ type AuthFormState = {
   role: UserRole;
   teamName: string;
   teamCode: string;
+  coachInviteCode: string;
 };
 
 function createInitialAuthForm(): AuthFormState {
@@ -30,6 +31,7 @@ function createInitialAuthForm(): AuthFormState {
     role: "coach",
     teamName: "",
     teamCode: "",
+    coachInviteCode: "",
   };
 }
 
@@ -160,6 +162,7 @@ export default function HomeScreen() {
           role: form.role,
           teamName: form.role === "coach" ? form.teamName : undefined,
           teamCode: form.role === "athlete" ? form.teamCode : undefined,
+          coachInviteCode: form.role === "coach" ? form.coachInviteCode : undefined,
         });
       }
 
@@ -189,6 +192,7 @@ export default function HomeScreen() {
         role: form.role,
         teamName: form.role === "coach" ? form.teamName : undefined,
         teamCode: form.role === "athlete" ? form.teamCode : undefined,
+        coachInviteCode: form.role === "coach" ? form.coachInviteCode : undefined,
       });
       await refreshAppState();
     } catch (nextError) {
@@ -239,14 +243,26 @@ export default function HomeScreen() {
           </View>
 
           {form.role === "coach" ? (
-            <Field label="Team name">
-              <TextInput
-                value={form.teamName}
-                onChangeText={(value) => updateField("teamName", value)}
-                style={inputStyle}
-                placeholder="Bearcats Wrestling Club"
-              />
-            </Field>
+            <View style={{ gap: 14 }}>
+              <Field label="Team name">
+                <TextInput
+                  value={form.teamName}
+                  onChangeText={(value) => updateField("teamName", value)}
+                  style={inputStyle}
+                  placeholder="Bearcats Wrestling Club"
+                />
+              </Field>
+
+              <Field label="Coach invite code">
+                <TextInput
+                  value={form.coachInviteCode}
+                  onChangeText={(value) => updateField("coachInviteCode", value)}
+                  style={inputStyle}
+                  placeholder="Optional existing coach invite code"
+                  autoCapitalize="characters"
+                />
+              </Field>
+            </View>
           ) : (
             <Field label="Team code">
               <TextInput
@@ -340,14 +356,26 @@ export default function HomeScreen() {
                 </View>
 
                 {form.role === "coach" ? (
-                  <Field label="Team name">
-                    <TextInput
-                      value={form.teamName}
-                      onChangeText={(value) => updateField("teamName", value)}
-                      style={inputStyle}
-                      placeholder="Bearcats Wrestling Club"
-                    />
-                  </Field>
+                  <View style={{ gap: 14 }}>
+                    <Field label="Team name">
+                      <TextInput
+                        value={form.teamName}
+                        onChangeText={(value) => updateField("teamName", value)}
+                        style={inputStyle}
+                        placeholder="Bearcats Wrestling Club"
+                      />
+                    </Field>
+
+                    <Field label="Coach invite code">
+                      <TextInput
+                        value={form.coachInviteCode}
+                        onChangeText={(value) => updateField("coachInviteCode", value)}
+                        style={inputStyle}
+                        placeholder="Optional existing coach invite code"
+                        autoCapitalize="characters"
+                      />
+                    </Field>
+                  </View>
                 ) : (
                   <Field label="Team code">
                     <TextInput
@@ -418,23 +446,44 @@ export default function HomeScreen() {
         </View>
 
         {isCoach && currentTeam?.teamCode ? (
-          <View
-            style={{
-              marginTop: 12,
-              borderRadius: 18,
-              padding: 16,
-              backgroundColor: "#ffffff",
-              borderWidth: 1,
-              borderColor: "rgba(15, 39, 72, 0.12)",
-            }}
-          >
-            <Text style={{ color: "#5f6d83", fontSize: 12, fontWeight: "800" }}>TEAM CODE</Text>
-            <Text style={{ color: "#091729", fontSize: 24, fontWeight: "800", marginTop: 8 }}>
-              {currentTeam.teamCode}
-            </Text>
-            <Text style={{ color: "#5f6d83", fontSize: 14, lineHeight: 20, marginTop: 8 }}>
-              Share this code with athletes so they can join your team.
-            </Text>
+          <View style={{ gap: 12, marginTop: 12 }}>
+            <View
+              style={{
+                borderRadius: 18,
+                padding: 16,
+                backgroundColor: "#ffffff",
+                borderWidth: 1,
+                borderColor: "rgba(15, 39, 72, 0.12)",
+              }}
+            >
+              <Text style={{ color: "#5f6d83", fontSize: 12, fontWeight: "800" }}>TEAM CODE</Text>
+              <Text style={{ color: "#091729", fontSize: 24, fontWeight: "800", marginTop: 8 }}>
+                {currentTeam.teamCode}
+              </Text>
+              <Text style={{ color: "#5f6d83", fontSize: 14, lineHeight: 20, marginTop: 8 }}>
+                Share this code with athletes so they can join your team.
+              </Text>
+            </View>
+
+            {currentTeam.coachInviteCode ? (
+              <View
+                style={{
+                  borderRadius: 18,
+                  padding: 16,
+                  backgroundColor: "#ffffff",
+                  borderWidth: 1,
+                  borderColor: "rgba(15, 39, 72, 0.12)",
+                }}
+              >
+                <Text style={{ color: "#5f6d83", fontSize: 12, fontWeight: "800" }}>COACH INVITE CODE</Text>
+                <Text style={{ color: "#091729", fontSize: 22, fontWeight: "800", marginTop: 8 }}>
+                  {currentTeam.coachInviteCode}
+                </Text>
+                <Text style={{ color: "#5f6d83", fontSize: 14, lineHeight: 20, marginTop: 8 }}>
+                  Share this with assistant coaches so they join the same team as coaches.
+                </Text>
+              </View>
+            ) : null}
           </View>
         ) : null}
 
