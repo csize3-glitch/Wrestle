@@ -9,13 +9,13 @@
 Recommended order:
 
 1. Build development app:
-   `cd /Users/csize8/Documents/wrestlewell && ./node_modules/.bin/eas build --profile development --platform ios`
+   `cd /Users/csize8/Documents/wrestlewell/apps/mobile && ../../node_modules/.bin/eas build --profile development --platform ios`
 2. Install development build on a real phone.
 3. Test notification permissions and push-token registration outside Expo Go.
 4. Build preview app:
-   `cd /Users/csize8/Documents/wrestlewell && ./node_modules/.bin/eas build --profile preview --platform all`
+   `cd /Users/csize8/Documents/wrestlewell/apps/mobile && ../../node_modules/.bin/eas build --profile preview --platform all`
 5. Build production app after QA:
-   `cd /Users/csize8/Documents/wrestlewell && ./node_modules/.bin/eas build --profile production --platform all`
+   `cd /Users/csize8/Documents/wrestlewell/apps/mobile && ../../node_modules/.bin/eas build --profile production --platform all`
 
 ## Web Deployment
 
