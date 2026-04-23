@@ -174,6 +174,9 @@ export interface Tournament {
   eventDate?: string;
   notes?: string;
   weighInTime?: string;
+  arrivalTime?: string;
+  travelChecklist?: string[];
+  coachChecklist?: string[];
   coachEventNotes?: string;
   source: "excel_import" | "manual";
   createdAt: string;

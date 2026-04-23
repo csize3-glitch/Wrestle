@@ -25,6 +25,9 @@ type TournamentFormState = {
   eventDate: string;
   notes: string;
   weighInTime: string;
+  arrivalTime: string;
+  travelChecklist: string;
+  coachChecklist: string;
   coachEventNotes: string;
 };
 
@@ -35,8 +38,22 @@ function createEmptyForm(): TournamentFormState {
     eventDate: "",
     notes: "",
     weighInTime: "",
+    arrivalTime: "",
+    travelChecklist: "",
+    coachChecklist: "",
     coachEventNotes: "",
   };
+}
+
+function parseList(value: string) {
+  return value
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function toTextareaValue(values?: string[]) {
+  return (values || []).join("\n");
 }
 
 function formatEntryStatus(status: TournamentEntry["status"]) {
@@ -112,6 +129,9 @@ export default function TournamentsPage() {
         eventDate: selected.eventDate || "",
         notes: selected.notes || "",
         weighInTime: selected.weighInTime || "",
+        arrivalTime: selected.arrivalTime || "",
+        travelChecklist: toTextareaValue(selected.travelChecklist),
+        coachChecklist: toTextareaValue(selected.coachChecklist),
         coachEventNotes: selected.coachEventNotes || "",
       });
       return;
@@ -186,6 +206,9 @@ export default function TournamentsPage() {
           eventDate: form.eventDate,
           notes: form.notes,
           weighInTime: form.weighInTime,
+          arrivalTime: form.arrivalTime,
+          travelChecklist: parseList(form.travelChecklist),
+          coachChecklist: parseList(form.coachChecklist),
           coachEventNotes: form.coachEventNotes,
           source: "manual",
         });
@@ -199,6 +222,9 @@ export default function TournamentsPage() {
           eventDate: form.eventDate,
           notes: form.notes,
           weighInTime: form.weighInTime,
+          arrivalTime: form.arrivalTime,
+          travelChecklist: parseList(form.travelChecklist),
+          coachChecklist: parseList(form.coachChecklist),
           coachEventNotes: form.coachEventNotes,
           source: "manual",
         });
@@ -498,6 +524,9 @@ export default function TournamentsPage() {
                           eventDate: tournament.eventDate || "",
                           notes: tournament.notes || "",
                           weighInTime: tournament.weighInTime || "",
+                          arrivalTime: tournament.arrivalTime || "",
+                          travelChecklist: toTextareaValue(tournament.travelChecklist),
+                          coachChecklist: toTextareaValue(tournament.coachChecklist),
                           coachEventNotes: tournament.coachEventNotes || "",
                         });
                       }}
@@ -574,6 +603,17 @@ export default function TournamentsPage() {
               </label>
 
               <label style={{ display: "grid", gap: 6 }}>
+                <span>Arrival time</span>
+                <input
+                  type="time"
+                  value={form.arrivalTime}
+                  onChange={(e) => setForm((prev) => ({ ...prev, arrivalTime: e.target.value }))}
+                  disabled={!isCoach}
+                  style={{ padding: 10 }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 6 }}>
                 <span>Tournament notes</span>
                 <textarea
                   value={form.notes}
@@ -591,6 +631,30 @@ export default function TournamentsPage() {
                   onChange={(e) => setForm((prev) => ({ ...prev, coachEventNotes: e.target.value }))}
                   disabled={!isCoach}
                   rows={4}
+                  style={{ padding: 10, resize: "vertical" }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Travel checklist</span>
+                <textarea
+                  value={form.travelChecklist}
+                  onChange={(e) => setForm((prev) => ({ ...prev, travelChecklist: e.target.value }))}
+                  disabled={!isCoach}
+                  rows={4}
+                  placeholder="One item per line"
+                  style={{ padding: 10, resize: "vertical" }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Coach day-of checklist</span>
+                <textarea
+                  value={form.coachChecklist}
+                  onChange={(e) => setForm((prev) => ({ ...prev, coachChecklist: e.target.value }))}
+                  disabled={!isCoach}
+                  rows={4}
+                  placeholder="One item per line"
                   style={{ padding: 10, resize: "vertical" }}
                 />
               </label>
@@ -686,6 +750,11 @@ export default function TournamentsPage() {
                         Weigh-ins: <strong>{form.weighInTime}</strong>
                       </p>
                     ) : null}
+                    {form.arrivalTime ? (
+                      <p style={{ color: "#0f2748", fontSize: 14, marginTop: 8, marginBottom: 0 }}>
+                        Arrival: <strong>{form.arrivalTime}</strong>
+                      </p>
+                    ) : null}
                     {form.notes ? (
                       <p style={{ color: "#555", fontSize: 14, marginTop: 8, marginBottom: 0 }}>
                         {form.notes}
@@ -703,6 +772,46 @@ export default function TournamentsPage() {
                       >
                         <strong style={{ display: "block", marginBottom: 6 }}>Coach Event Notes</strong>
                         <p style={{ margin: 0, color: "#555", whiteSpace: "pre-wrap" }}>{form.coachEventNotes}</p>
+                      </div>
+                    ) : null}
+                    {parseList(form.travelChecklist).length > 0 ? (
+                      <div
+                        style={{
+                          marginTop: 12,
+                          padding: 12,
+                          borderRadius: 12,
+                          background: "#fff7ed",
+                          border: "1px solid #fed7aa",
+                        }}
+                      >
+                        <strong style={{ display: "block", marginBottom: 6 }}>Travel Checklist</strong>
+                        <ul style={{ margin: 0, paddingLeft: 18, color: "#555" }}>
+                          {parseList(form.travelChecklist).map((item) => (
+                            <li key={`travel-${item}`} style={{ marginBottom: 4 }}>
+                              {item}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {parseList(form.coachChecklist).length > 0 && isCoach ? (
+                      <div
+                        style={{
+                          marginTop: 12,
+                          padding: 12,
+                          borderRadius: 12,
+                          background: "#f8fafc",
+                          border: "1px solid #e5e7eb",
+                        }}
+                      >
+                        <strong style={{ display: "block", marginBottom: 6 }}>Coach Day-Of Checklist</strong>
+                        <ul style={{ margin: 0, paddingLeft: 18, color: "#555" }}>
+                          {parseList(form.coachChecklist).map((item) => (
+                            <li key={`coach-check-${item}`} style={{ marginBottom: 4 }}>
+                              {item}
+                            </li>
+                          ))}
+                        </ul>
                       </div>
                     ) : null}
                   </div>

@@ -295,6 +295,11 @@ export default function TournamentsScreen() {
                 Weigh-In Time: {tournament.weighInTime}
               </Text>
             ) : null}
+            {tournament.arrivalTime ? (
+              <Text style={{ fontSize: 14, color: "#0f2748", marginTop: 4, fontWeight: "700" }}>
+                Arrival Time: {tournament.arrivalTime}
+              </Text>
+            ) : null}
             {tournament.notes ? (
               <Text style={{ fontSize: 14, color: "#374151", marginTop: 8, lineHeight: 20 }}>
                 {tournament.notes}
@@ -317,6 +322,46 @@ export default function TournamentsScreen() {
                 <Text style={{ fontSize: 14, color: "#374151", lineHeight: 20 }}>
                   {tournament.coachEventNotes}
                 </Text>
+              </View>
+            ) : null}
+            {tournament.travelChecklist && tournament.travelChecklist.length > 0 ? (
+              <View
+                style={{
+                  marginTop: 12,
+                  borderWidth: 1,
+                  borderColor: "#fed7aa",
+                  borderRadius: 12,
+                  padding: 12,
+                  backgroundColor: "#fff7ed",
+                  gap: 6,
+                }}
+              >
+                <Text style={{ fontSize: 14, fontWeight: "800", color: "#9a3412" }}>Travel Checklist</Text>
+                {tournament.travelChecklist.map((item) => (
+                  <Text key={`travel-${tournament.id}-${item}`} style={{ fontSize: 14, color: "#7c2d12", lineHeight: 20 }}>
+                    • {item}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+            {appUser.role === "coach" && tournament.coachChecklist && tournament.coachChecklist.length > 0 ? (
+              <View
+                style={{
+                  marginTop: 12,
+                  borderWidth: 1,
+                  borderColor: "#e5e7eb",
+                  borderRadius: 12,
+                  padding: 12,
+                  backgroundColor: "#f8fafc",
+                  gap: 6,
+                }}
+              >
+                <Text style={{ fontSize: 14, fontWeight: "800", color: "#0f2748" }}>Coach Day-Of Checklist</Text>
+                {tournament.coachChecklist.map((item) => (
+                  <Text key={`coach-${tournament.id}-${item}`} style={{ fontSize: 14, color: "#374151", lineHeight: 20 }}>
+                    • {item}
+                  </Text>
+                ))}
               </View>
             ) : null}
 

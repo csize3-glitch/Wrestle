@@ -19,9 +19,22 @@ export type TournamentInput = {
   eventDate?: string;
   notes?: string;
   weighInTime?: string;
+  arrivalTime?: string;
+  travelChecklist?: string[];
+  coachChecklist?: string[];
   coachEventNotes?: string;
   source?: Tournament["source"];
 };
+
+function ensureStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+}
 
 function normalizeTournament(id: string, value: Record<string, unknown>): Tournament {
   return {
@@ -32,6 +45,9 @@ function normalizeTournament(id: string, value: Record<string, unknown>): Tourna
     eventDate: typeof value.eventDate === "string" ? value.eventDate : undefined,
     notes: typeof value.notes === "string" ? value.notes : undefined,
     weighInTime: typeof value.weighInTime === "string" ? value.weighInTime : undefined,
+    arrivalTime: typeof value.arrivalTime === "string" ? value.arrivalTime : undefined,
+    travelChecklist: ensureStringArray(value.travelChecklist),
+    coachChecklist: ensureStringArray(value.coachChecklist),
     coachEventNotes:
       typeof value.coachEventNotes === "string" ? value.coachEventNotes : undefined,
     source: value.source === "manual" ? "manual" : "excel_import",
@@ -80,6 +96,9 @@ export async function createTournament(db: Firestore, input: TournamentInput): P
     eventDate: input.eventDate?.trim() || "",
     notes: input.notes?.trim() || "",
     weighInTime: input.weighInTime?.trim() || "",
+    arrivalTime: input.arrivalTime?.trim() || "",
+    travelChecklist: input.travelChecklist || [],
+    coachChecklist: input.coachChecklist || [],
     coachEventNotes: input.coachEventNotes?.trim() || "",
     source: input.source || "manual",
     createdAt: serverTimestamp(),
@@ -101,6 +120,9 @@ export async function updateTournament(
     eventDate: input.eventDate?.trim() || "",
     notes: input.notes?.trim() || "",
     weighInTime: input.weighInTime?.trim() || "",
+    arrivalTime: input.arrivalTime?.trim() || "",
+    travelChecklist: input.travelChecklist || [],
+    coachChecklist: input.coachChecklist || [],
     coachEventNotes: input.coachEventNotes?.trim() || "",
     source: input.source || "manual",
     updatedAt: serverTimestamp(),

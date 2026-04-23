@@ -6,12 +6,17 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 import { auth, db } from "@wrestlewell/firebase/client";
 import {
   completeAccountSetup,
+  listTeamAnnouncements,
+  listTeamNotifications,
+  listTournamentEntries,
+  listTournaments,
   listWrestlers,
   registerAccount,
   signInAccount,
 } from "@wrestlewell/lib/index";
 import { COLLECTIONS, type UserRole } from "@wrestlewell/types/index";
 import { useAuthState } from "./auth-provider";
+import { readLastSeenNotificationAt } from "./notifications-storage";
 
 type AuthMode = "sign_in" | "sign_up";
 
@@ -118,6 +123,12 @@ export default function HomePage() {
   const [teamCodeCopied, setTeamCodeCopied] = useState(false);
   const [upcomingPractices, setUpcomingPractices] = useState<UpcomingPractice[]>([]);
   const [rosterCount, setRosterCount] = useState(0);
+  const [dashboardInsights, setDashboardInsights] = useState({
+    upcomingTournaments: 0,
+    pendingRegistrations: 0,
+    unreadAlerts: 0,
+    recentRosterUpdates: [] as string[],
+  });
   const [dashboardLoading, setDashboardLoading] = useState(false);
 
   const needsSetup = Boolean(firebaseUser && !appUser);
@@ -235,9 +246,12 @@ export default function HomePage() {
       try {
         setDashboardLoading(true);
 
-        const [roster, eventSnapshot] = await Promise.all([
+        const [roster, eventSnapshot, tournamentRows, announcementRows, notificationRows] = await Promise.all([
           listWrestlers(db, currentTeam.id),
           getDocs(query(collection(db, COLLECTIONS.CALENDAR_EVENTS), where("teamId", "==", currentTeam.id))),
+          listTournaments(db, currentTeam.id),
+          listTeamAnnouncements(db, currentTeam.id),
+          listTeamNotifications(db, currentTeam.id, appUser.role),
         ]);
 
         const todayKey = new Date().toISOString().split("T")[0];
@@ -250,18 +264,52 @@ export default function HomePage() {
           .sort((a, b) => a.date.localeCompare(b.date))
           .slice(0, 3);
 
+        const upcomingTournamentRows = tournamentRows.filter(
+          (tournament) => tournament.eventDate && tournament.eventDate >= todayKey
+        );
+
+        const pendingEntryBatches = await Promise.all(
+          tournamentRows.map((tournament) =>
+            listTournamentEntries(db, { teamId: currentTeam.id, tournamentId: tournament.id })
+          )
+        );
+        const allEntries = pendingEntryBatches.flat();
+        const lastSeenAt =
+          firebaseUser?.uid && appUser?.role
+            ? readLastSeenNotificationAt(firebaseUser.uid, currentTeam.id, appUser.role)
+            : "";
+        const unreadAlerts = [...announcementRows, ...notificationRows].filter(
+          (item) => item.createdAt && (!lastSeenAt || item.createdAt > lastSeenAt)
+        ).length;
+
         setRosterCount(roster.length);
         setUpcomingPractices(nextEvents);
+        setDashboardInsights({
+          upcomingTournaments: upcomingTournamentRows.length,
+          pendingRegistrations: allEntries.filter((entry) => entry.status === "submitted").length,
+          unreadAlerts,
+          recentRosterUpdates: roster
+            .slice()
+            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+            .slice(0, 3)
+            .map((wrestler) => `${wrestler.firstName} ${wrestler.lastName}`.trim()),
+        });
       } catch (nextError) {
         console.error("Failed to load dashboard data:", nextError);
         setUpcomingPractices([]);
+        setDashboardInsights({
+          upcomingTournaments: 0,
+          pendingRegistrations: 0,
+          unreadAlerts: 0,
+          recentRosterUpdates: [],
+        });
       } finally {
         setDashboardLoading(false);
       }
     }
 
     loadDashboardData();
-  }, [appUser, currentTeam?.id]);
+  }, [appUser, currentTeam?.id, firebaseUser?.uid]);
 
   if (loading) {
     return (
@@ -617,6 +665,39 @@ export default function HomePage() {
             )}
           </div>
         </div>
+
+        {appUser.role === "coach" ? (
+          <div className="content-card">
+            <h2 className="content-card__title">Coach Snapshot</h2>
+            <p className="content-card__copy">
+              Quick season signals so you can act on the next important thing without digging through multiple screens.
+            </p>
+
+            <div className="feature-list">
+              <span>
+                Upcoming tournaments:{" "}
+                <strong>{dashboardLoading ? "..." : dashboardInsights.upcomingTournaments}</strong>
+              </span>
+              <span>
+                Pending registration verifications:{" "}
+                <strong>{dashboardLoading ? "..." : dashboardInsights.pendingRegistrations}</strong>
+              </span>
+              <span>
+                Unread alerts: <strong>{dashboardLoading ? "..." : dashboardInsights.unreadAlerts}</strong>
+              </span>
+              <span>
+                Recent roster updates:{" "}
+                <strong>
+                  {dashboardLoading
+                    ? "..."
+                    : dashboardInsights.recentRosterUpdates.length > 0
+                      ? dashboardInsights.recentRosterUpdates.join(", ")
+                      : "No recent changes"}
+                </strong>
+              </span>
+            </div>
+          </div>
+        ) : null}
       </aside>
     </div>
   );
