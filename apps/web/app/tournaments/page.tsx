@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { db } from "@wrestlewell/firebase/client";
 import {
+  createTeamNotification,
   createTournament,
   createTournamentEntry,
   deleteTournament,
@@ -37,7 +38,7 @@ function formatEntryStatus(status: TournamentEntry["status"]) {
 }
 
 export default function TournamentsPage() {
-  const { appUser, currentTeam } = useAuthState();
+  const { appUser, currentTeam, firebaseUser } = useAuthState();
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
   const [entries, setEntries] = useState<TournamentEntry[]>([]);
@@ -51,6 +52,14 @@ export default function TournamentsPage() {
   const [selectedWrestlerId, setSelectedWrestlerId] = useState("");
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null);
   const isCoach = appUser?.role === "coach";
+  const ownWrestler =
+    appUser?.role === "athlete" && firebaseUser
+      ? wrestlers.find((wrestler) => wrestler.ownerUserId === firebaseUser.uid) || null
+      : null;
+  const ownEntry =
+    appUser?.role === "athlete" && ownWrestler
+      ? entries.find((entry) => entry.wrestlerId === ownWrestler.id) || null
+      : null;
 
   async function refreshTournaments(nextSelectedId?: string | null) {
     if (!currentTeam?.id) {
@@ -246,6 +255,20 @@ export default function TournamentsPage() {
     try {
       setSavingEntry(true);
       await updateTournamentEntryStatus(db, entry, status);
+      if (status === "submitted" && appUser?.role === "athlete" && currentTeam?.id) {
+        const tournament = tournaments.find((item) => item.id === entry.tournamentId);
+        await createTeamNotification(db, {
+          teamId: currentTeam.id,
+          audienceRole: "coach",
+          title: "Tournament registration submitted",
+          body: `${entry.wrestlerName} marked themselves registered for ${tournament?.name || "a tournament"}. Please verify the USA Bracketing registration.`,
+          type: "tournament_registration",
+          createdBy: firebaseUser?.uid || "",
+          tournamentId: entry.tournamentId,
+          tournamentEntryId: entry.id,
+          wrestlerId: entry.wrestlerId,
+        });
+      }
       await refreshEntries(activeTournamentId);
       setStatusMessage({
         tone: "success",
@@ -259,6 +282,83 @@ export default function TournamentsPage() {
     } catch (error) {
       console.error("Failed to update tournament entry status:", error);
       setStatusMessage({ tone: "error", text: "Failed to update tournament entry status." });
+    } finally {
+      setSavingEntry(false);
+    }
+  }
+
+  async function athleteRegisterCurrentTournament() {
+    if (!currentTeam?.id || !activeTournamentId) {
+      setStatusMessage({ tone: "error", text: "Open a tournament first." });
+      return;
+    }
+
+    if (!ownWrestler) {
+      setStatusMessage({
+        tone: "error",
+        text: "Create your wrestler profile before marking yourself registered.",
+      });
+      return;
+    }
+
+    try {
+      setSavingEntry(true);
+
+      if (ownEntry) {
+        if (ownEntry.status === "submitted" || ownEntry.status === "confirmed") {
+          setStatusMessage({
+            tone: "info",
+            text:
+              ownEntry.status === "confirmed"
+                ? "Your coach has already verified this tournament registration."
+                : "You already marked yourself registered for this tournament.",
+          });
+          return;
+        }
+
+        await updateTournamentEntryStatus(db, ownEntry, "submitted");
+        await createTeamNotification(db, {
+          teamId: currentTeam.id,
+          audienceRole: "coach",
+          title: "Tournament registration submitted",
+          body: `${ownEntry.wrestlerName} marked themselves registered for ${tournaments.find((item) => item.id === activeTournamentId)?.name || "a tournament"}. Please verify the USA Bracketing registration.`,
+          type: "tournament_registration",
+          createdBy: firebaseUser?.uid || "",
+          tournamentId: activeTournamentId,
+          tournamentEntryId: ownEntry.id,
+          wrestlerId: ownEntry.wrestlerId,
+        });
+      } else {
+        const entryId = await createTournamentEntry(db, {
+          teamId: currentTeam.id,
+          tournamentId: activeTournamentId,
+          wrestlerId: ownWrestler.id,
+          wrestlerName: `${ownWrestler.firstName} ${ownWrestler.lastName}`.trim(),
+          style: ownWrestler.styles[0],
+          weightClass: ownWrestler.weightClass,
+          status: "submitted",
+        });
+        await createTeamNotification(db, {
+          teamId: currentTeam.id,
+          audienceRole: "coach",
+          title: "Tournament registration submitted",
+          body: `${ownWrestler.firstName} ${ownWrestler.lastName} marked themselves registered for ${tournaments.find((item) => item.id === activeTournamentId)?.name || "a tournament"}. Please verify the USA Bracketing registration.`,
+          type: "tournament_registration",
+          createdBy: firebaseUser?.uid || "",
+          tournamentId: activeTournamentId,
+          tournamentEntryId: entryId,
+          wrestlerId: ownWrestler.id,
+        });
+      }
+
+      await refreshEntries(activeTournamentId);
+      setStatusMessage({
+        tone: "success",
+        text: "Registration submitted. Your coach has been notified to verify it.",
+      });
+    } catch (error) {
+      console.error("Failed to mark athlete registered:", error);
+      setStatusMessage({ tone: "error", text: "Failed to submit your tournament registration." });
     } finally {
       setSavingEntry(false);
     }
@@ -283,7 +383,7 @@ export default function TournamentsPage() {
           <StatusBanner
             message={{
               tone: "info",
-              text: "Tournaments are read-only for athletes. Coaches manage event links and tournament roster entries.",
+              text: "Athletes can open registration links and mark themselves registered. Coaches still verify the final USA Bracketing registration.",
             }}
           />
         ) : null}
@@ -409,6 +509,40 @@ export default function TournamentsPage() {
                   </button>
                 ) : null}
               </div>
+
+              {!isCoach && activeTournamentId ? (
+                <div
+                  style={{
+                    marginTop: 4,
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 12,
+                    padding: 14,
+                    background: "#f8fafc",
+                  }}
+                >
+                  <strong style={{ display: "block", marginBottom: 8 }}>My Registration</strong>
+                  <div style={{ color: "#555", marginBottom: 12, fontSize: 14 }}>
+                    {ownEntry
+                      ? `Current status: ${formatEntryStatus(ownEntry.status)}`
+                      : ownWrestler
+                        ? "You are not listed for this tournament yet."
+                        : "Create your wrestler profile first so we can match you to a tournament entry."}
+                  </div>
+                  <button
+                    onClick={athleteRegisterCurrentTournament}
+                    disabled={savingEntry || !ownWrestler || ownEntry?.status === "submitted" || ownEntry?.status === "confirmed"}
+                    className="button-primary"
+                  >
+                    {savingEntry
+                      ? "Saving..."
+                      : ownEntry?.status === "confirmed"
+                        ? "Verified"
+                        : ownEntry?.status === "submitted"
+                          ? "Submitted"
+                          : "I Registered"}
+                  </button>
+                </div>
+              ) : null}
             </div>
           </section>
 
@@ -447,7 +581,7 @@ export default function TournamentsPage() {
               </div>
 
               {entries.length === 0 ? (
-                <p>No wrestlers added to this tournament yet.</p>
+                <p>{isCoach ? "No wrestlers added to this tournament yet." : "You are not listed for this tournament yet."}</p>
               ) : (
                 <div style={{ display: "grid", gap: 12 }}>
                   {entries.map((entry) => (
@@ -509,6 +643,32 @@ export default function TournamentsPage() {
                           >
                             {deletingEntryId === entry.id ? "Removing..." : "Remove Entry"}
                           </button>
+                        </div>
+                      ) : ownWrestler?.id === entry.wrestlerId ? (
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+                          {entry.status === "planned" ? (
+                            <button
+                              onClick={() => athleteRegisterCurrentTournament()}
+                              disabled={savingEntry}
+                              className="button-primary"
+                            >
+                              {savingEntry ? "Saving..." : "I Registered"}
+                            </button>
+                          ) : (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                padding: "8px 12px",
+                                borderRadius: 999,
+                                background: entry.status === "confirmed" ? "#d7f4df" : "#f5d7dc",
+                                color: entry.status === "confirmed" ? "#166534" : "#911022",
+                                fontWeight: 700,
+                              }}
+                            >
+                              {entry.status === "confirmed" ? "Verified by Coach" : "Submitted"}
+                            </span>
+                          )}
                         </div>
                       ) : null}
                     </div>
