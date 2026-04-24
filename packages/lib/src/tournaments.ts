@@ -45,6 +45,25 @@ function buildTournamentDedupKey(tournament: Pick<Tournament, "name" | "registra
   ].join("::");
 }
 
+function areTournamentVariants(
+  importedTournament: Pick<Tournament, "name" | "eventDate" | "source">,
+  manualTournament: Pick<Tournament, "name" | "eventDate" | "source">
+) {
+  if (importedTournament.source !== "excel_import" || manualTournament.source !== "manual") {
+    return false;
+  }
+
+  const importedName = importedTournament.name.trim().toLowerCase();
+  const manualName = manualTournament.name.trim().toLowerCase();
+  if (!importedName || importedName !== manualName) {
+    return false;
+  }
+
+  const importedDate = (importedTournament.eventDate || "").trim();
+  const manualDate = (manualTournament.eventDate || "").trim();
+  return !importedDate || !manualDate || importedDate === manualDate;
+}
+
 function normalizeTournament(id: string, value: Record<string, unknown>): Tournament {
   return {
     id,
@@ -107,8 +126,24 @@ export async function listTournaments(db: Firestore, teamId?: string): Promise<T
     }
   }
 
-  return Array.from(tournamentMap.values())
-    .filter((tournament) => !(tournament.source === "excel_import" && adoptedImportedIds.has(tournament.id)))
+  const tournaments = Array.from(tournamentMap.values());
+
+  return tournaments
+    .filter((tournament) => {
+      if (tournament.source !== "excel_import") {
+        return true;
+      }
+
+      if (adoptedImportedIds.has(tournament.id)) {
+        return false;
+      }
+
+      return !tournaments.some(
+        (candidate) =>
+          candidate.teamId === teamId &&
+          areTournamentVariants(tournament, candidate)
+      );
+    })
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 

@@ -74,6 +74,25 @@ function matchesTournamentIdentity(
   );
 }
 
+function matchesLegacyImportedAdoption(
+  tournament: Pick<Tournament, "name" | "eventDate" | "source">,
+  sourceTournament: Pick<Tournament, "name" | "eventDate" | "source"> | null
+) {
+  if (!sourceTournament || sourceTournament.source !== "excel_import" || tournament.source !== "manual") {
+    return false;
+  }
+
+  const tournamentName = tournament.name.trim().toLowerCase();
+  const sourceName = sourceTournament.name.trim().toLowerCase();
+  if (!tournamentName || tournamentName !== sourceName) {
+    return false;
+  }
+
+  const tournamentDate = (tournament.eventDate || "").trim();
+  const sourceDate = (sourceTournament.eventDate || "").trim();
+  return !tournamentDate || !sourceDate || tournamentDate === sourceDate;
+}
+
 export default function TournamentsPage() {
   const { appUser, currentTeam, firebaseUser } = useAuthState();
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
@@ -258,6 +277,7 @@ export default function TournamentsPage() {
             (
               (activeTournamentId &&
                 tournament.importedFromTournamentId === activeTournamentId) ||
+              matchesLegacyImportedAdoption(tournament, activeTournament) ||
               matchesTournamentIdentity(tournament, form)
             )
         );
