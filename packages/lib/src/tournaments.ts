@@ -36,6 +36,14 @@ function ensureStringArray(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function buildTournamentDedupKey(tournament: Pick<Tournament, "name" | "registrationUrl" | "eventDate">) {
+  return [
+    tournament.name.trim().toLowerCase(),
+    tournament.registrationUrl.trim().toLowerCase(),
+    (tournament.eventDate || "").trim(),
+  ].join("::");
+}
+
 function normalizeTournament(id: string, value: Record<string, unknown>): Tournament {
   return {
     id,
@@ -58,6 +66,7 @@ function normalizeTournament(id: string, value: Record<string, unknown>): Tourna
 
 export async function listTournaments(db: Firestore, teamId?: string): Promise<Tournament[]> {
   const tournamentMap = new Map<string, Tournament>();
+  const tournamentKeyMap = new Map<string, string>();
 
   const globalSnapshot = await getDocs(
     query(collection(db, COLLECTIONS.TOURNAMENTS), where("source", "==", "excel_import"))
@@ -69,6 +78,7 @@ export async function listTournaments(db: Firestore, teamId?: string): Promise<T
       tournamentDoc.data() as Record<string, unknown>
     );
     tournamentMap.set(tournament.id, tournament);
+    tournamentKeyMap.set(buildTournamentDedupKey(tournament), tournament.id);
   }
 
   if (teamId) {
@@ -81,7 +91,12 @@ export async function listTournaments(db: Firestore, teamId?: string): Promise<T
         tournamentDoc.id,
         tournamentDoc.data() as Record<string, unknown>
       );
+      const existingId = tournamentKeyMap.get(buildTournamentDedupKey(tournament));
+      if (existingId && existingId !== tournament.id) {
+        tournamentMap.delete(existingId);
+      }
       tournamentMap.set(tournament.id, tournament);
+      tournamentKeyMap.set(buildTournamentDedupKey(tournament), tournament.id);
     }
   }
 

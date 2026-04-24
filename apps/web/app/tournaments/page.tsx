@@ -12,6 +12,7 @@ import {
   listTournamentEntries,
   listWrestlers,
   updateTournament,
+  updateTournamentEntry,
   updateTournamentEntryStatus,
 } from "@wrestlewell/lib/index";
 import type { Tournament, TournamentEntry, WrestlerProfile } from "@wrestlewell/types/index";
@@ -60,6 +61,17 @@ function formatEntryStatus(status: TournamentEntry["status"]) {
   if (status === "planned") return "Planned";
   if (status === "submitted") return "Submitted";
   return "Verified";
+}
+
+function matchesTournamentIdentity(
+  tournament: Pick<Tournament, "name" | "registrationUrl" | "eventDate">,
+  form: Pick<TournamentFormState, "name" | "registrationUrl" | "eventDate">
+) {
+  return (
+    tournament.name.trim().toLowerCase() === form.name.trim().toLowerCase() &&
+    tournament.registrationUrl.trim().toLowerCase() === form.registrationUrl.trim().toLowerCase() &&
+    (tournament.eventDate || "").trim() === form.eventDate.trim()
+  );
 }
 
 export default function TournamentsPage() {
@@ -238,25 +250,89 @@ export default function TournamentsPage() {
         await refreshTournaments(activeTournamentId);
         setStatusMessage({ tone: "success", text: "Tournament updated." });
       } else {
-        const nextId = await createTournament(db, {
-          teamId: currentTeam.id,
-          name: form.name,
-          registrationUrl: form.registrationUrl,
-          eventDate: form.eventDate,
-          notes: form.notes,
-          weighInTime: form.weighInTime,
-          arrivalTime: form.arrivalTime,
-          travelChecklist: parseList(form.travelChecklist),
-          coachChecklist: parseList(form.coachChecklist),
-          coachEventNotes: form.coachEventNotes,
-          source: "manual",
-        });
-        await refreshTournaments(nextId);
+        const matchingTeamTournament = tournaments.find(
+          (tournament) =>
+            tournament.id !== activeTournamentId &&
+            tournament.teamId === currentTeam.id &&
+            matchesTournamentIdentity(tournament, form)
+        );
+
+        const targetTournamentId =
+          matchingTeamTournament?.id ||
+          (await createTournament(db, {
+            teamId: currentTeam.id,
+            name: form.name,
+            registrationUrl: form.registrationUrl,
+            eventDate: form.eventDate,
+            notes: form.notes,
+            weighInTime: form.weighInTime,
+            arrivalTime: form.arrivalTime,
+            travelChecklist: parseList(form.travelChecklist),
+            coachChecklist: parseList(form.coachChecklist),
+            coachEventNotes: form.coachEventNotes,
+            source: "manual",
+          }));
+
+        if (matchingTeamTournament) {
+          await updateTournament(db, matchingTeamTournament.id, {
+            teamId: currentTeam.id,
+            name: form.name,
+            registrationUrl: form.registrationUrl,
+            eventDate: form.eventDate,
+            notes: form.notes,
+            weighInTime: form.weighInTime,
+            arrivalTime: form.arrivalTime,
+            travelChecklist: parseList(form.travelChecklist),
+            coachChecklist: parseList(form.coachChecklist),
+            coachEventNotes: form.coachEventNotes,
+            source: "manual",
+          });
+        }
+
+        if (activeTournamentId) {
+          const sourceEntries = entriesByTournament[activeTournamentId] || [];
+          const targetEntries = entriesByTournament[targetTournamentId] || [];
+
+          for (const entry of sourceEntries) {
+            const existingTargetEntry = targetEntries.find((candidate) => candidate.wrestlerId === entry.wrestlerId);
+            if (existingTargetEntry) {
+              await updateTournamentEntry(db, existingTargetEntry.id, {
+                teamId: currentTeam.id,
+                tournamentId: targetTournamentId,
+                wrestlerId: existingTargetEntry.wrestlerId,
+                wrestlerName: existingTargetEntry.wrestlerName,
+                style: existingTargetEntry.style,
+                weightClass: existingTargetEntry.weightClass,
+                status:
+                  existingTargetEntry.status === "confirmed" || entry.status === "confirmed"
+                    ? "confirmed"
+                    : existingTargetEntry.status === "submitted" || entry.status === "submitted"
+                      ? "submitted"
+                      : "planned",
+                notes: existingTargetEntry.notes || entry.notes,
+              });
+              await deleteTournamentEntry(db, entry.id);
+            } else {
+              await updateTournamentEntry(db, entry.id, {
+                teamId: currentTeam.id,
+                tournamentId: targetTournamentId,
+                wrestlerId: entry.wrestlerId,
+                wrestlerName: entry.wrestlerName,
+                style: entry.style,
+                weightClass: entry.weightClass,
+                status: entry.status,
+                notes: entry.notes,
+              });
+            }
+          }
+        }
+
+        await refreshTournaments(targetTournamentId);
         setStatusMessage({
           tone: "success",
           text:
             activeTournamentId && !canDirectlyEditActiveTournament
-              ? "A team-owned tournament copy was created so you can manage this event."
+              ? "The tournament was saved into your team schedule and the roster stayed attached."
               : "Tournament created.",
         });
       }
