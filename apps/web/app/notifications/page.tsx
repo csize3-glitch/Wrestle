@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { db } from "@wrestlewell/firebase/client";
 import {
+  getAppUser,
   listCalendarEvents,
+  markNotificationsSeenRemote,
   listTeamAnnouncements,
   listTeamNotifications,
   listTournamentEntries,
@@ -30,6 +32,7 @@ type NotificationCard = {
   body: string;
   meta: string;
   href: string;
+  createdAt?: string;
 };
 
 function formatDateLabel(value: string) {
@@ -71,6 +74,7 @@ function createAnnouncementCards(items: TeamAnnouncement[]): NotificationCard[] 
     body: item.body,
     meta: `Coach announcement • ${formatDateLabel(item.createdAt)}`,
     href: "/notifications",
+    createdAt: item.createdAt,
   }));
 }
 
@@ -88,6 +92,7 @@ function createTeamNotificationCards(items: TeamNotification[]): NotificationCar
       item.type === "tournament_registration"
         ? `Registration alert • ${formatDateLabel(item.createdAt)}`
         : `Team notification • ${formatDateLabel(item.createdAt)}`,
+    createdAt: item.createdAt,
   }));
 }
 
@@ -106,6 +111,7 @@ function createPracticeCards(events: CalendarEventRecord[]): NotificationCard[] 
         `Your team has ${event.practicePlanStyle || "Mixed"} practice scheduled on ${formatPracticeDate(event.date)}.`,
       meta: `Practice reminder • ${formatPracticeDate(event.date)}`,
       href: "/calendar",
+      createdAt: event.date,
     }));
 }
 
@@ -131,6 +137,7 @@ function createTournamentCards(args: {
               : `${entryCount} wrestlers are currently on the WrestleWell tournament roster.`,
           meta: "Tournament update",
           href: `/tournaments?open=${tournament.id}`,
+          createdAt: tournament.updatedAt,
         };
       });
   }
@@ -153,6 +160,7 @@ function createTournamentCards(args: {
       body: "You are listed on the WrestleWell roster for this tournament.",
       meta: "Tournament update",
       href: `/tournaments?open=${tournament.id}`,
+      createdAt: tournament.updatedAt,
     }));
 }
 
@@ -165,6 +173,7 @@ export default function NotificationsPage() {
   const [entriesByTournament, setEntriesByTournament] = useState<Record<string, TournamentEntry[]>>({});
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lastSeenAt, setLastSeenAt] = useState("");
 
   const athleteOwnedWrestler = useMemo(
     () =>
@@ -219,6 +228,11 @@ export default function NotificationsPage() {
 
         if (latestSeenCandidate) {
           markNotificationsSeen(firebaseUser.uid, currentTeam.id, appUser.role, latestSeenCandidate);
+          await markNotificationsSeenRemote(db, firebaseUser.uid, latestSeenCandidate);
+          setLastSeenAt(latestSeenCandidate);
+        } else {
+          const latestUser = await getAppUser(db, firebaseUser.uid);
+          setLastSeenAt(latestUser?.lastSeenNotificationsAt || "");
         }
       } catch (error) {
         console.error("Failed to load web notifications:", error);
@@ -246,16 +260,75 @@ export default function NotificationsPage() {
     return allCards.slice(0, 20);
   }, [announcements, appUser?.role, athleteOwnedWrestler?.id, entriesByTournament, events, teamNotifications, tournaments]);
 
+  const unreadCount = cards.filter((card) => card.createdAt && (!lastSeenAt || card.createdAt > lastSeenAt)).length;
+
+  async function markAllRead() {
+    if (!firebaseUser || !currentTeam || !appUser || cards.length === 0) {
+      return;
+    }
+
+    const latest = cards
+      .map((card) => card.createdAt)
+      .filter(Boolean)
+      .sort()
+      .at(-1);
+
+    if (!latest) {
+      return;
+    }
+
+    markNotificationsSeen(firebaseUser.uid, currentTeam.id, appUser.role, latest);
+    await markNotificationsSeenRemote(db, firebaseUser.uid, latest);
+    setLastSeenAt(latest);
+  }
+
   return (
     <RequireAuth
       title="Notifications"
       description="Announcements, tournament registration alerts, and upcoming schedule reminders."
     >
       <main style={{ padding: 24 }}>
-        <h1 style={{ fontSize: 32, marginBottom: 8 }}>Notifications</h1>
-        <p style={{ marginBottom: 24 }}>
-          Stay on top of coach announcements, tournament registration updates, and upcoming practice reminders.
-        </p>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 18,
+            flexWrap: "wrap",
+            marginBottom: 24,
+          }}
+        >
+          <div>
+            <h1 style={{ fontSize: 32, marginBottom: 8 }}>Notifications</h1>
+            <p style={{ marginBottom: 0 }}>
+              Stay on top of coach announcements, tournament registration updates, and upcoming practice reminders.
+            </p>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <div
+              style={{
+                border: "1px solid #ddd",
+                borderRadius: 999,
+                padding: "10px 14px",
+                background: "#fff",
+                fontWeight: 700,
+              }}
+            >
+              {unreadCount > 0 ? `${unreadCount} unread` : "All caught up"}
+            </div>
+            <button className="button-secondary" onClick={() => markAllRead()}>
+              Mark All Read
+            </button>
+          </div>
+        </div>
 
         {loading ? <p>Loading notifications...</p> : null}
 
@@ -286,15 +359,45 @@ export default function NotificationsPage() {
                 borderRadius: 16,
                 padding: 18,
                 background: "#fff",
+                boxShadow: card.createdAt && (!lastSeenAt || card.createdAt > lastSeenAt) ? "0 12px 28px rgba(15, 39, 72, 0.08)" : "none",
+                borderColor: card.createdAt && (!lastSeenAt || card.createdAt > lastSeenAt) ? "rgba(191, 16, 41, 0.24)" : "#ddd",
                 transition: "transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease",
               }}
             >
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#0f2748", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                {card.kind}
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#0f2748", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  {card.kind}
+                </div>
+                {card.createdAt && (!lastSeenAt || card.createdAt > lastSeenAt) ? (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: "#911022",
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 999,
+                        background: "#bf1029",
+                        display: "inline-block",
+                      }}
+                    />
+                    Unread
+                  </span>
+                ) : null}
               </div>
               <strong style={{ display: "block", fontSize: 18, marginBottom: 8 }}>{card.title}</strong>
               <p style={{ marginTop: 0, marginBottom: 10, color: "#334155" }}>{card.body}</p>
-              <div style={{ fontSize: 13, color: "#64748b" }}>{card.meta}</div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", fontSize: 13, color: "#64748b" }}>
+                <span>{card.meta}</span>
+                <span>Open</span>
+              </div>
             </Link>
           ))}
         </div>

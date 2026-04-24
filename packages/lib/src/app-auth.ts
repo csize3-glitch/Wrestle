@@ -19,6 +19,7 @@ import {
 import {
   COLLECTIONS,
   type AppUser,
+  type NotificationPreferences,
   type Team,
   type TeamMember,
   type UserRole,
@@ -44,6 +45,16 @@ export type AccountSetupInput = {
 
 function normalizeRole(value: unknown): UserRole {
   return value === "coach" ? "coach" : "athlete";
+}
+
+function normalizeNotificationPreferences(value: unknown): NotificationPreferences {
+  const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+
+  return {
+    announcements: record.announcements !== false,
+    tournamentAlerts: record.tournamentAlerts !== false,
+    practiceReminders: record.practiceReminders !== false,
+  };
 }
 
 function normalizeTeamCode(value?: string) {
@@ -77,6 +88,9 @@ function normalizeAppUser(id: string, value: Record<string, unknown>): AppUser {
     displayName: typeof value.displayName === "string" ? value.displayName : "",
     role: normalizeRole(value.role),
     currentTeamId: typeof value.currentTeamId === "string" ? value.currentTeamId : undefined,
+    notificationPreferences: normalizeNotificationPreferences(value.notificationPreferences),
+    lastSeenNotificationsAt:
+      typeof value.lastSeenNotificationsAt === "string" ? value.lastSeenNotificationsAt : undefined,
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
   };
@@ -89,6 +103,7 @@ function normalizeTeam(id: string, value: Record<string, unknown>): Team {
     teamCode: typeof value.teamCode === "string" ? value.teamCode : "",
     coachInviteCode:
       typeof value.coachInviteCode === "string" ? value.coachInviteCode : undefined,
+    logoUrl: typeof value.logoUrl === "string" ? value.logoUrl : undefined,
     ownerUserId: typeof value.ownerUserId === "string" ? value.ownerUserId : "",
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
@@ -187,6 +202,7 @@ async function createAccountRecords(
         name: resolvedTeamName,
         teamCode: normalizeTeamCode(args.teamCode) || createTeamCode(resolvedTeamName),
         coachInviteCode: createCoachInviteCode(resolvedTeamName),
+        logoUrl: "",
         ownerUserId: args.uid,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -205,6 +221,12 @@ async function createAccountRecords(
     displayName: args.displayName.trim(),
     role: args.role,
     currentTeamId: teamId || "",
+    notificationPreferences: {
+      announcements: true,
+      tournamentAlerts: true,
+      practiceReminders: true,
+    },
+    lastSeenNotificationsAt: "",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   } satisfies Omit<AppUser, "id" | "createdAt" | "updatedAt"> & Record<string, unknown>);

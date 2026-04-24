@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { db } from "@wrestlewell/firebase/client";
-import { listTeamAnnouncements, listTeamNotifications } from "@wrestlewell/lib/index";
+import { getAppUser, listTeamAnnouncements, listTeamNotifications } from "@wrestlewell/lib/index";
 import { useAuthState } from "./auth-provider";
 import { readLastSeenNotificationAt } from "./notifications-storage";
 
@@ -35,12 +35,15 @@ export function AuthNav() {
           listTeamAnnouncements(db, notificationScope.teamId),
           listTeamNotifications(db, notificationScope.teamId, notificationScope.role),
         ]);
+        const latestUser = await getAppUser(db, notificationScope.userId);
 
-        const lastSeenAt = readLastSeenNotificationAt(
-          notificationScope.userId,
-          notificationScope.teamId,
-          notificationScope.role
-        );
+        const lastSeenAt =
+          latestUser?.lastSeenNotificationsAt ||
+          readLastSeenNotificationAt(
+            notificationScope.userId,
+            notificationScope.teamId,
+            notificationScope.role
+          );
 
         const unreadItems = [...announcements, ...notifications].filter(
           (item) => item.createdAt && (!lastSeenAt || item.createdAt > lastSeenAt)

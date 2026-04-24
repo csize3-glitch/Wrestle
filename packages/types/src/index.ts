@@ -1,6 +1,12 @@
 export type WrestlingStyle = "Freestyle" | "Folkstyle" | "Greco-Roman";
 export type UserRole = "coach" | "athlete";
 
+export interface NotificationPreferences {
+  announcements: boolean;
+  tournamentAlerts: boolean;
+  practiceReminders: boolean;
+}
+
 export interface StyleProfileSection {
   strengths: string[];
   weaknesses: string[];
@@ -136,6 +142,8 @@ export interface AppUser {
   displayName: string;
   role: UserRole;
   currentTeamId?: string;
+  notificationPreferences?: NotificationPreferences;
+  lastSeenNotificationsAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -145,6 +153,7 @@ export interface Team {
   name: string;
   teamCode: string;
   coachInviteCode?: string;
+  logoUrl?: string;
   ownerUserId: string;
   createdAt: string;
   updatedAt: string;

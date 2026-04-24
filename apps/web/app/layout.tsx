@@ -7,6 +7,7 @@ import { AuthNav } from "./auth-nav";
 const navigationItems = [
   { href: "/", label: "Home" },
   { href: "/team", label: "Team" },
+  { href: "/settings", label: "Settings" },
   { href: "/library", label: "Library" },
   { href: "/practice-plans", label: "Practice Plans" },
   { href: "/calendar", label: "Calendar" },

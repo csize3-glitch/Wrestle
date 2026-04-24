@@ -13,3 +13,4 @@ export * from "./team-notifications";
 export * from "./library-taxonomy";
 export * from "./team-management";
 export * from "./match-history";
+export * from "./settings";
