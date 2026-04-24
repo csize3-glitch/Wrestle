@@ -180,6 +180,7 @@ export interface TeamMemberRecord extends TeamMember {
 export interface Tournament {
   id: string;
   teamId: string;
+  importedFromTournamentId?: string;
   name: string;
   registrationUrl: string;
   eventDate?: string;

@@ -236,6 +236,7 @@ export default function TournamentsPage() {
       if (activeTournamentId && canDirectlyEditActiveTournament) {
         await updateTournament(db, activeTournamentId, {
           teamId: currentTeam.id,
+          importedFromTournamentId: activeTournament?.importedFromTournamentId,
           name: form.name,
           registrationUrl: form.registrationUrl,
           eventDate: form.eventDate,
@@ -254,13 +255,18 @@ export default function TournamentsPage() {
           (tournament) =>
             tournament.id !== activeTournamentId &&
             tournament.teamId === currentTeam.id &&
-            matchesTournamentIdentity(tournament, form)
+            (
+              (activeTournamentId &&
+                tournament.importedFromTournamentId === activeTournamentId) ||
+              matchesTournamentIdentity(tournament, form)
+            )
         );
 
         const targetTournamentId =
           matchingTeamTournament?.id ||
           (await createTournament(db, {
             teamId: currentTeam.id,
+            importedFromTournamentId: activeTournamentId || undefined,
             name: form.name,
             registrationUrl: form.registrationUrl,
             eventDate: form.eventDate,
@@ -276,6 +282,7 @@ export default function TournamentsPage() {
         if (matchingTeamTournament) {
           await updateTournament(db, matchingTeamTournament.id, {
             teamId: currentTeam.id,
+            importedFromTournamentId: matchingTeamTournament.importedFromTournamentId || activeTournamentId || undefined,
             name: form.name,
             registrationUrl: form.registrationUrl,
             eventDate: form.eventDate,

@@ -14,6 +14,7 @@ import { COLLECTIONS, type Tournament } from "@wrestlewell/types/index";
 
 export type TournamentInput = {
   teamId: string;
+  importedFromTournamentId?: string;
   name: string;
   registrationUrl: string;
   eventDate?: string;
@@ -48,6 +49,8 @@ function normalizeTournament(id: string, value: Record<string, unknown>): Tourna
   return {
     id,
     teamId: typeof value.teamId === "string" ? value.teamId : "",
+    importedFromTournamentId:
+      typeof value.importedFromTournamentId === "string" ? value.importedFromTournamentId : undefined,
     name: typeof value.name === "string" ? value.name : "",
     registrationUrl: typeof value.registrationUrl === "string" ? value.registrationUrl : "",
     eventDate: typeof value.eventDate === "string" ? value.eventDate : undefined,
@@ -67,6 +70,7 @@ function normalizeTournament(id: string, value: Record<string, unknown>): Tourna
 export async function listTournaments(db: Firestore, teamId?: string): Promise<Tournament[]> {
   const tournamentMap = new Map<string, Tournament>();
   const tournamentKeyMap = new Map<string, string>();
+  const adoptedImportedIds = new Set<string>();
 
   const globalSnapshot = await getDocs(
     query(collection(db, COLLECTIONS.TOURNAMENTS), where("source", "==", "excel_import"))
@@ -91,6 +95,9 @@ export async function listTournaments(db: Firestore, teamId?: string): Promise<T
         tournamentDoc.id,
         tournamentDoc.data() as Record<string, unknown>
       );
+      if (tournament.importedFromTournamentId) {
+        adoptedImportedIds.add(tournament.importedFromTournamentId);
+      }
       const existingId = tournamentKeyMap.get(buildTournamentDedupKey(tournament));
       if (existingId && existingId !== tournament.id) {
         tournamentMap.delete(existingId);
@@ -100,12 +107,15 @@ export async function listTournaments(db: Firestore, teamId?: string): Promise<T
     }
   }
 
-  return Array.from(tournamentMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  return Array.from(tournamentMap.values())
+    .filter((tournament) => !(tournament.source === "excel_import" && adoptedImportedIds.has(tournament.id)))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function createTournament(db: Firestore, input: TournamentInput): Promise<string> {
   const tournamentRef = await addDoc(collection(db, COLLECTIONS.TOURNAMENTS), {
     teamId: input.teamId,
+    importedFromTournamentId: input.importedFromTournamentId?.trim() || "",
     name: input.name.trim(),
     registrationUrl: input.registrationUrl.trim(),
     eventDate: input.eventDate?.trim() || "",
@@ -130,6 +140,7 @@ export async function updateTournament(
 ): Promise<void> {
   await updateDoc(doc(db, COLLECTIONS.TOURNAMENTS, tournamentId), {
     teamId: input.teamId,
+    importedFromTournamentId: input.importedFromTournamentId?.trim() || "",
     name: input.name.trim(),
     registrationUrl: input.registrationUrl.trim(),
     eventDate: input.eventDate?.trim() || "",
