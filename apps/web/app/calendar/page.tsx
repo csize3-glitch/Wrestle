@@ -14,8 +14,8 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "@wrestlewell/firebase/client";
-import { COLLECTIONS } from "@wrestlewell/types/index";
-import { listTournamentEntries, listTournaments } from "@wrestlewell/lib/index";
+import { COLLECTIONS, type WrestlerProfile } from "@wrestlewell/types/index";
+import { listTournamentEntries, listTournaments, listWrestlers } from "@wrestlewell/lib/index";
 import { RequireAuth } from "../require-auth";
 import { useAuthState } from "../auth-provider";
 import { StatusBanner } from "../status-banner";
@@ -26,12 +26,14 @@ type SavedPracticePlan = {
   style: string;
   totalMinutes: number;
   totalSeconds?: number;
+  assignedWrestlerIds?: string[];
 };
 
 type CalendarEventItem = {
   id: string;
   date: string;
   practicePlanId: string;
+  assignedWrestlerIds?: string[];
   practicePlanTitle: string;
   practicePlanStyle: string;
   totalMinutes: number;
@@ -78,9 +80,19 @@ function formatDurationLabel(totalSeconds: number) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+function matchesAssignment(assignedIds: string[] | undefined, wrestlerId?: string | null) {
+  const safeIds = assignedIds || [];
+  if (safeIds.length === 0) {
+    return true;
+  }
+
+  return Boolean(wrestlerId && safeIds.includes(wrestlerId));
+}
+
 export default function CalendarPage() {
   const { appUser, currentTeam } = useAuthState();
   const [savedPlans, setSavedPlans] = useState<SavedPracticePlan[]>([]);
+  const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
   const [events, setEvents] = useState<CalendarEventItem[]>([]);
   const [tournaments, setTournaments] = useState<TournamentCalendarItem[]>([]);
   const [loadingPlans, setLoadingPlans] = useState(true);
@@ -91,6 +103,10 @@ export default function CalendarPage() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(1440);
   const isCoach = appUser?.role === "coach";
+  const athleteOwnedWrestler =
+    appUser?.role === "athlete"
+      ? wrestlers.find((wrestler) => wrestler.ownerUserId === appUser.id) || null
+      : null;
 
   useEffect(() => {
     function handleResize() {
@@ -138,6 +154,7 @@ export default function CalendarPage() {
             id: d.id,
             ...(d.data() as Omit<SavedPracticePlan, "id">),
           }))
+          .filter((plan) => matchesAssignment(plan.assignedWrestlerIds, athleteOwnedWrestler?.id))
           .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
         setSavedPlans(rows);
       } catch (error) {
@@ -148,6 +165,23 @@ export default function CalendarPage() {
     }
 
     loadPlans();
+  }, [athleteOwnedWrestler?.id, currentTeam?.id]);
+
+  useEffect(() => {
+    async function loadWrestlers() {
+      try {
+        if (!currentTeam?.id) {
+          setWrestlers([]);
+          return;
+        }
+
+        setWrestlers(await listWrestlers(db, currentTeam.id));
+      } catch (error) {
+        console.error("Failed to load wrestlers for calendar assignment filtering:", error);
+      }
+    }
+
+    loadWrestlers();
   }, [currentTeam?.id]);
 
   useEffect(() => {
@@ -172,6 +206,7 @@ export default function CalendarPage() {
             id: d.id,
             ...(d.data() as Omit<CalendarEventItem, "id">),
           }))
+          .filter((event) => matchesAssignment(event.assignedWrestlerIds, athleteOwnedWrestler?.id))
           .filter((event) => event.date >= weekStartKey && event.date <= weekEndKey);
 
         setEvents(rows);
@@ -185,6 +220,14 @@ export default function CalendarPage() {
                 teamId: currentTeam.id,
                 tournamentId: tournament.id,
               });
+              if (
+                appUser?.role === "athlete" &&
+                athleteOwnedWrestler &&
+                entries.length > 0 &&
+                !entries.some((entry) => entry.wrestlerId === athleteOwnedWrestler.id)
+              ) {
+                return null;
+              }
 
               return {
                 id: tournament.id,
@@ -198,7 +241,7 @@ export default function CalendarPage() {
               } satisfies TournamentCalendarItem;
             })
         );
-        setTournaments(calendarTournaments);
+        setTournaments(calendarTournaments.filter(Boolean) as TournamentCalendarItem[]);
       } catch (error) {
         console.error("Failed to load calendar events:", error);
       } finally {
@@ -207,7 +250,7 @@ export default function CalendarPage() {
     }
 
     loadEvents();
-  }, [currentTeam?.id, weekStartKey, weekEndKey]);
+  }, [athleteOwnedWrestler?.id, currentTeam?.id, weekStartKey, weekEndKey]);
 
   async function refreshEvents() {
     if (!currentTeam?.id) {
@@ -228,6 +271,7 @@ export default function CalendarPage() {
         ...(d.data() as Omit<CalendarEventItem, "id">),
       }))
       .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
+      .filter((event) => matchesAssignment(event.assignedWrestlerIds, athleteOwnedWrestler?.id))
       .filter((event) => event.date >= weekStartKey && event.date <= weekEndKey);
 
     setEvents(rows);
@@ -241,6 +285,14 @@ export default function CalendarPage() {
             teamId: currentTeam.id,
             tournamentId: tournament.id,
           });
+          if (
+            appUser?.role === "athlete" &&
+            athleteOwnedWrestler &&
+            entries.length > 0 &&
+            !entries.some((entry) => entry.wrestlerId === athleteOwnedWrestler.id)
+          ) {
+            return null;
+          }
 
           return {
             id: tournament.id,
@@ -255,7 +307,7 @@ export default function CalendarPage() {
         })
     );
 
-    setTournaments(calendarTournaments);
+    setTournaments(calendarTournaments.filter(Boolean) as TournamentCalendarItem[]);
   }
 
   async function assignPlanToDate(dateKey: string) {
@@ -283,6 +335,7 @@ export default function CalendarPage() {
         teamId: currentTeam.id,
         date: dateKey,
         practicePlanId: selectedPlan.id,
+        assignedWrestlerIds: selectedPlan.assignedWrestlerIds || [],
         practicePlanTitle: selectedPlan.title,
         practicePlanStyle: selectedPlan.style || "Mixed",
         totalMinutes: selectedPlan.totalMinutes || 0,
@@ -406,6 +459,7 @@ export default function CalendarPage() {
                 {savedPlans.map((plan) => (
                   <option key={plan.id} value={plan.id}>
                     {plan.title}
+                    {plan.assignedWrestlerIds?.length ? " (Assigned)" : ""}
                   </option>
                 ))}
               </select>
@@ -508,6 +562,9 @@ export default function CalendarPage() {
                       <div style={{ fontSize: isDenseLayout ? 13 : 14, marginTop: 6 }}>
                         {event.practicePlanStyle || "Mixed"} ·{" "}
                         {formatDurationLabel(event.totalSeconds || event.totalMinutes * 60 || 0)}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#666", marginTop: 6 }}>
+                        {(event.assignedWrestlerIds || []).length === 0 ? "Team-wide practice" : "Assigned practice"}
                       </div>
 
                       {event.notes ? (

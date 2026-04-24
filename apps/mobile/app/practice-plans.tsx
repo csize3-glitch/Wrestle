@@ -9,10 +9,11 @@ import { db } from "@wrestlewell/firebase/client";
 import {
   getYouTubeEmbedUrl,
   getPracticePlanDetail,
+  listWrestlers,
   listPracticePlans,
   type PracticePlanBlockRecord,
 } from "@wrestlewell/lib/index";
-import type { PracticePlan } from "@wrestlewell/types/index";
+import type { PracticePlan, WrestlerProfile } from "@wrestlewell/types/index";
 import { useMobileAuthState } from "../components/auth-provider";
 import { ScreenShell } from "../components/screen-shell";
 
@@ -56,6 +57,7 @@ export default function PracticePlansScreen() {
   const { firebaseUser, appUser, currentTeam, loading: authLoading } = useMobileAuthState();
   const params = useLocalSearchParams<{ planId?: string }>();
   const [plans, setPlans] = useState<PracticePlan[]>([]);
+  const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [blocks, setBlocks] = useState<PracticePlanBlockRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,6 +74,10 @@ export default function PracticePlansScreen() {
   const announcedCountdownRef = useRef<string | null>(null);
 
   const isCoach = appUser?.role === "coach";
+  const ownWrestler =
+    appUser?.role === "athlete" && firebaseUser
+      ? wrestlers.find((wrestler) => wrestler.ownerUserId === firebaseUser.uid) || null
+      : null;
 
   async function refreshPlans() {
     if (!currentTeam?.id) {
@@ -81,7 +87,11 @@ export default function PracticePlansScreen() {
       return;
     }
 
-    const rows = await listPracticePlans(db, currentTeam.id);
+    const rows = await listPracticePlans(
+      db,
+      currentTeam.id,
+      appUser?.role === "athlete" ? ownWrestler?.id : undefined
+    );
     setPlans(rows);
 
     if (!rows.length) {
@@ -104,7 +114,12 @@ export default function PracticePlansScreen() {
 
     try {
       setLoadingPlan(true);
-      const detail = await getPracticePlanDetail(db, currentTeam.id, planId);
+      const detail = await getPracticePlanDetail(
+        db,
+        currentTeam.id,
+        planId,
+        appUser?.role === "athlete" ? ownWrestler?.id : undefined
+      );
       setBlocks(detail?.blocks || []);
       setTimerActive(false);
       setActiveBlockIndex(0);
@@ -113,6 +128,23 @@ export default function PracticePlansScreen() {
       setLoadingPlan(false);
     }
   }
+
+  useEffect(() => {
+    async function loadWrestlers() {
+      if (!currentTeam?.id) {
+        setWrestlers([]);
+        return;
+      }
+
+      try {
+        setWrestlers(await listWrestlers(db, currentTeam.id));
+      } catch (error) {
+        console.error("Failed to load wrestlers for practice plan assignments:", error);
+      }
+    }
+
+    loadWrestlers();
+  }, [currentTeam?.id]);
 
   useEffect(() => {
     async function load() {
@@ -126,7 +158,7 @@ export default function PracticePlansScreen() {
     }
 
     load();
-  }, [currentTeam?.id, params.planId]);
+  }, [appUser?.role, currentTeam?.id, ownWrestler?.id, params.planId]);
 
   useEffect(() => {
     if (!selectedPlanId) {
@@ -447,7 +479,7 @@ export default function PracticePlansScreen() {
       <Text style={{ fontSize: 16, color: "#555", marginBottom: 20 }}>
         {isCoach
           ? "Open team practice plans and run a live timer block by block on deck."
-          : "Review saved team practice plans and follow the session flow from your phone."}
+          : "Review your assigned practice plans and follow the session flow from your phone."}
       </Text>
 
       <Pressable
@@ -497,7 +529,9 @@ export default function PracticePlansScreen() {
           }}
         >
           <Text style={{ fontSize: 16, lineHeight: 22 }}>
-            No practice plans found yet. Build them on the website and they will appear here.
+            {appUser?.role === "coach"
+              ? "No practice plans found yet. Build them on the website and they will appear here."
+              : "No practice plans are assigned to you yet. Your coach can assign individual plans or keep them team-wide."}
           </Text>
         </View>
       ) : null}

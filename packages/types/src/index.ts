@@ -49,6 +49,7 @@ export interface PracticePlan {
   title: string;
   teamId: string;
   style: WrestlingStyle | "Mixed";
+  assignedWrestlerIds?: string[];
   level?: string;
   description?: string;
   totalMinutes: number;
@@ -74,6 +75,7 @@ export interface CalendarEvent {
   id: string;
   teamId: string;
   practicePlanId: string;
+  assignedWrestlerIds?: string[];
   date: string;
   startTime?: string;
   endTime?: string;

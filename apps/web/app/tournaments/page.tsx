@@ -67,6 +67,7 @@ export default function TournamentsPage() {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
   const [entries, setEntries] = useState<TournamentEntry[]>([]);
+  const [entriesByTournament, setEntriesByTournament] = useState<Record<string, TournamentEntry[]>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -89,6 +90,16 @@ export default function TournamentsPage() {
     appUser?.role === "athlete" && ownWrestler
       ? entries.find((entry) => entry.wrestlerId === ownWrestler.id) || null
       : null;
+  const visibleTournaments =
+    appUser?.role === "athlete" && ownWrestler
+      ? tournaments.filter((tournament) => {
+          const tournamentEntries = entriesByTournament[tournament.id] || [];
+          if (tournamentEntries.length === 0) {
+            return true;
+          }
+          return tournamentEntries.some((entry) => entry.wrestlerId === ownWrestler.id);
+        })
+      : tournaments;
   const plannedCount = entries.filter((entry) => entry.status === "planned").length;
   const submittedCount = entries.filter((entry) => entry.status === "submitted").length;
   const verifiedCount = entries.filter((entry) => entry.status === "confirmed").length;
@@ -117,6 +128,16 @@ export default function TournamentsPage() {
 
     const rows = await listTournaments(db, currentTeam.id);
     setTournaments(rows);
+
+    const nextEntriesByTournament = Object.fromEntries(
+      await Promise.all(
+        rows.map(async (tournament) => [
+          tournament.id,
+          await listTournamentEntries(db, { teamId: currentTeam.id, tournamentId: tournament.id }),
+        ] as const)
+      )
+    );
+    setEntriesByTournament(nextEntriesByTournament);
 
     const selectedId = nextSelectedId ?? activeTournamentId;
     const selected = rows.find((tournament) => tournament.id === selectedId);
@@ -156,7 +177,9 @@ export default function TournamentsPage() {
       return;
     }
 
-    setEntries(await listTournamentEntries(db, { teamId: currentTeam.id, tournamentId }));
+    const nextEntries = await listTournamentEntries(db, { teamId: currentTeam.id, tournamentId });
+    setEntries(nextEntries);
+    setEntriesByTournament((prev) => ({ ...prev, [tournamentId]: nextEntries }));
   }
 
   useEffect(() => {
@@ -492,11 +515,11 @@ export default function TournamentsPage() {
 
             {loading ? (
               <p>Loading tournaments...</p>
-            ) : tournaments.length === 0 ? (
+            ) : visibleTournaments.length === 0 ? (
               <p>No tournaments added yet.</p>
             ) : (
               <div style={{ display: "grid", gap: 12 }}>
-                {tournaments.map((tournament) => (
+                {visibleTournaments.map((tournament) => (
                   <div
                     key={tournament.id}
                     style={{

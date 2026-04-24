@@ -2,7 +2,8 @@ import { Link } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { db } from "@wrestlewell/firebase/client";
-import { listCalendarEvents, type CalendarEventRecord } from "@wrestlewell/lib/index";
+import { listCalendarEvents, listWrestlers, type CalendarEventRecord } from "@wrestlewell/lib/index";
+import type { WrestlerProfile } from "@wrestlewell/types/index";
 import { useMobileAuthState } from "../components/auth-provider";
 import { ScreenShell } from "../components/screen-shell";
 
@@ -29,7 +30,12 @@ function formatDurationLabel(totalSeconds: number) {
 export default function CalendarScreen() {
   const { firebaseUser, appUser, currentTeam, loading: authLoading } = useMobileAuthState();
   const [events, setEvents] = useState<CalendarEventRecord[]>([]);
+  const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const ownWrestler =
+    appUser?.role === "athlete"
+      ? wrestlers.find((wrestler) => wrestler.ownerUserId === firebaseUser?.uid) || null
+      : null;
 
   async function refresh() {
     if (!currentTeam?.id) {
@@ -37,9 +43,30 @@ export default function CalendarScreen() {
       return;
     }
 
-    const rows = await listCalendarEvents(db, currentTeam.id);
+    const rows = await listCalendarEvents(
+      db,
+      currentTeam.id,
+      appUser?.role === "athlete" ? ownWrestler?.id : undefined
+    );
     setEvents(rows);
   }
+
+  useEffect(() => {
+    async function loadWrestlers() {
+      if (!currentTeam?.id) {
+        setWrestlers([]);
+        return;
+      }
+
+      try {
+        setWrestlers(await listWrestlers(db, currentTeam.id));
+      } catch (error) {
+        console.error("Failed to load wrestlers for calendar assignments:", error);
+      }
+    }
+
+    loadWrestlers();
+  }, [currentTeam?.id]);
 
   useEffect(() => {
     async function load() {
@@ -59,7 +86,7 @@ export default function CalendarScreen() {
     }
 
     load();
-  }, [appUser, currentTeam?.id, firebaseUser]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [appUser, currentTeam?.id, firebaseUser, ownWrestler?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const upcomingEvents = useMemo(() => {
     const today = new Date();
@@ -157,7 +184,9 @@ export default function CalendarScreen() {
           }}
         >
           <Text style={{ fontSize: 16, lineHeight: 22 }}>
-            No upcoming practices are scheduled yet. Assign them on the website and they will appear here.
+            {appUser?.role === "coach"
+              ? "No upcoming practices are scheduled yet. Assign them on the website and they will appear here."
+              : "No upcoming practices are assigned to you yet. Team-wide and wrestler-specific practices will appear here."}
           </Text>
         </View>
       ) : null}
@@ -183,6 +212,9 @@ export default function CalendarScreen() {
             <Text style={{ fontSize: 14, color: "#5f6d83", marginTop: 8, lineHeight: 20 }}>
               {event.practicePlanStyle || "Mixed"} •{" "}
               {formatDurationLabel(event.totalSeconds || event.totalMinutes || 0)}
+            </Text>
+            <Text style={{ fontSize: 13, color: "#6b7280", marginTop: 8 }}>
+              {(event.assignedWrestlerIds || []).length === 0 ? "Team-wide" : "Assigned practice"}
             </Text>
             {event.notes ? (
               <Text style={{ fontSize: 14, color: "#374151", marginTop: 10, lineHeight: 21 }}>

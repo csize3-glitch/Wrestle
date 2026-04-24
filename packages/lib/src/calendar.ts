@@ -28,6 +28,9 @@ function normalizeCalendarEvent(
     id,
     teamId: typeof value.teamId === "string" ? value.teamId : "",
     practicePlanId: typeof value.practicePlanId === "string" ? value.practicePlanId : "",
+    assignedWrestlerIds: Array.isArray(value.assignedWrestlerIds)
+      ? value.assignedWrestlerIds.filter((entry): entry is string => typeof entry === "string")
+      : [],
     date: typeof value.date === "string" ? value.date : "",
     startTime: typeof value.startTime === "string" ? value.startTime : undefined,
     endTime: typeof value.endTime === "string" ? value.endTime : undefined,
@@ -46,7 +49,8 @@ function normalizeCalendarEvent(
 
 export async function listCalendarEvents(
   db: Firestore,
-  teamId: string
+  teamId: string,
+  wrestlerId?: string | null
 ): Promise<CalendarEventRecord[]> {
   const snapshot = await getDocs(
     query(collection(db, COLLECTIONS.CALENDAR_EVENTS), where("teamId", "==", teamId))
@@ -56,5 +60,12 @@ export async function listCalendarEvents(
     .map((eventDoc) =>
       normalizeCalendarEvent(eventDoc.id, eventDoc.data() as Record<string, unknown>)
     )
+    .filter((event) => {
+      const assignedIds = event.assignedWrestlerIds || [];
+      if (assignedIds.length === 0) {
+        return true;
+      }
+      return Boolean(wrestlerId && assignedIds.includes(wrestlerId));
+    })
     .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
 }

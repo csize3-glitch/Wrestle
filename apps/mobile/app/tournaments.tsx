@@ -55,6 +55,13 @@ export default function TournamentsScreen() {
     appUser?.role === "athlete" && firebaseUser
       ? wrestlers.find((wrestler) => wrestler.ownerUserId === firebaseUser.uid) || null
       : null;
+  const visibleTournaments =
+    appUser?.role === "athlete" && ownWrestler
+      ? tournaments.filter((tournament) => {
+          const entries = entriesByTournament[tournament.id] || [];
+          return entries.length === 0 || entries.some((entry) => entry.wrestlerId === ownWrestler.id);
+        })
+      : tournaments;
 
   async function updateEntryStatus(entry: TournamentEntry, status: TournamentEntry["status"]) {
     try {
@@ -253,7 +260,7 @@ export default function TournamentsScreen() {
 
       {loading ? <Text>Loading tournaments...</Text> : null}
 
-      {!loading && tournaments.length === 0 ? (
+      {!loading && visibleTournaments.length === 0 ? (
         <View
           style={{
             borderWidth: 1,
@@ -264,13 +271,15 @@ export default function TournamentsScreen() {
           }}
         >
           <Text style={{ fontSize: 16, lineHeight: 22 }}>
-            No tournaments added yet. Import or create tournament links on the web app.
+            {appUser?.role === "coach"
+              ? "No tournaments added yet. Import or create tournament links on the web app."
+              : "No tournaments are assigned to you yet. Once your coach adds you to a roster, they will show up here."}
           </Text>
         </View>
       ) : null}
 
       <View style={{ gap: 14 }}>
-        {tournaments.map((tournament) => (
+        {visibleTournaments.map((tournament) => (
           <View
             key={tournament.id}
             style={{

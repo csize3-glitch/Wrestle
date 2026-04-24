@@ -16,7 +16,8 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "@wrestlewell/firebase/client";
-import { COLLECTIONS, type LibraryItem } from "@wrestlewell/types/index";
+import { listWrestlers } from "@wrestlewell/lib/index";
+import { COLLECTIONS, type LibraryItem, type WrestlerProfile } from "@wrestlewell/types/index";
 import { RequireAuth } from "../require-auth";
 import { useAuthState } from "../auth-provider";
 import { StatusBanner, type StatusMessage } from "../status-banner";
@@ -42,6 +43,7 @@ type SavedPracticePlan = {
   style: string;
   totalMinutes: number;
   totalSeconds?: number;
+  assignedWrestlerIds?: string[];
 };
 
 type PlanSnapshot = {
@@ -86,6 +88,27 @@ function formatDurationLabel(totalSeconds: number) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+function formatAssignmentSummary(wrestlers: WrestlerProfile[], assignedIds: string[]) {
+  if (assignedIds.length === 0) {
+    return "Team-wide";
+  }
+
+  const names = assignedIds
+    .map((id) => wrestlers.find((wrestler) => wrestler.id === id))
+    .filter((wrestler): wrestler is WrestlerProfile => Boolean(wrestler))
+    .map((wrestler) => `${wrestler.firstName} ${wrestler.lastName}`.trim());
+
+  if (names.length === 0) {
+    return `${assignedIds.length} assigned`;
+  }
+
+  if (names.length <= 2) {
+    return names.join(", ");
+  }
+
+  return `${names.slice(0, 2).join(", ")} +${names.length - 2} more`;
+}
+
 function parseDurationInput(value: string) {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -122,6 +145,8 @@ function PracticePlansPageContent() {
   const [search, setSearch] = useState("");
   const [styleFilter, setStyleFilter] = useState("");
   const [blocks, setBlocks] = useState<PracticeBlock[]>([]);
+  const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
+  const [assignedWrestlerIds, setAssignedWrestlerIds] = useState<string[]>([]);
   const [planTitle, setPlanTitle] = useState("");
   const [saving, setSaving] = useState(false);
   const [activePlanId, setActivePlanId] = useState<string | null>(null);
@@ -177,9 +202,28 @@ function PracticePlansPageContent() {
       }
     }
 
+    async function loadWrestlers() {
+      try {
+        if (!currentTeam?.id) {
+          setWrestlers([]);
+          return;
+        }
+
+        setWrestlers(await listWrestlers(db, currentTeam.id));
+      } catch (error) {
+        console.error("Failed to load wrestlers for practice plan assignments:", error);
+      }
+    }
+
     loadLibrary();
     loadSavedPlans();
+    loadWrestlers();
   }, [currentTeam?.id]);
+
+  const athleteOwnedWrestler =
+    appUser?.role === "athlete" && firebaseUser
+      ? wrestlers.find((wrestler) => wrestler.ownerUserId === firebaseUser.uid) || null
+      : null;
 
   const styles = useMemo(() => {
     return Array.from(new Set(libraryItems.map((item) => item.style))).sort();
@@ -298,6 +342,7 @@ function PracticePlansPageContent() {
     setPlanTitle("");
     setStyleFilter("");
     setBlocks([]);
+    setAssignedWrestlerIds([]);
     setSnapshot(
       createPlanSnapshot({
         planId: null,
@@ -319,12 +364,22 @@ function PracticePlansPageContent() {
       where("teamId", "==", currentTeam.id)
     );
     const snapshot = await getDocs(q);
-    const rows = snapshot.docs
-      .map((d) => ({
-        id: d.id,
-        ...(d.data() as Omit<SavedPracticePlan, "id">),
-      }))
-      .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+      const rows = snapshot.docs
+        .map((d) => ({
+          id: d.id,
+          ...(d.data() as Omit<SavedPracticePlan, "id">),
+        }))
+        .filter((plan) => {
+          const assignedIds = plan.assignedWrestlerIds || [];
+          if (appUser?.role !== "athlete") {
+            return true;
+          }
+          if (assignedIds.length === 0) {
+            return true;
+          }
+          return Boolean(athleteOwnedWrestler && assignedIds.includes(athleteOwnedWrestler.id));
+        })
+        .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
     setSavedPlans(rows);
   }
 
@@ -346,6 +401,20 @@ function PracticePlansPageContent() {
       }
 
       const planData = planSnapshot.data() as Omit<SavedPracticePlan, "id">;
+      const assignedIds = Array.isArray((planData as { assignedWrestlerIds?: unknown }).assignedWrestlerIds)
+        ? ((planData as { assignedWrestlerIds?: unknown[] }).assignedWrestlerIds || []).filter(
+            (value): value is string => typeof value === "string"
+          )
+        : [];
+
+      if (
+        appUser?.role === "athlete" &&
+        assignedIds.length > 0 &&
+        (!athleteOwnedWrestler || !assignedIds.includes(athleteOwnedWrestler.id))
+      ) {
+        setStatusMessage({ tone: "error", text: "This practice plan is assigned to other wrestlers." });
+        return;
+      }
 
       const blocksSnapshot = await getDocs(
         query(
@@ -379,6 +448,7 @@ function PracticePlansPageContent() {
       setActivePlanId(planId);
       setPlanTitle(planData.title || "");
       setStyleFilter(planData.style === "Mixed" ? "" : planData.style || "");
+      setAssignedWrestlerIds(assignedIds);
       setBlocks(loadedBlocks);
       setSnapshot(
         createPlanSnapshot({
@@ -430,6 +500,7 @@ function PracticePlansPageContent() {
           teamId: currentTeam.id,
           title: planTitle.trim(),
           style: styleFilter || "Mixed",
+          assignedWrestlerIds,
           totalMinutes,
           totalSeconds,
           updatedAt: serverTimestamp(),
@@ -449,6 +520,7 @@ function PracticePlansPageContent() {
           teamId: currentTeam.id,
           title: planTitle.trim(),
           style: styleFilter || "Mixed",
+          assignedWrestlerIds,
           totalMinutes,
           totalSeconds,
           createdBy: firebaseUser.uid,
@@ -521,6 +593,7 @@ function PracticePlansPageContent() {
   const selectedStyleLabel = styleFilter || "Mixed";
   const libraryCountLabel = `${filteredLibrary.length} of ${libraryItems.length} library items`;
   const isCoach = appUser?.role === "coach";
+  const assignmentSummaryLabel = formatAssignmentSummary(wrestlers, assignedWrestlerIds);
 
   async function deletePracticePlan(planId: string) {
     const plan = savedPlans.find((item) => item.id === planId);
@@ -643,6 +716,7 @@ function PracticePlansPageContent() {
         {[
           { label: "Plan Status", value: activePlanId ? "Saved Plan" : "New Draft" },
           { label: "Practice Style", value: selectedStyleLabel },
+          { label: "Assigned To", value: assignmentSummaryLabel },
           { label: "Blocks", value: `${blocks.length}` },
           { label: "Total Time", value: formatDurationLabel(totalSeconds) },
         ].map((item) => (
@@ -685,6 +759,58 @@ function PracticePlansPageContent() {
         )}
       </div>
 
+      <section
+        style={{
+          marginBottom: 20,
+          padding: 16,
+          borderRadius: 12,
+          border: "1px solid #ddd",
+          background: "#fff",
+        }}
+      >
+        <h2 style={{ marginTop: 0, marginBottom: 8 }}>Athlete Assignments</h2>
+        <p style={{ marginTop: 0, color: "#666", fontSize: 14 }}>
+          {isCoach
+            ? "Leave this empty for a team-wide practice, or target specific wrestlers for a more personal workflow."
+            : "You only see practice plans assigned to you or shared team-wide."}
+        </p>
+
+        {wrestlers.length === 0 ? (
+          <p style={{ marginBottom: 0, color: "#666" }}>Create wrestler profiles first to assign this practice plan.</p>
+        ) : (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {wrestlers.map((wrestler) => {
+              const selected = assignedWrestlerIds.includes(wrestler.id);
+              return (
+                <button
+                  key={wrestler.id}
+                  type="button"
+                  onClick={() =>
+                    setAssignedWrestlerIds((prev) =>
+                      prev.includes(wrestler.id)
+                        ? prev.filter((id) => id !== wrestler.id)
+                        : [...prev, wrestler.id]
+                    )
+                  }
+                  disabled={!isCoach}
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 999,
+                    border: `1px solid ${selected ? "#bf1029" : "#d1d5db"}`,
+                    background: selected ? "#fde8eb" : "#fff",
+                    color: selected ? "#911022" : "#111827",
+                    cursor: isCoach ? "pointer" : "default",
+                    fontWeight: 700,
+                  }}
+                >
+                  {wrestler.firstName} {wrestler.lastName}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       <div
         style={{
           display: "grid",
@@ -725,6 +851,9 @@ function PracticePlansPageContent() {
                   <strong>{plan.title}</strong>
                   <div style={{ fontSize: 14, marginTop: 6 }}>
                     {plan.style || "Mixed"} · {formatDurationLabel(plan.totalSeconds || plan.totalMinutes * 60 || 0)}
+                  </div>
+                  <div style={{ fontSize: 13, color: "#666", marginTop: 6 }}>
+                    {formatAssignmentSummary(wrestlers, plan.assignedWrestlerIds || [])}
                   </div>
 
                   <button

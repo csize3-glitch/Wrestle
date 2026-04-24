@@ -31,6 +31,15 @@ export type PracticePlanDetail = {
   blocks: PracticePlanBlockRecord[];
 };
 
+export function practicePlanMatchesAssignment(plan: Pick<PracticePlan, "assignedWrestlerIds">, wrestlerId?: string | null) {
+  const assignedIds = plan.assignedWrestlerIds || [];
+  if (assignedIds.length === 0) {
+    return true;
+  }
+
+  return Boolean(wrestlerId && assignedIds.includes(wrestlerId));
+}
+
 function normalizePracticePlan(id: string, value: Record<string, unknown>): PracticePlan {
   const totalSeconds =
     typeof value.totalSeconds === "number"
@@ -42,6 +51,9 @@ function normalizePracticePlan(id: string, value: Record<string, unknown>): Prac
     id,
     teamId: typeof value.teamId === "string" ? value.teamId : "",
     title: typeof value.title === "string" ? value.title : "",
+    assignedWrestlerIds: Array.isArray(value.assignedWrestlerIds)
+      ? value.assignedWrestlerIds.filter((entry): entry is string => typeof entry === "string")
+      : [],
     style:
       value.style === "Freestyle" || value.style === "Folkstyle" || value.style === "Greco-Roman"
         ? value.style
@@ -88,7 +100,11 @@ function normalizePracticeBlock(
   };
 }
 
-export async function listPracticePlans(db: Firestore, teamId: string): Promise<PracticePlan[]> {
+export async function listPracticePlans(
+  db: Firestore,
+  teamId: string,
+  wrestlerId?: string | null
+): Promise<PracticePlan[]> {
   const snapshot = await getDocs(
     query(collection(db, COLLECTIONS.PRACTICE_PLANS), where("teamId", "==", teamId))
   );
@@ -97,13 +113,15 @@ export async function listPracticePlans(db: Firestore, teamId: string): Promise<
     .map((planDoc) =>
       normalizePracticePlan(planDoc.id, planDoc.data() as Record<string, unknown>)
     )
+    .filter((plan) => practicePlanMatchesAssignment(plan, wrestlerId))
     .sort((a, b) => a.title.localeCompare(b.title));
 }
 
 export async function getPracticePlanDetail(
   db: Firestore,
   teamId: string,
-  planId: string
+  planId: string,
+  wrestlerId?: string | null
 ): Promise<PracticePlanDetail | null> {
   const planSnapshot = await getDoc(doc(db, COLLECTIONS.PRACTICE_PLANS, planId));
   if (!planSnapshot.exists()) {
@@ -112,6 +130,10 @@ export async function getPracticePlanDetail(
 
   const plan = normalizePracticePlan(planSnapshot.id, planSnapshot.data() as Record<string, unknown>);
   if (plan.teamId !== teamId) {
+    return null;
+  }
+
+  if (!practicePlanMatchesAssignment(plan, wrestlerId)) {
     return null;
   }
 
