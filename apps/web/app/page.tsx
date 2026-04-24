@@ -87,11 +87,24 @@ type UpcomingPractice = {
   id: string;
   date: string;
   practicePlanId: string;
+  assignedWrestlerIds?: string[];
   practicePlanTitle: string;
   practicePlanStyle: string;
   totalMinutes: number;
   totalSeconds?: number;
   notes?: string;
+};
+
+type DashboardInsights = {
+  upcomingTournaments: number;
+  pendingRegistrations: number;
+  unreadAlerts: number;
+  recentRosterUpdates: string[];
+  assignedPracticePlans: number;
+  teamWidePracticePlans: number;
+  wrestlersNeedingAssignments: string[];
+  pendingVerificationNames: string[];
+  styleBreakdown: string[];
 };
 
 function formatPracticeDate(value: string) {
@@ -123,11 +136,16 @@ export default function HomePage() {
   const [teamCodeCopied, setTeamCodeCopied] = useState(false);
   const [upcomingPractices, setUpcomingPractices] = useState<UpcomingPractice[]>([]);
   const [rosterCount, setRosterCount] = useState(0);
-  const [dashboardInsights, setDashboardInsights] = useState({
+  const [dashboardInsights, setDashboardInsights] = useState<DashboardInsights>({
     upcomingTournaments: 0,
     pendingRegistrations: 0,
     unreadAlerts: 0,
     recentRosterUpdates: [] as string[],
+    assignedPracticePlans: 0,
+    teamWidePracticePlans: 0,
+    wrestlersNeedingAssignments: [] as string[],
+    pendingVerificationNames: [] as string[],
+    styleBreakdown: [] as string[],
   });
   const [dashboardLoading, setDashboardLoading] = useState(false);
 
@@ -246,9 +264,10 @@ export default function HomePage() {
       try {
         setDashboardLoading(true);
 
-        const [roster, eventSnapshot, tournamentRows, announcementRows, notificationRows] = await Promise.all([
+        const [roster, eventSnapshot, practicePlanSnapshot, tournamentRows, announcementRows, notificationRows] = await Promise.all([
           listWrestlers(db, currentTeam.id),
           getDocs(query(collection(db, COLLECTIONS.CALENDAR_EVENTS), where("teamId", "==", currentTeam.id))),
+          getDocs(query(collection(db, COLLECTIONS.PRACTICE_PLANS), where("teamId", "==", currentTeam.id))),
           listTournaments(db, currentTeam.id),
           listTeamAnnouncements(db, currentTeam.id),
           listTeamNotifications(db, currentTeam.id, appUser.role),
@@ -274,6 +293,56 @@ export default function HomePage() {
           )
         );
         const allEntries = pendingEntryBatches.flat();
+        const upcomingTournamentEntries = tournamentRows
+          .filter((tournament) => tournament.eventDate && tournament.eventDate >= todayKey)
+          .flatMap((tournament, index) =>
+            pendingEntryBatches[index].map((entry) => ({ ...entry, tournamentName: tournament.name }))
+          );
+        const practicePlans = practicePlanSnapshot.docs.map((doc) => doc.data() as {
+          assignedWrestlerIds?: string[];
+        });
+        const assignedPracticePlans = practicePlans.filter(
+          (plan) => Array.isArray(plan.assignedWrestlerIds) && plan.assignedWrestlerIds.length > 0
+        ).length;
+        const teamWidePracticePlans = Math.max(0, practicePlans.length - assignedPracticePlans);
+        const assignedPracticeWrestlerIds = new Set(
+          nextEvents.flatMap((event) =>
+            Array.isArray(event.assignedWrestlerIds) ? event.assignedWrestlerIds : []
+          )
+        );
+        const futureTournamentWrestlerIds = new Set(
+          upcomingTournamentEntries.map((entry) => entry.wrestlerId)
+        );
+        const teamWideUpcomingPracticeExists = nextEvents.some(
+          (event) => !event.assignedWrestlerIds || event.assignedWrestlerIds.length === 0
+        );
+        const wrestlersNeedingAssignments = roster
+          .filter((wrestler) => {
+            if (teamWideUpcomingPracticeExists) {
+              return !futureTournamentWrestlerIds.has(wrestler.id);
+            }
+
+            return (
+              !assignedPracticeWrestlerIds.has(wrestler.id) &&
+              !futureTournamentWrestlerIds.has(wrestler.id)
+            );
+          })
+          .map((wrestler) => `${wrestler.firstName} ${wrestler.lastName}`.trim())
+          .slice(0, 5);
+        const pendingVerificationNames = upcomingTournamentEntries
+          .filter((entry) => entry.status === "submitted")
+          .slice(0, 5)
+          .map((entry) => `${entry.wrestlerName} (${entry.tournamentName})`);
+        const styleCounts = new Map<string, number>();
+        roster.forEach((wrestler) => {
+          wrestler.styles.forEach((style) => {
+            styleCounts.set(style, (styleCounts.get(style) || 0) + 1);
+          });
+        });
+        const styleBreakdown = Array.from(styleCounts.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([style, count]) => `${style}: ${count}`);
         const lastSeenAt =
           firebaseUser?.uid && appUser?.role
             ? readLastSeenNotificationAt(firebaseUser.uid, currentTeam.id, appUser.role)
@@ -293,6 +362,11 @@ export default function HomePage() {
             .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
             .slice(0, 3)
             .map((wrestler) => `${wrestler.firstName} ${wrestler.lastName}`.trim()),
+          assignedPracticePlans,
+          teamWidePracticePlans,
+          wrestlersNeedingAssignments,
+          pendingVerificationNames,
+          styleBreakdown,
         });
       } catch (nextError) {
         console.error("Failed to load dashboard data:", nextError);
@@ -302,6 +376,11 @@ export default function HomePage() {
           pendingRegistrations: 0,
           unreadAlerts: 0,
           recentRosterUpdates: [],
+          assignedPracticePlans: 0,
+          teamWidePracticePlans: 0,
+          wrestlersNeedingAssignments: [],
+          pendingVerificationNames: [],
+          styleBreakdown: [],
         });
       } finally {
         setDashboardLoading(false);
@@ -693,6 +772,56 @@ export default function HomePage() {
                     : dashboardInsights.recentRosterUpdates.length > 0
                       ? dashboardInsights.recentRosterUpdates.join(", ")
                       : "No recent changes"}
+                </strong>
+              </span>
+              <span>
+                Assigned practice plans:{" "}
+                <strong>{dashboardLoading ? "..." : dashboardInsights.assignedPracticePlans}</strong>
+              </span>
+              <span>
+                Team-wide practice plans:{" "}
+                <strong>{dashboardLoading ? "..." : dashboardInsights.teamWidePracticePlans}</strong>
+              </span>
+              <span>
+                Top styles on roster:{" "}
+                <strong>
+                  {dashboardLoading
+                    ? "..."
+                    : dashboardInsights.styleBreakdown.length
+                      ? dashboardInsights.styleBreakdown.join(", ")
+                      : "No wrestler styles yet"}
+                </strong>
+              </span>
+            </div>
+          </div>
+        ) : null}
+
+        {appUser.role === "coach" ? (
+          <div className="content-card">
+            <h2 className="content-card__title">Action Queue</h2>
+            <p className="content-card__copy">
+              The next few things that likely need your attention this week.
+            </p>
+
+            <div className="feature-list">
+              <span>
+                Wrestlers needing upcoming assignments:{" "}
+                <strong>
+                  {dashboardLoading
+                    ? "..."
+                    : dashboardInsights.wrestlersNeedingAssignments.length
+                      ? dashboardInsights.wrestlersNeedingAssignments.join(", ")
+                      : "Everyone has a practice or tournament path"}
+                </strong>
+              </span>
+              <span>
+                Pending tournament verifications:{" "}
+                <strong>
+                  {dashboardLoading
+                    ? "..."
+                    : dashboardInsights.pendingVerificationNames.length
+                      ? dashboardInsights.pendingVerificationNames.join(", ")
+                      : "Nothing waiting on coach verification"}
                 </strong>
               </span>
             </div>
