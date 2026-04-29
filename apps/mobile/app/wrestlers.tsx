@@ -4,12 +4,18 @@ import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import { db } from "@wrestlewell/firebase/client";
 import {
   createWrestler,
+  getAppUser,
   listWrestlers,
   updateWrestler,
   WRESTLING_STYLES,
 } from "@wrestlewell/lib/index";
 import type { WrestlerInput } from "@wrestlewell/lib/index";
-import type { WrestlerProfile, WrestlingStyle } from "@wrestlewell/types/index";
+import type {
+  AppUser,
+  VarkStyle,
+  WrestlerProfile,
+  WrestlingStyle,
+} from "@wrestlewell/types/index";
 import { useMobileAuthState } from "../components/auth-provider";
 import { MobileScreenShell } from "../components/mobile-screen-shell";
 import { TeamInviteCard } from "../components/team-invite-card";
@@ -73,6 +79,62 @@ function createFormFromWrestler(wrestler: WrestlerProfile | null): AthleteProfil
     keyAttacks: listToText(wrestler.keyAttacks),
     keyDefense: listToText(wrestler.keyDefense),
     goals: listToText(wrestler.goals),
+  };
+}
+
+function getVarkStyleLabel(style?: VarkStyle | "") {
+  switch (style) {
+    case "visual":
+      return "Visual learner";
+    case "auditory":
+      return "Auditory learner";
+    case "readingWriting":
+      return "Reading/Writing learner";
+    case "kinesthetic":
+      return "Kinesthetic learner";
+    default:
+      return "Not completed yet";
+  }
+}
+
+function getVarkCoachCue(style?: VarkStyle | "", isMultimodal?: boolean) {
+  if (isMultimodal) {
+    return "Use a mix of demonstration, short verbal cues, quick checklist language, and live drilling.";
+  }
+
+  switch (style) {
+    case "visual":
+      return "Show the position first. Use video, diagrams, hand signals, and clear visual examples before correcting.";
+    case "auditory":
+      return "Explain the cue out loud. Keep the instruction short, repeat the key phrase, and confirm they can say it back.";
+    case "readingWriting":
+      return "Give short checklist cues. Use keywords, written goals, and simple step-by-step reminders.";
+    case "kinesthetic":
+      return "Demonstrate, drill, and let them feel the position. Use body-position corrections and quick reps.";
+    default:
+      return "Have the athlete complete WrestleWellIQ so coaches can match feedback to how they learn best.";
+  }
+}
+
+function getWrestleWellIQSummary(user?: AppUser | null) {
+  const profile = user?.varkProfile;
+
+  if (!user || !user.varkCompleted || !profile) {
+    return {
+      label: "WrestleWellIQ not completed",
+      cue: "Have this athlete complete WrestleWellIQ from their account so coaches can see their learning style.",
+      completed: false,
+    };
+  }
+
+  return {
+    label: profile.isMultimodal
+      ? `Multimodal learner: ${getVarkStyleLabel(profile.primaryStyle)} + ${getVarkStyleLabel(
+          profile.secondaryStyle
+        )}`
+      : getVarkStyleLabel(profile.primaryStyle),
+    cue: getVarkCoachCue(profile.primaryStyle, profile.isMultimodal),
+    completed: true,
   };
 }
 
@@ -145,11 +207,47 @@ function Field({
   );
 }
 
+function WrestleWellIQCard({ summary }: { summary: ReturnType<typeof getWrestleWellIQSummary> }) {
+  return (
+    <View
+      style={{
+        marginTop: 16,
+        borderWidth: 1,
+        borderColor: summary.completed ? "#166534" : "#9a3412",
+        borderRadius: 20,
+        padding: 14,
+        backgroundColor: summary.completed ? "#052e1b" : "#431407",
+      }}
+    >
+      <Text
+        style={{
+          color: summary.completed ? "#bbf7d0" : "#fed7aa",
+          fontSize: 12,
+          fontWeight: "900",
+          letterSpacing: 1,
+          marginBottom: 6,
+        }}
+      >
+        WRESTLEWELLIQ
+      </Text>
+
+      <Text style={{ color: "#ffffff", fontSize: 17, fontWeight: "900" }}>
+        {summary.label}
+      </Text>
+
+      <Text style={{ color: "#dbeafe", fontSize: 14, lineHeight: 21, marginTop: 8 }}>
+        {summary.cue}
+      </Text>
+    </View>
+  );
+}
+
 export default function WrestlersScreen() {
   const { firebaseUser, appUser, currentTeam, loading: authLoading } = useMobileAuthState();
   const params = useLocalSearchParams<{ wrestlerId?: string }>();
 
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
+  const [wrestlerUsers, setWrestlerUsers] = useState<Record<string, AppUser>>({});
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -166,12 +264,40 @@ export default function WrestlersScreen() {
   async function refresh() {
     if (!currentTeam?.id) {
       setWrestlers([]);
+      setWrestlerUsers({});
       setSelectedId(null);
       return;
     }
 
     const rows = await listWrestlers(db, currentTeam.id);
     setWrestlers(rows);
+
+    const ownerIds = Array.from(
+      new Set(
+        rows
+          .map((wrestler) => wrestler.ownerUserId)
+          .filter((ownerId): ownerId is string => Boolean(ownerId))
+      )
+    );
+
+    const ownerUsers = await Promise.all(
+      ownerIds.map(async (ownerId) => {
+        try {
+          return await getAppUser(db, ownerId);
+        } catch (error) {
+          console.error("Failed to load WrestleWellIQ profile for user:", ownerId, error);
+          return null;
+        }
+      })
+    );
+
+    setWrestlerUsers(
+      Object.fromEntries(
+        ownerUsers
+          .filter((user): user is AppUser => Boolean(user))
+          .map((user) => [user.id, user])
+      )
+    );
 
     const ownWrestler =
       appUser?.role === "athlete" && firebaseUser
@@ -211,6 +337,9 @@ export default function WrestlersScreen() {
     () => wrestlers.find((wrestler: WrestlerProfile) => wrestler.id === selectedId) || null,
     [selectedId, wrestlers]
   );
+
+  const selectedUser = selected?.ownerUserId ? wrestlerUsers[selected.ownerUserId] || null : null;
+  const selectedWrestleWellIQ = getWrestleWellIQSummary(selectedUser);
 
   const athleteOwnedWrestler = useMemo(
     () =>
@@ -586,6 +715,9 @@ export default function WrestlersScreen() {
                 {wrestlers.map((wrestler: WrestlerProfile) => {
                   const isActive = wrestler.id === selectedId;
                   const fullName = `${wrestler.firstName} ${wrestler.lastName}`.trim();
+                  const wrestlerSummary = getWrestleWellIQSummary(
+                    wrestler.ownerUserId ? wrestlerUsers[wrestler.ownerUserId] : null
+                  );
 
                   return (
                     <Pressable
@@ -607,6 +739,17 @@ export default function WrestlersScreen() {
                         {[wrestler.weightClass, wrestler.grade, wrestler.schoolOrClub]
                           .filter(Boolean)
                           .join(" • ") || "Profile details in progress"}
+                      </Text>
+
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          color: wrestlerSummary.completed ? "#bbf7d0" : "#fed7aa",
+                          marginTop: 6,
+                          fontWeight: "900",
+                        }}
+                      >
+                        {wrestlerSummary.label}
                       </Text>
                     </Pressable>
                   );
@@ -640,6 +783,8 @@ export default function WrestlersScreen() {
                   Styles: {selected.styles.join(", ")}
                 </Text>
               ) : null}
+
+              <WrestleWellIQCard summary={selectedWrestleWellIQ} />
 
               <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", marginTop: 16 }}>
                 <Pressable
