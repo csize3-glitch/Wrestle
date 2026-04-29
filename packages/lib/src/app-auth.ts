@@ -11,7 +11,6 @@ import {
   getDocs,
   query,
   serverTimestamp,
-  setDoc,
   where,
   writeBatch,
   type Firestore,
@@ -203,7 +202,10 @@ async function findTeamByCoachInviteCode(
   return normalizeTeam(teamDoc.id, teamDoc.data() as Record<string, unknown>);
 }
 
-function createDefaultVarkFields(role: UserRole) {
+function createDefaultVarkFields(role: UserRole): {
+  varkCompleted: boolean;
+  varkProfile: VarkProfile;
+} {
   const isAthlete = role === "athlete";
 
   return {
