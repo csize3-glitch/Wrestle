@@ -53,6 +53,14 @@ type PlanSnapshot = {
   blocks: string;
 };
 
+type ImportedPlan = {
+  title: string;
+  style: string;
+  level: string;
+  description: string;
+  blocks: PracticeBlock[];
+};
+
 function createPlanSnapshot(args: {
   planId: string | null;
   title: string;
@@ -119,9 +127,11 @@ function parseDurationInput(value: string) {
     const [minutesPart, secondsPart] = trimmed.split(":");
     const minutes = Number(minutesPart);
     const seconds = Number(secondsPart);
+
     if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) {
       return null;
     }
+
     return Math.max(5, minutes * 60 + seconds);
   }
 
@@ -131,6 +141,75 @@ function parseDurationInput(value: string) {
   }
 
   return Math.max(5, Math.round(numericMinutes * 60));
+}
+
+function parseImportedPracticePlan(rawText: string): ImportedPlan {
+  const lines = rawText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  let title = "";
+  let style = "";
+  let level = "";
+  let description = "";
+  const importedBlocks: PracticeBlock[] = [];
+
+  lines.forEach((line, index) => {
+    const lower = line.toLowerCase();
+
+    if (lower.startsWith("practice plan:")) {
+      title = line.split(":").slice(1).join(":").trim();
+      return;
+    }
+
+    if (lower.startsWith("style:")) {
+      style = line.split(":").slice(1).join(":").trim();
+      return;
+    }
+
+    if (lower.startsWith("level:")) {
+      level = line.split(":").slice(1).join(":").trim();
+      return;
+    }
+
+    if (lower.startsWith("description:")) {
+      description = line.split(":").slice(1).join(":").trim();
+      return;
+    }
+
+    const parts = line.split("|").map((part) => part.trim());
+
+    if (parts.length >= 3) {
+      const titlePart = parts[0] || `Imported Block ${index + 1}`;
+      const durationPart = parts[1] || "10:00";
+      const notesPart = parts[2] || "";
+      const videoPart = parts[3] || "";
+      const durationSeconds = parseDurationInput(durationPart) || 600;
+
+      importedBlocks.push({
+        id: `import-${Date.now()}-${index}`,
+        blockType: "text",
+        title: titlePart,
+        style: style || undefined,
+        category: titlePart,
+        durationMinutes: Math.max(1, Math.round(durationSeconds / 60)),
+        durationSeconds,
+        videoUrl: videoPart.startsWith("http") ? videoPart : undefined,
+        notes: [notesPart, level ? `Level: ${level}` : "", description ? `Plan note: ${description}` : ""]
+          .filter(Boolean)
+          .join("\n"),
+      });
+    }
+  });
+
+  return {
+    title,
+    style,
+    level,
+    description,
+    blocks: importedBlocks,
+  };
 }
 
 function PracticePlansPageContent() {
@@ -153,6 +232,8 @@ function PracticePlansPageContent() {
   const [loadingPlanId, setLoadingPlanId] = useState<string | null>(null);
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null);
+  const [importText, setImportText] = useState("");
+  const [importPreview, setImportPreview] = useState<ImportedPlan | null>(null);
   const [snapshot, setSnapshot] = useState<PlanSnapshot>(() =>
     createPlanSnapshot({
       planId: null,
@@ -246,6 +327,24 @@ function PracticePlansPageContent() {
     });
   }, [libraryItems, search, styleFilter]);
 
+  const totalSeconds = blocks.reduce((sum, block) => sum + block.durationSeconds, 0);
+  const totalMinutes = Math.round(totalSeconds / 60);
+  const currentSnapshot = createPlanSnapshot({
+    planId: activePlanId,
+    title: planTitle,
+    style: styleFilter,
+    blocks,
+  });
+  const hasUnsavedChanges =
+    currentSnapshot.planId !== snapshot.planId ||
+    currentSnapshot.title !== snapshot.title ||
+    currentSnapshot.style !== snapshot.style ||
+    currentSnapshot.blocks !== snapshot.blocks;
+  const selectedStyleLabel = styleFilter || "Mixed";
+  const libraryCountLabel = `${filteredLibrary.length} of ${libraryItems.length} library items`;
+  const isCoach = appUser?.role === "coach";
+  const assignmentSummaryLabel = formatAssignmentSummary(wrestlers, assignedWrestlerIds);
+
   function addLibraryBlock(item: LibraryItem) {
     setBlocks((prev) => [
       ...prev,
@@ -278,6 +377,57 @@ function PracticePlansPageContent() {
         notes: "",
       },
     ]);
+  }
+
+  function previewImportedPlan() {
+    const parsed = parseImportedPracticePlan(importText);
+
+    if (!parsed.title && parsed.blocks.length === 0) {
+      setStatusMessage({
+        tone: "error",
+        text: "Paste a practice plan with a title and at least one block using the format: Block Title | 10:00 | Notes",
+      });
+      return;
+    }
+
+    if (parsed.blocks.length === 0) {
+      setStatusMessage({
+        tone: "error",
+        text: "No practice blocks found. Use lines like: Warm-up | 10:00 | Dynamic movement",
+      });
+      return;
+    }
+
+    setImportPreview(parsed);
+    setStatusMessage({
+      tone: "success",
+      text: `Import preview ready with ${parsed.blocks.length} block${parsed.blocks.length === 1 ? "" : "s"}.`,
+    });
+  }
+
+  function applyImportedPlan() {
+    if (!importPreview) {
+      return;
+    }
+
+    setActivePlanId(null);
+    setPlanTitle(importPreview.title || "Imported Practice Plan");
+    setStyleFilter(importPreview.style === "Mixed" ? "" : importPreview.style);
+    setBlocks(importPreview.blocks);
+    setAssignedWrestlerIds([]);
+    setSnapshot(
+      createPlanSnapshot({
+        planId: null,
+        title: "",
+        style: "",
+        blocks: [],
+      })
+    );
+
+    setStatusMessage({
+      tone: "success",
+      text: "Imported plan applied. Review the timeline, make edits, then save the practice plan.",
+    });
   }
 
   function updateDuration(id: string, value: string) {
@@ -343,6 +493,7 @@ function PracticePlansPageContent() {
     setStyleFilter("");
     setBlocks([]);
     setAssignedWrestlerIds([]);
+    setImportPreview(null);
     setSnapshot(
       createPlanSnapshot({
         planId: null,
@@ -363,23 +514,25 @@ function PracticePlansPageContent() {
       collection(db, COLLECTIONS.PRACTICE_PLANS),
       where("teamId", "==", currentTeam.id)
     );
+
     const snapshot = await getDocs(q);
-      const rows = snapshot.docs
-        .map((d) => ({
-          id: d.id,
-          ...(d.data() as Omit<SavedPracticePlan, "id">),
-        }))
-        .filter((plan) => {
-          const assignedIds = plan.assignedWrestlerIds || [];
-          if (appUser?.role !== "athlete") {
-            return true;
-          }
-          if (assignedIds.length === 0) {
-            return true;
-          }
-          return Boolean(athleteOwnedWrestler && assignedIds.includes(athleteOwnedWrestler.id));
-        })
-        .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+    const rows = snapshot.docs
+      .map((d) => ({
+        id: d.id,
+        ...(d.data() as Omit<SavedPracticePlan, "id">),
+      }))
+      .filter((plan) => {
+        const assignedIds = plan.assignedWrestlerIds || [];
+        if (appUser?.role !== "athlete") {
+          return true;
+        }
+        if (assignedIds.length === 0) {
+          return true;
+        }
+        return Boolean(athleteOwnedWrestler && assignedIds.includes(athleteOwnedWrestler.id));
+      })
+      .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+
     setSavedPlans(rows);
   }
 
@@ -425,31 +578,45 @@ function PracticePlansPageContent() {
 
       const loadedBlocks: PracticeBlock[] = blocksSnapshot.docs
         .map((d) => {
-          const data = d.data() as any;
+          const data = d.data() as Record<string, unknown>;
+
           return {
             id: d.id,
-            blockType: data.blockType || "library",
-            libraryItemId: data.libraryItemId || undefined,
-            title: data.title || "",
-            style: data.style || undefined,
-            category: data.category || undefined,
-            subcategory: data.subcategory || undefined,
-            format: data.format || undefined,
-            durationSeconds: data.durationSeconds || (data.durationMinutes || 10) * 60,
-            durationMinutes: data.durationMinutes || Math.max(1, Math.round((data.durationSeconds || 600) / 60)),
-            videoUrl: data.videoUrl || undefined,
-            notes: data.notes || "",
-            orderIndex: data.orderIndex || 0,
+            blockType: data.blockType === "text" ? "text" : "library",
+            libraryItemId: typeof data.libraryItemId === "string" ? data.libraryItemId : undefined,
+            title: typeof data.title === "string" ? data.title : "",
+            style: typeof data.style === "string" ? data.style : undefined,
+            category: typeof data.category === "string" ? data.category : undefined,
+            subcategory: typeof data.subcategory === "string" ? data.subcategory : undefined,
+            format: typeof data.format === "string" ? data.format : undefined,
+            durationSeconds:
+              typeof data.durationSeconds === "number"
+                ? data.durationSeconds
+                : typeof data.durationMinutes === "number"
+                  ? data.durationMinutes * 60
+                  : 600,
+            durationMinutes:
+              typeof data.durationMinutes === "number"
+                ? data.durationMinutes
+                : typeof data.durationSeconds === "number"
+                  ? Math.max(1, Math.round(data.durationSeconds / 60))
+                  : 10,
+            videoUrl: typeof data.videoUrl === "string" ? data.videoUrl : undefined,
+            notes: typeof data.notes === "string" ? data.notes : "",
+            orderIndex: typeof data.orderIndex === "number" ? data.orderIndex : 0,
           };
         })
-        .sort((a: any, b: any) => (a.orderIndex || 0) - (b.orderIndex || 0))
-        .map(({ orderIndex, ...rest }: any) => rest);
+        .sort((a: PracticeBlock & { orderIndex?: number }, b: PracticeBlock & { orderIndex?: number }) => {
+          return (a.orderIndex || 0) - (b.orderIndex || 0);
+        })
+        .map(({ orderIndex: _orderIndex, ...rest }: PracticeBlock & { orderIndex?: number }) => rest);
 
       setActivePlanId(planId);
       setPlanTitle(planData.title || "");
       setStyleFilter(planData.style === "Mixed" ? "" : planData.style || "");
       setAssignedWrestlerIds(assignedIds);
       setBlocks(loadedBlocks);
+      setImportPreview(null);
       setSnapshot(
         createPlanSnapshot({
           planId,
@@ -577,24 +744,6 @@ function PracticePlansPageContent() {
     }
   }
 
-  const totalSeconds = blocks.reduce((sum, block) => sum + block.durationSeconds, 0);
-  const totalMinutes = Math.round(totalSeconds / 60);
-  const currentSnapshot = createPlanSnapshot({
-    planId: activePlanId,
-    title: planTitle,
-    style: styleFilter,
-    blocks,
-  });
-  const hasUnsavedChanges =
-    currentSnapshot.planId !== snapshot.planId ||
-    currentSnapshot.title !== snapshot.title ||
-    currentSnapshot.style !== snapshot.style ||
-    currentSnapshot.blocks !== snapshot.blocks;
-  const selectedStyleLabel = styleFilter || "Mixed";
-  const libraryCountLabel = `${filteredLibrary.length} of ${libraryItems.length} library items`;
-  const isCoach = appUser?.role === "coach";
-  const assignmentSummaryLabel = formatAssignmentSummary(wrestlers, assignedWrestlerIds);
-
   async function deletePracticePlan(planId: string) {
     const plan = savedPlans.find((item) => item.id === planId);
     const planName = plan?.title || "this practice plan";
@@ -649,453 +798,596 @@ function PracticePlansPageContent() {
       title="Practice Plan Builder"
       description="Build, reopen, and update practice plans from your technique library."
     >
-    <main style={{ padding: 24 }}>
-      <h1 style={{ fontSize: 32, marginBottom: 8 }}>Practice Plan Builder</h1>
-      <p style={{ marginBottom: 24 }}>
-        Build, reopen, and update practice plans from your technique library.
-      </p>
+      <main style={{ padding: 24 }}>
+        <h1 style={{ fontSize: 32, marginBottom: 8 }}>Practice Plan Builder</h1>
+        <p style={{ marginBottom: 24 }}>
+          Build, reopen, and update practice plans from your technique library.
+        </p>
 
-      {statusMessage ? (
-        <StatusBanner message={statusMessage} onDismiss={() => setStatusMessage(null)} />
-      ) : null}
-
-      {!isCoach ? (
-        <StatusBanner
-          message={{
-            tone: "info",
-            text: "Practice plans are coach-managed. Athletes can review saved plans here, but creating, editing, and deleting stays coach-only.",
-          }}
-        />
-      ) : null}
-
-      <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
-        <input
-          type="text"
-          placeholder="Practice plan title"
-          value={planTitle}
-          onChange={(e) => setPlanTitle(e.target.value)}
-          disabled={!isCoach}
-          style={{ padding: 10, minWidth: 260 }}
-        />
-
-        <button
-          onClick={savePracticePlan}
-          disabled={saving || !isCoach}
-          style={{ padding: "10px 14px", cursor: "pointer" }}
-        >
-          {saving ? "Saving..." : activePlanId ? "Update Practice Plan" : "Save Practice Plan"}
-        </button>
-
-        <button onClick={addTextBlock} disabled={!isCoach} style={{ padding: "10px 14px", cursor: "pointer" }}>
-          Add Text Block
-        </button>
-
-        <button onClick={startNewPlan} disabled={!isCoach} style={{ padding: "10px 14px", cursor: "pointer" }}>
-          New Plan
-        </button>
-
-        {isCoach && activePlanId ? (
-          <button
-            onClick={() => deletePracticePlan(activePlanId)}
-            disabled={deletingPlanId === activePlanId}
-            style={{ padding: "10px 14px", cursor: "pointer", color: "#8a1c1c" }}
-          >
-            {deletingPlanId === activePlanId ? "Deleting..." : "Delete Plan"}
-          </button>
+        {statusMessage ? (
+          <StatusBanner message={statusMessage} onDismiss={() => setStatusMessage(null)} />
         ) : null}
-      </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: 12,
-          marginBottom: 20,
-        }}
-      >
-        {[
-          { label: "Plan Status", value: activePlanId ? "Saved Plan" : "New Draft" },
-          { label: "Practice Style", value: selectedStyleLabel },
-          { label: "Assigned To", value: assignmentSummaryLabel },
-          { label: "Blocks", value: `${blocks.length}` },
-          { label: "Total Time", value: formatDurationLabel(totalSeconds) },
-        ].map((item) => (
-          <div
-            key={item.label}
+        {!isCoach ? (
+          <StatusBanner
+            message={{
+              tone: "info",
+              text: "Practice plans are coach-managed. Athletes can review saved plans here, but creating, editing, and deleting stays coach-only.",
+            }}
+          />
+        ) : null}
+
+        <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
+          <input
+            type="text"
+            placeholder="Practice plan title"
+            value={planTitle}
+            onChange={(e) => setPlanTitle(e.target.value)}
+            disabled={!isCoach}
+            style={{ padding: 10, minWidth: 260 }}
+          />
+
+          <button
+            onClick={savePracticePlan}
+            disabled={saving || !isCoach}
+            style={{ padding: "10px 14px", cursor: "pointer" }}
+          >
+            {saving ? "Saving..." : activePlanId ? "Update Practice Plan" : "Save Practice Plan"}
+          </button>
+
+          <button onClick={addTextBlock} disabled={!isCoach} style={{ padding: "10px 14px", cursor: "pointer" }}>
+            Add Text Block
+          </button>
+
+          <button onClick={startNewPlan} disabled={!isCoach} style={{ padding: "10px 14px", cursor: "pointer" }}>
+            New Plan
+          </button>
+
+          {isCoach && activePlanId ? (
+            <button
+              onClick={() => deletePracticePlan(activePlanId)}
+              disabled={deletingPlanId === activePlanId}
+              style={{ padding: "10px 14px", cursor: "pointer", color: "#8a1c1c" }}
+            >
+              {deletingPlanId === activePlanId ? "Deleting..." : "Delete Plan"}
+            </button>
+          ) : null}
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: 12,
+            marginBottom: 20,
+          }}
+        >
+          {[
+            { label: "Plan Status", value: activePlanId ? "Saved Plan" : "New Draft" },
+            { label: "Practice Style", value: selectedStyleLabel },
+            { label: "Assigned To", value: assignmentSummaryLabel },
+            { label: "Blocks", value: `${blocks.length}` },
+            { label: "Total Time", value: formatDurationLabel(totalSeconds) },
+          ].map((item) => (
+            <div
+              key={item.label}
+              style={{
+                border: "1px solid #ddd",
+                borderRadius: 12,
+                padding: 14,
+                background: "#fff",
+              }}
+            >
+              <div style={{ fontSize: 12, textTransform: "uppercase", color: "#666", marginBottom: 6 }}>
+                {item.label}
+              </div>
+              <strong style={{ fontSize: 18 }}>{item.value}</strong>
+            </div>
+          ))}
+        </div>
+
+        <div
+          style={{
+            marginBottom: 20,
+            padding: "12px 14px",
+            borderRadius: 12,
+            border: "1px solid #ddd",
+            background: hasUnsavedChanges ? "#fff8e6" : "#f6f7f8",
+            fontSize: 14,
+          }}
+        >
+          {activePlanId ? (
+            <>
+              Editing saved plan: <strong>{planTitle || "Untitled plan"}</strong>.{" "}
+              {hasUnsavedChanges ? "You have unsaved changes." : "Everything is saved."}
+            </>
+          ) : hasUnsavedChanges ? (
+            <>New draft in progress. Save it to reuse it in the calendar and mobile app.</>
+          ) : (
+            <>Start from the library or add a custom text block to build a new practice plan.</>
+          )}
+        </div>
+
+        {isCoach ? (
+          <section
             style={{
-              border: "1px solid #ddd",
+              marginBottom: 20,
+              padding: 16,
               borderRadius: 12,
-              padding: 14,
+              border: "1px solid #ddd",
               background: "#fff",
             }}
           >
-            <div style={{ fontSize: 12, textTransform: "uppercase", color: "#666", marginBottom: 6 }}>
-              {item.label}
+            <h2 style={{ marginTop: 0, marginBottom: 8 }}>Import Practice Plan</h2>
+
+            <p style={{ marginTop: 0, color: "#666", fontSize: 14 }}>
+              Paste a structured practice plan, preview the blocks, then apply it to the timeline.
+              This is web-only for coaches.
+            </p>
+
+            <div
+              style={{
+                border: "1px solid #e5e7eb",
+                borderRadius: 12,
+                background: "#f8fafc",
+                padding: 12,
+                marginBottom: 12,
+                fontSize: 13,
+                lineHeight: 1.5,
+                color: "#334155",
+              }}
+            >
+              <strong>Format example:</strong>
+              <pre style={{ whiteSpace: "pre-wrap", margin: "8px 0 0" }}>
+{`Practice Plan: Chain Wrestling Tuesday
+Style: Folkstyle
+Level: Middle School
+Description: Heavy focus on transitions and mat returns
+
+Warm-up | 10:00 | Dynamic movement, stance motion, hand fighting
+Technique | 15:00 | Single leg finish series | https://youtube.com/...
+Drill | 12:00 | Partner chain wrestling, 30-second goes
+Live | 20:00 | Situational starts from single leg
+Conditioning | 8:00 | Sprint/sprawl finisher
+Cooldown | 5:00 | Stretch and team talk`}
+              </pre>
             </div>
-            <strong style={{ fontSize: 18 }}>{item.value}</strong>
-          </div>
-        ))}
-      </div>
 
-      <div
-        style={{
-          marginBottom: 20,
-          padding: "12px 14px",
-          borderRadius: 12,
-          border: "1px solid #ddd",
-          background: hasUnsavedChanges ? "#fff8e6" : "#f6f7f8",
-          fontSize: 14,
-        }}
-      >
-        {activePlanId ? (
-          <>
-            Editing saved plan: <strong>{planTitle || "Untitled plan"}</strong>.{" "}
-            {hasUnsavedChanges ? "You have unsaved changes." : "Everything is saved."}
-          </>
-        ) : hasUnsavedChanges ? (
-          <>New draft in progress. Save it to reuse it in the calendar and mobile app.</>
-        ) : (
-          <>Start from the library or add a custom text block to build a new practice plan.</>
-        )}
-      </div>
+            <textarea
+              value={importText}
+              onChange={(event) => setImportText(event.target.value)}
+              rows={10}
+              placeholder="Paste practice plan here..."
+              style={{
+                width: "100%",
+                padding: 12,
+                borderRadius: 12,
+                border: "1px solid #d1d5db",
+                resize: "vertical",
+                marginBottom: 12,
+              }}
+            />
 
-      <section
-        style={{
-          marginBottom: 20,
-          padding: 16,
-          borderRadius: 12,
-          border: "1px solid #ddd",
-          background: "#fff",
-        }}
-      >
-        <h2 style={{ marginTop: 0, marginBottom: 8 }}>Athlete Assignments</h2>
-        <p style={{ marginTop: 0, color: "#666", fontSize: 14 }}>
-          {isCoach
-            ? "Leave this empty for a team-wide practice, or target specific wrestlers for a more personal workflow."
-            : "You only see practice plans assigned to you or shared team-wide."}
-        </p>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={previewImportedPlan}
+                style={{ padding: "10px 14px", cursor: "pointer" }}
+              >
+                Preview Import
+              </button>
 
-        {wrestlers.length === 0 ? (
-          <p style={{ marginBottom: 0, color: "#666" }}>Create wrestler profiles first to assign this practice plan.</p>
-        ) : (
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {wrestlers.map((wrestler) => {
-              const selected = assignedWrestlerIds.includes(wrestler.id);
-              return (
-                <button
-                  key={wrestler.id}
-                  type="button"
-                  onClick={() =>
-                    setAssignedWrestlerIds((prev) =>
-                      prev.includes(wrestler.id)
-                        ? prev.filter((id) => id !== wrestler.id)
-                        : [...prev, wrestler.id]
-                    )
-                  }
-                  disabled={!isCoach}
-                  style={{
-                    padding: "10px 14px",
-                    borderRadius: 999,
-                    border: `1px solid ${selected ? "#bf1029" : "#d1d5db"}`,
-                    background: selected ? "#fde8eb" : "#fff",
-                    color: selected ? "#911022" : "#111827",
-                    cursor: isCoach ? "pointer" : "default",
-                    fontWeight: 700,
-                  }}
-                >
-                  {wrestler.firstName} {wrestler.lastName}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </section>
+              <button
+                type="button"
+                onClick={applyImportedPlan}
+                disabled={!importPreview}
+                style={{ padding: "10px 14px", cursor: importPreview ? "pointer" : "default" }}
+              >
+                Apply to Timeline
+              </button>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "320px 1fr 1.2fr",
-          gap: 24,
-          alignItems: "start",
-        }}
-      >
+              <button
+                type="button"
+                onClick={() => {
+                  setImportText("");
+                  setImportPreview(null);
+                }}
+                style={{ padding: "10px 14px", cursor: "pointer" }}
+              >
+                Clear Import
+              </button>
+            </div>
+
+            {importPreview ? (
+              <div
+                style={{
+                  marginTop: 16,
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 12,
+                  padding: 14,
+                  background: "#fafafa",
+                }}
+              >
+                <h3 style={{ marginTop: 0 }}>Import Preview</h3>
+
+                <p style={{ marginTop: 0, color: "#555" }}>
+                  <strong>{importPreview.title || "Untitled imported plan"}</strong>{" "}
+                  {importPreview.style ? `• ${importPreview.style}` : ""}
+                  {importPreview.level ? ` • ${importPreview.level}` : ""}
+                </p>
+
+                {importPreview.description ? (
+                  <p style={{ color: "#555" }}>{importPreview.description}</p>
+                ) : null}
+
+                <div style={{ display: "grid", gap: 8 }}>
+                  {importPreview.blocks.map((block, index) => (
+                    <div
+                      key={block.id}
+                      style={{
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 10,
+                        padding: 10,
+                        background: "#fff",
+                      }}
+                    >
+                      <strong>
+                        {index + 1}. {block.title}
+                      </strong>
+                      <div style={{ fontSize: 13, color: "#666", marginTop: 4 }}>
+                        {formatDurationLabel(block.durationSeconds)}
+                        {block.videoUrl ? " • Video attached" : ""}
+                      </div>
+                      {block.notes ? (
+                        <div style={{ fontSize: 13, marginTop: 6, whiteSpace: "pre-wrap" }}>
+                          {block.notes}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
         <section
           style={{
-            border: "1px solid #ddd",
-            borderRadius: 12,
+            marginBottom: 20,
             padding: 16,
+            borderRadius: 12,
+            border: "1px solid #ddd",
             background: "#fff",
           }}
         >
-          <h2 style={{ marginTop: 0 }}>Saved Practice Plans</h2>
+          <h2 style={{ marginTop: 0, marginBottom: 8 }}>Athlete Assignments</h2>
           <p style={{ marginTop: 0, color: "#666", fontSize: 14 }}>
-            Reopen, update, or remove plans without leaving the builder.
+            {isCoach
+              ? "Leave this empty for a team-wide practice, or target specific wrestlers for a more personal workflow."
+              : "You only see practice plans assigned to you or shared team-wide."}
           </p>
 
-          {loadingPlans ? (
-            <p>Loading saved plans...</p>
-          ) : savedPlans.length === 0 ? (
-            <p>No saved plans yet.</p>
+          {wrestlers.length === 0 ? (
+            <p style={{ marginBottom: 0, color: "#666" }}>Create wrestler profiles first to assign this practice plan.</p>
           ) : (
-            <div style={{ display: "grid", gap: 12, maxHeight: 700, overflowY: "auto" }}>
-              {savedPlans.map((plan) => (
-                <div
-                  key={plan.id}
-                  style={{
-                    border: "1px solid #eee",
-                    borderRadius: 10,
-                    padding: 12,
-                    background: activePlanId === plan.id ? "#f5f5f5" : "#fff",
-                  }}
-                >
-                  <strong>{plan.title}</strong>
-                  <div style={{ fontSize: 14, marginTop: 6 }}>
-                    {plan.style || "Mixed"} · {formatDurationLabel(plan.totalSeconds || plan.totalMinutes * 60 || 0)}
-                  </div>
-                  <div style={{ fontSize: 13, color: "#666", marginTop: 6 }}>
-                    {formatAssignmentSummary(wrestlers, plan.assignedWrestlerIds || [])}
-                  </div>
-
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {wrestlers.map((wrestler) => {
+                const selected = assignedWrestlerIds.includes(wrestler.id);
+                return (
                   <button
-                    onClick={() => loadPlan(plan.id)}
-                    style={{ marginTop: 10, padding: "8px 12px", cursor: "pointer" }}
-                  >
-                    {loadingPlanId === plan.id ? "Opening..." : "Open Plan"}
-                  </button>
-
-                    <button
-                      onClick={() => deletePracticePlan(plan.id)}
-                    disabled={deletingPlanId === plan.id || !isCoach}
+                    key={wrestler.id}
+                    type="button"
+                    onClick={() =>
+                      setAssignedWrestlerIds((prev) =>
+                        prev.includes(wrestler.id)
+                          ? prev.filter((id) => id !== wrestler.id)
+                          : [...prev, wrestler.id]
+                      )
+                    }
+                    disabled={!isCoach}
                     style={{
-                      marginTop: 10,
-                      marginLeft: 8,
-                      padding: "8px 12px",
-                      cursor: "pointer",
-                      color: "#8a1c1c",
+                      padding: "10px 14px",
+                      borderRadius: 999,
+                      border: `1px solid ${selected ? "#bf1029" : "#d1d5db"}`,
+                      background: selected ? "#fde8eb" : "#fff",
+                      color: selected ? "#911022" : "#111827",
+                      cursor: isCoach ? "pointer" : "default",
+                      fontWeight: 700,
                     }}
                   >
-                    {deletingPlanId === plan.id ? "Deleting..." : "Delete"}
+                    {wrestler.firstName} {wrestler.lastName}
                   </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
 
-        <section
+        <div
           style={{
-            border: "1px solid #ddd",
-            borderRadius: 12,
-            padding: 16,
-            background: "#fff",
+            display: "grid",
+            gridTemplateColumns: "320px 1fr 1.2fr",
+            gap: 24,
+            alignItems: "start",
           }}
         >
-          <h2 style={{ marginTop: 0 }}>Library</h2>
-          <p style={{ marginTop: 0, color: "#666", fontSize: 14 }}>
-            Filter by style, search by keyword, then add blocks directly into the timeline.
-          </p>
+          <section
+            style={{
+              border: "1px solid #ddd",
+              borderRadius: 12,
+              padding: 16,
+              background: "#fff",
+            }}
+          >
+            <h2 style={{ marginTop: 0 }}>Saved Practice Plans</h2>
+            <p style={{ marginTop: 0, color: "#666", fontSize: 14 }}>
+              Reopen, update, or remove plans without leaving the builder.
+            </p>
 
-          <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-            <select
-              value={styleFilter}
-              onChange={(e) => setStyleFilter(e.target.value)}
-              style={{ padding: 10, minWidth: 180 }}
-            >
-              <option value="">All Styles</option>
-              {styles.map((style) => (
-                <option key={style} value={style}>
-                  {style}
-                </option>
-              ))}
-            </select>
-
-            <input
-              type="text"
-              placeholder="Search library..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              style={{ flex: 1, minWidth: 180, padding: 10 }}
-            />
-
-            <button
-              onClick={() => {
-                setStyleFilter("");
-                setSearch("");
-              }}
-              style={{ padding: "10px 14px", cursor: "pointer" }}
-            >
-              Clear Filters
-            </button>
-          </div>
-
-          <div style={{ fontSize: 14, color: "#666", marginBottom: 12 }}>{libraryCountLabel}</div>
-
-          {loadingLibrary ? (
-            <p>Loading library...</p>
-          ) : (
-            <div style={{ display: "grid", gap: 12, maxHeight: 700, overflowY: "auto" }}>
-              {filteredLibrary.length === 0 ? (
-                <p style={{ color: "#666", fontSize: 14 }}>
-                  No library items match the current filters.
-                </p>
-              ) : (
-                filteredLibrary.map((item) => (
+            {loadingPlans ? (
+              <p>Loading saved plans...</p>
+            ) : savedPlans.length === 0 ? (
+              <p>No saved plans yet.</p>
+            ) : (
+              <div style={{ display: "grid", gap: 12, maxHeight: 700, overflowY: "auto" }}>
+                {savedPlans.map((plan) => (
                   <div
-                    key={item.id}
+                    key={plan.id}
                     style={{
                       border: "1px solid #eee",
                       borderRadius: 10,
                       padding: 12,
+                      background: activePlanId === plan.id ? "#f5f5f5" : "#fff",
                     }}
                   >
-                    <strong>{item.title}</strong>
-
+                    <strong>{plan.title}</strong>
                     <div style={{ fontSize: 14, marginTop: 6 }}>
-                      {item.style} · {item.category} · {item.subcategory} · {item.format}
+                      {plan.style || "Mixed"} · {formatDurationLabel(plan.totalSeconds || plan.totalMinutes * 60 || 0)}
+                    </div>
+                    <div style={{ fontSize: 13, color: "#666", marginTop: 6 }}>
+                      {formatAssignmentSummary(wrestlers, plan.assignedWrestlerIds || [])}
                     </div>
 
-                    {item.notes ? (
-                      <p style={{ fontSize: 14, marginTop: 8, marginBottom: 8 }}>{item.notes}</p>
-                    ) : null}
+                    <button
+                      onClick={() => loadPlan(plan.id)}
+                      style={{ marginTop: 10, padding: "8px 12px", cursor: "pointer" }}
+                    >
+                      {loadingPlanId === plan.id ? "Opening..." : "Open Plan"}
+                    </button>
 
                     <button
-                      onClick={() => addLibraryBlock(item)}
-                      disabled={!isCoach}
-                      style={{ marginTop: 6, padding: "8px 12px", cursor: "pointer" }}
+                      onClick={() => deletePracticePlan(plan.id)}
+                      disabled={deletingPlanId === plan.id || !isCoach}
+                      style={{
+                        marginTop: 10,
+                        marginLeft: 8,
+                        padding: "8px 12px",
+                        cursor: "pointer",
+                        color: "#8a1c1c",
+                      }}
                     >
-                      Add to Practice
+                      {deletingPlanId === plan.id ? "Deleting..." : "Delete"}
                     </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section
+            style={{
+              border: "1px solid #ddd",
+              borderRadius: 12,
+              padding: 16,
+              background: "#fff",
+            }}
+          >
+            <h2 style={{ marginTop: 0 }}>Library</h2>
+            <p style={{ marginTop: 0, color: "#666", fontSize: 14 }}>
+              Filter by style, search by keyword, then add blocks directly into the timeline.
+            </p>
+
+            <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+              <select
+                value={styleFilter}
+                onChange={(e) => setStyleFilter(e.target.value)}
+                style={{ padding: 10, minWidth: 180 }}
+              >
+                <option value="">All Styles</option>
+                {styles.map((style) => (
+                  <option key={style} value={style}>
+                    {style}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="text"
+                placeholder="Search library..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                style={{ flex: 1, minWidth: 180, padding: 10 }}
+              />
+
+              <button
+                onClick={() => {
+                  setStyleFilter("");
+                  setSearch("");
+                }}
+                style={{ padding: "10px 14px", cursor: "pointer" }}
+              >
+                Clear Filters
+              </button>
+            </div>
+
+            <div style={{ fontSize: 14, color: "#666", marginBottom: 12 }}>{libraryCountLabel}</div>
+
+            {loadingLibrary ? (
+              <p>Loading library...</p>
+            ) : (
+              <div style={{ display: "grid", gap: 12, maxHeight: 700, overflowY: "auto" }}>
+                {filteredLibrary.length === 0 ? (
+                  <p style={{ color: "#666", fontSize: 14 }}>
+                    No library items match the current filters.
+                  </p>
+                ) : (
+                  filteredLibrary.map((item) => (
+                    <div
+                      key={item.id}
+                      style={{
+                        border: "1px solid #eee",
+                        borderRadius: 10,
+                        padding: 12,
+                      }}
+                    >
+                      <strong>{item.title}</strong>
+
+                      <div style={{ fontSize: 14, marginTop: 6 }}>
+                        {item.style} · {item.category} · {item.subcategory} · {item.format}
+                      </div>
+
+                      {item.notes ? (
+                        <p style={{ fontSize: 14, marginTop: 8, marginBottom: 8 }}>{item.notes}</p>
+                      ) : null}
+
+                      <button
+                        onClick={() => addLibraryBlock(item)}
+                        disabled={!isCoach}
+                        style={{ marginTop: 6, padding: "8px 12px", cursor: "pointer" }}
+                      >
+                        Add to Practice
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </section>
+
+          <section
+            style={{
+              border: "1px solid #ddd",
+              borderRadius: 12,
+              padding: 16,
+              background: "#fff",
+            }}
+          >
+            <h2 style={{ marginTop: 0 }}>Practice Timeline</h2>
+            <p style={{ marginBottom: 16 }}>
+              {blocks.length === 0
+                ? "Add library items or text blocks to start shaping the session."
+                : `Total Time: ${formatDurationLabel(totalSeconds)} across ${blocks.length} blocks.`}
+            </p>
+
+            <div style={{ display: "grid", gap: 16 }}>
+              {blocks.length === 0 ? (
+                <div
+                  style={{
+                    border: "1px dashed #ccc",
+                    borderRadius: 12,
+                    padding: 24,
+                    background: "#fafafa",
+                    color: "#666",
+                  }}
+                >
+                  No blocks yet. Build the session from the library on the left or add a custom text
+                  block for warm-ups, partner rotations, live goes, or coach reminders.
+                </div>
+              ) : (
+                blocks.map((block, index) => (
+                  <div
+                    key={block.id}
+                    style={{
+                      border: "1px solid #eee",
+                      borderRadius: 10,
+                      padding: 14,
+                      background: block.blockType === "text" ? "#fafafa" : "#fff",
+                    }}
+                  >
+                    <div style={{ marginBottom: 8 }}>
+                      <strong>
+                        {index + 1}. {block.blockType === "text" ? "Text Block" : "Library Block"}
+                      </strong>
+                    </div>
+
+                    <label style={{ display: "block", marginBottom: 10 }}>
+                      Title:
+                      <input
+                        type="text"
+                        value={block.title}
+                        onChange={(e) => updateTitle(block.id, e.target.value)}
+                        disabled={!isCoach}
+                        style={{ display: "block", width: "100%", marginTop: 8, padding: 8 }}
+                      />
+                    </label>
+
+                    {block.blockType === "library" ? (
+                      <div style={{ fontSize: 14, marginBottom: 8 }}>
+                        {block.style} · {block.category} · {block.subcategory} · {block.format}
+                      </div>
+                    ) : null}
+
+                    <label style={{ display: "block", marginBottom: 10 }}>
+                      Duration:
+                      <input
+                        type="text"
+                        value={formatDurationLabel(block.durationSeconds)}
+                        onChange={(e) => updateDuration(block.id, e.target.value)}
+                        disabled={!isCoach}
+                        style={{ marginLeft: 8, width: 90, padding: 6 }}
+                      />
+                      {" "}mm:ss
+                    </label>
+
+                    <label style={{ display: "block", marginBottom: 10 }}>
+                      Notes:
+                      <textarea
+                        value={block.notes}
+                        onChange={(e) => updateNotes(block.id, e.target.value)}
+                        disabled={!isCoach}
+                        rows={4}
+                        style={{
+                          display: "block",
+                          width: "100%",
+                          marginTop: 8,
+                          padding: 8,
+                          resize: "vertical",
+                        }}
+                      />
+                    </label>
+
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                      {block.videoUrl ? (
+                        <a href={block.videoUrl} target="_blank" rel="noreferrer">
+                          Open video
+                        </a>
+                      ) : null}
+
+                      <button onClick={() => moveBlockUp(block.id)} disabled={!isCoach} style={{ padding: "6px 10px" }}>
+                        Move Up
+                      </button>
+
+                      <button onClick={() => moveBlockDown(block.id)} disabled={!isCoach} style={{ padding: "6px 10px" }}>
+                        Move Down
+                      </button>
+
+                      <button onClick={() => removeBlock(block.id)} disabled={!isCoach} style={{ padding: "6px 10px" }}>
+                        Remove
+                      </button>
+                    </div>
+
+                    <div style={{ marginTop: 12, fontSize: 12, color: "#666" }}>
+                      {block.blockType === "library"
+                        ? `Linked library item: ${block.libraryItemId}`
+                        : "Custom text block"}
+                    </div>
                   </div>
                 ))
               )}
             </div>
-          )}
-        </section>
-
-        <section
-          style={{
-            border: "1px solid #ddd",
-            borderRadius: 12,
-            padding: 16,
-            background: "#fff",
-          }}
-        >
-          <h2 style={{ marginTop: 0 }}>Practice Timeline</h2>
-          <p style={{ marginBottom: 16 }}>
-            {blocks.length === 0
-              ? "Add library items or text blocks to start shaping the session."
-              : `Total Time: ${formatDurationLabel(totalSeconds)} across ${blocks.length} blocks.`}
-          </p>
-
-          <div style={{ display: "grid", gap: 16 }}>
-            {blocks.length === 0 ? (
-              <div
-                style={{
-                  border: "1px dashed #ccc",
-                  borderRadius: 12,
-                  padding: 24,
-                  background: "#fafafa",
-                  color: "#666",
-                }}
-              >
-                No blocks yet. Build the session from the library on the left or add a custom text
-                block for warm-ups, partner rotations, live goes, or coach reminders.
-              </div>
-            ) : (
-              blocks.map((block, index) => (
-                <div
-                  key={block.id}
-                  style={{
-                    border: "1px solid #eee",
-                    borderRadius: 10,
-                    padding: 14,
-                    background: block.blockType === "text" ? "#fafafa" : "#fff",
-                  }}
-                >
-                  <div style={{ marginBottom: 8 }}>
-                    <strong>
-                      {index + 1}. {block.blockType === "text" ? "Text Block" : "Library Block"}
-                    </strong>
-                  </div>
-
-                  <label style={{ display: "block", marginBottom: 10 }}>
-                    Title:
-                    <input
-                      type="text"
-                      value={block.title}
-                      onChange={(e) => updateTitle(block.id, e.target.value)}
-                      disabled={!isCoach}
-                      style={{ display: "block", width: "100%", marginTop: 8, padding: 8 }}
-                    />
-                  </label>
-
-                  {block.blockType === "library" ? (
-                    <div style={{ fontSize: 14, marginBottom: 8 }}>
-                      {block.style} · {block.category} · {block.subcategory} · {block.format}
-                    </div>
-                  ) : null}
-
-                  <label style={{ display: "block", marginBottom: 10 }}>
-                    Duration:
-                    <input
-                      type="text"
-                      value={formatDurationLabel(block.durationSeconds)}
-                      onChange={(e) => updateDuration(block.id, e.target.value)}
-                      disabled={!isCoach}
-                      style={{ marginLeft: 8, width: 90, padding: 6 }}
-                    />
-                    {" "}mm:ss
-                  </label>
-
-                  <label style={{ display: "block", marginBottom: 10 }}>
-                    Notes:
-                    <textarea
-                      value={block.notes}
-                      onChange={(e) => updateNotes(block.id, e.target.value)}
-                      disabled={!isCoach}
-                      rows={4}
-                      style={{
-                        display: "block",
-                        width: "100%",
-                        marginTop: 8,
-                        padding: 8,
-                        resize: "vertical",
-                      }}
-                    />
-                  </label>
-
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                    {block.blockType === "library" && block.videoUrl ? (
-                      <a href={block.videoUrl} target="_blank" rel="noreferrer">
-                        Open video
-                      </a>
-                    ) : null}
-
-                    <button onClick={() => moveBlockUp(block.id)} disabled={!isCoach} style={{ padding: "6px 10px" }}>
-                      Move Up
-                    </button>
-
-                    <button onClick={() => moveBlockDown(block.id)} disabled={!isCoach} style={{ padding: "6px 10px" }}>
-                      Move Down
-                    </button>
-
-                    <button onClick={() => removeBlock(block.id)} disabled={!isCoach} style={{ padding: "6px 10px" }}>
-                      Remove
-                    </button>
-                  </div>
-
-                  <div style={{ marginTop: 12, fontSize: 12, color: "#666" }}>
-                    {block.blockType === "library"
-                      ? `Linked library item: ${block.libraryItemId}`
-                      : "Custom text block"}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </section>
-      </div>
-    </main>
+          </section>
+        </div>
+      </main>
     </RequireAuth>
   );
 }
