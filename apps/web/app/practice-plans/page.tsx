@@ -37,6 +37,10 @@ type PracticeBlock = {
   notes: string;
 };
 
+type PracticeBlockWithOrder = PracticeBlock & {
+  orderIndex: number;
+};
+
 type SavedPracticePlan = {
   id: string;
   title: string;
@@ -234,6 +238,7 @@ function PracticePlansPageContent() {
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null);
   const [importText, setImportText] = useState("");
   const [importPreview, setImportPreview] = useState<ImportedPlan | null>(null);
+  const [showImportHelp, setShowImportHelp] = useState(false);
   const [snapshot, setSnapshot] = useState<PlanSnapshot>(() =>
     createPlanSnapshot({
       planId: null,
@@ -577,8 +582,15 @@ function PracticePlansPageContent() {
       );
 
       const loadedBlocks: PracticeBlock[] = blocksSnapshot.docs
-        .map((d) => {
+        .map((d): PracticeBlockWithOrder => {
           const data = d.data() as Record<string, unknown>;
+
+          const durationSeconds =
+            typeof data.durationSeconds === "number"
+              ? data.durationSeconds
+              : typeof data.durationMinutes === "number"
+                ? data.durationMinutes * 60
+                : 600;
 
           return {
             id: d.id,
@@ -589,27 +601,18 @@ function PracticePlansPageContent() {
             category: typeof data.category === "string" ? data.category : undefined,
             subcategory: typeof data.subcategory === "string" ? data.subcategory : undefined,
             format: typeof data.format === "string" ? data.format : undefined,
-            durationSeconds:
-              typeof data.durationSeconds === "number"
-                ? data.durationSeconds
-                : typeof data.durationMinutes === "number"
-                  ? data.durationMinutes * 60
-                  : 600,
+            durationSeconds,
             durationMinutes:
               typeof data.durationMinutes === "number"
                 ? data.durationMinutes
-                : typeof data.durationSeconds === "number"
-                  ? Math.max(1, Math.round(data.durationSeconds / 60))
-                  : 10,
+                : Math.max(1, Math.round(durationSeconds / 60)),
             videoUrl: typeof data.videoUrl === "string" ? data.videoUrl : undefined,
             notes: typeof data.notes === "string" ? data.notes : "",
             orderIndex: typeof data.orderIndex === "number" ? data.orderIndex : 0,
           };
         })
-        .sort((a: PracticeBlock & { orderIndex?: number }, b: PracticeBlock & { orderIndex?: number }) => {
-          return (a.orderIndex || 0) - (b.orderIndex || 0);
-        })
-        .map(({ orderIndex: _orderIndex, ...rest }: PracticeBlock & { orderIndex?: number }) => rest);
+        .sort((a, b) => a.orderIndex - b.orderIndex)
+        .map(({ orderIndex: _orderIndex, ...rest }) => rest);
 
       setActivePlanId(planId);
       setPlanTitle(planData.title || "");
@@ -918,11 +921,84 @@ function PracticePlansPageContent() {
               background: "#fff",
             }}
           >
-            <h2 style={{ marginTop: 0, marginBottom: 8 }}>Import Practice Plan</h2>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                marginBottom: 8,
+                position: "relative",
+              }}
+            >
+              <h2 style={{ margin: 0 }}>Import Practice Plan</h2>
+
+              <button
+                type="button"
+                aria-label="Practice plan import format help"
+                onClick={() => setShowImportHelp((prev) => !prev)}
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 999,
+                  border: "1px solid #bf1029",
+                  background: showImportHelp ? "#bf1029" : "#fff",
+                  color: showImportHelp ? "#fff" : "#bf1029",
+                  fontWeight: 900,
+                  cursor: "pointer",
+                  lineHeight: "24px",
+                }}
+              >
+                ?
+              </button>
+
+              {showImportHelp ? (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 34,
+                    left: 240,
+                    zIndex: 20,
+                    width: "min(520px, calc(100vw - 64px))",
+                    border: "1px solid #d1d5db",
+                    borderRadius: 14,
+                    background: "#ffffff",
+                    boxShadow: "0 18px 50px rgba(15, 23, 42, 0.18)",
+                    padding: 14,
+                    color: "#111827",
+                  }}
+                >
+                  <div style={{ fontWeight: 900, marginBottom: 8 }}>Import format</div>
+                  <p style={{ margin: "0 0 10px", color: "#475569", fontSize: 14, lineHeight: 1.5 }}>
+                    Start with plan details, then add one block per line. Each block should use:
+                  </p>
+                  <div
+                    style={{
+                      borderRadius: 10,
+                      background: "#f8fafc",
+                      border: "1px solid #e5e7eb",
+                      padding: 10,
+                      fontFamily: "monospace",
+                      fontSize: 13,
+                      marginBottom: 10,
+                    }}
+                  >
+                    Block Title | Time | Notes | Optional Video URL
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 18, color: "#475569", fontSize: 14, lineHeight: 1.5 }}>
+                    <li>
+                      Time can be <strong>10:00</strong> or <strong>10</strong>.
+                    </li>
+                    <li>Video URL is optional.</li>
+                    <li>Imported rows become editable timeline blocks before saving.</li>
+                    <li>Use Preview Import first, then Apply to Timeline.</li>
+                  </ul>
+                </div>
+              ) : null}
+            </div>
 
             <p style={{ marginTop: 0, color: "#666", fontSize: 14 }}>
               Paste a structured practice plan, preview the blocks, then apply it to the timeline.
-              This is web-only for coaches.
+              Each block should use <strong>Block Title | Time | Notes | Optional Video URL</strong>.
             </p>
 
             <div
@@ -939,17 +1015,20 @@ function PracticePlansPageContent() {
             >
               <strong>Format example:</strong>
               <pre style={{ whiteSpace: "pre-wrap", margin: "8px 0 0" }}>
-{`Practice Plan: Chain Wrestling Tuesday
+{`Practice Plan: Folkstyle Chain Wrestling + Mat Returns
 Style: Folkstyle
-Level: Middle School
-Description: Heavy focus on transitions and mat returns
+Level: Middle School / High School
+Description: Build chain wrestling habits from stance motion to single-leg finishes, mat returns, and short live goes.
 
-Warm-up | 10:00 | Dynamic movement, stance motion, hand fighting
-Technique | 15:00 | Single leg finish series | https://youtube.com/...
-Drill | 12:00 | Partner chain wrestling, 30-second goes
-Live | 20:00 | Situational starts from single leg
-Conditioning | 8:00 | Sprint/sprawl finisher
-Cooldown | 5:00 | Stretch and team talk`}
+Warm-up | 10:00 | Jog, stance motion, sprawls, penetration steps, hip-heists
+Hand Fighting | 8:00 | Inside ties, head position, wrist control, circle to angle
+Technique | 15:00 | Single leg entry to shelf finish; coach demos, then partner reps | https://youtube.com/
+Drill | 10:00 | Single leg finish chain: shelf, run the pipe, switch to double
+Mat Returns | 12:00 | Lift-return mechanics, safe mat return position, partner rotation
+Situational Live | 15:00 | Start in single leg position; wrestler A finishes, wrestler B defends
+Top/Bottom Review | 10:00 | Stand-up first move, chop breakdown, tight waist ride
+Conditioning | 8:00 | 20-second go behinds, sprawls, push-ups, repeat
+Cooldown | 5:00 | Stretch, breathing, team huddle, one goal for next practice`}
               </pre>
             </div>
 
@@ -1068,7 +1147,9 @@ Cooldown | 5:00 | Stretch and team talk`}
           </p>
 
           {wrestlers.length === 0 ? (
-            <p style={{ marginBottom: 0, color: "#666" }}>Create wrestler profiles first to assign this practice plan.</p>
+            <p style={{ marginBottom: 0, color: "#666" }}>
+              Create wrestler profiles first to assign this practice plan.
+            </p>
           ) : (
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               {wrestlers.map((wrestler) => {
@@ -1142,7 +1223,8 @@ Cooldown | 5:00 | Stretch and team talk`}
                   >
                     <strong>{plan.title}</strong>
                     <div style={{ fontSize: 14, marginTop: 6 }}>
-                      {plan.style || "Mixed"} · {formatDurationLabel(plan.totalSeconds || plan.totalMinutes * 60 || 0)}
+                      {plan.style || "Mixed"} ·{" "}
+                      {formatDurationLabel(plan.totalSeconds || plan.totalMinutes * 60 || 0)}
                     </div>
                     <div style={{ fontSize: 13, color: "#666", marginTop: 6 }}>
                       {formatAssignmentSummary(wrestlers, plan.assignedWrestlerIds || [])}
@@ -1335,8 +1417,8 @@ Cooldown | 5:00 | Stretch and team talk`}
                         onChange={(e) => updateDuration(block.id, e.target.value)}
                         disabled={!isCoach}
                         style={{ marginLeft: 8, width: 90, padding: 6 }}
-                      />
-                      {" "}mm:ss
+                      />{" "}
+                      mm:ss
                     </label>
 
                     <label style={{ display: "block", marginBottom: 10 }}>
