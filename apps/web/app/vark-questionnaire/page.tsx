@@ -50,12 +50,12 @@ export default function VarkQuestionnairePage() {
 
   async function handleComplete() {
     if (!firebaseUser?.uid) {
-      setError("Please sign in before saving your WrestleIQ profile.");
+      setError("Please sign in before saving your WrestleWellIQ profile.");
       return;
     }
 
     if (appUser?.role !== "athlete") {
-      setError("WrestleIQ is only required for athlete accounts.");
+      setError("WrestleWellIQ is only required for athlete accounts.");
       return;
     }
 
@@ -89,8 +89,8 @@ export default function VarkQuestionnairePage() {
       await refreshAppState();
       router.replace("/");
     } catch (nextError) {
-      console.error("Failed to save WrestleIQ questionnaire:", nextError);
-      setError(nextError instanceof Error ? nextError.message : "Failed to save WrestleIQ.");
+      console.error("Failed to save WrestleWellIQ questionnaire:", nextError);
+      setError(nextError instanceof Error ? nextError.message : "Failed to save WrestleWellIQ.");
     } finally {
       setSaving(false);
     }
@@ -99,7 +99,7 @@ export default function VarkQuestionnairePage() {
   if (loading) {
     return (
       <div className="content-card">
-        <h1 className="content-card__title">Loading WrestleIQ</h1>
+        <h1 className="content-card__title">Loading WrestleWellIQ</h1>
         <p className="content-card__copy">Checking your athlete setup...</p>
       </div>
     );
@@ -109,7 +109,7 @@ export default function VarkQuestionnairePage() {
     return (
       <div className="dashboard-grid">
         <section className="content-card">
-          <div className="eyebrow">WrestleIQ</div>
+          <div className="eyebrow">WrestleWellIQ</div>
           <h1 className="hero-title" style={{ fontSize: "clamp(2rem, 4vw, 3.2rem)" }}>
             Sign in required.
           </h1>
@@ -133,7 +133,7 @@ export default function VarkQuestionnairePage() {
         <section className="content-card">
           <div className="eyebrow">Coach account</div>
           <h1 className="hero-title" style={{ fontSize: "clamp(2rem, 4vw, 3.2rem)" }}>
-            WrestleIQ is for athletes.
+            WrestleWellIQ is for athletes.
           </h1>
           <p className="hero-copy">
             Coaches do not need to complete the athlete learning style questionnaire.
@@ -157,7 +157,7 @@ export default function VarkQuestionnairePage() {
             <div className="eyebrow">Athlete setup</div>
 
             <h1 className="hero-title" style={{ fontSize: "clamp(2rem, 4vw, 3.5rem)" }}>
-              Complete your WrestleIQ profile.
+              Complete your WrestleWellIQ profile.
             </h1>
 
             <p className="hero-copy">
@@ -167,7 +167,7 @@ export default function VarkQuestionnairePage() {
 
             <div className="hero-actions">
               <button className="button-primary" onClick={handleComplete} disabled={saving}>
-                {saving ? "Saving..." : "Finish WrestleIQ"}
+                {saving ? "Saving..." : "Finish WrestleWellIQ"}
               </button>
 
               <Link href="/" className="button-secondary">
@@ -284,7 +284,7 @@ export default function VarkQuestionnairePage() {
         <div className="content-card">
           <h2 className="content-card__title">Finish setup</h2>
           <p className="content-card__copy">
-            Once every question is answered, save your WrestleIQ profile and continue to your
+            Once every question is answered, save your WrestleWellIQ profile and continue to your
             athlete dashboard.
           </p>
 
@@ -292,7 +292,7 @@ export default function VarkQuestionnairePage() {
 
           <div className="hero-actions">
             <button className="button-primary" onClick={handleComplete} disabled={saving}>
-              {saving ? "Saving..." : "Finish WrestleIQ"}
+              {saving ? "Saving..." : "Finish WrestleWellIQ"}
             </button>
           </div>
         </div>

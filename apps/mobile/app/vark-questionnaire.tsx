@@ -55,7 +55,7 @@ export default function VarkQuestionnaireScreen() {
 
   async function handleComplete() {
     if (!firebaseUser?.uid) {
-      Alert.alert("Sign in required", "Please sign in before saving your WrestleIQ profile.");
+      Alert.alert("Sign in required", "Please sign in before saving your WrestleWellIQ profile.");
       return;
     }
 
@@ -91,7 +91,7 @@ export default function VarkQuestionnaireScreen() {
       await refreshAppState();
 
       Alert.alert(
-        "WrestleIQ complete",
+        "WrestleWellIQ complete",
         `Your primary learning style is ${VARK_STYLE_LABELS[result.primaryStyle]}.`,
         [
           {
@@ -104,7 +104,7 @@ export default function VarkQuestionnaireScreen() {
       console.error("Failed to save VARK questionnaire:", error);
       Alert.alert(
         "Save failed",
-        error?.message || "There was a problem saving your WrestleIQ profile."
+        error?.message || "There was a problem saving your WrestleWellIQ profile."
       );
     } finally {
       setSaving(false);
@@ -114,7 +114,7 @@ export default function VarkQuestionnaireScreen() {
   if (!loading && (!firebaseUser || !appUser)) {
     return (
       <MobileScreenShell
-        title="WrestleIQ"
+        title="WrestleWellIQ"
         subtitle="Sign in to complete your athlete learning profile."
         eyebrow="ATHLETE SETUP"
       >
@@ -124,7 +124,7 @@ export default function VarkQuestionnaireScreen() {
           </Text>
 
           <Text style={{ color: "#b7c9df", fontSize: 15, lineHeight: 22, marginTop: 8 }}>
-            You need an athlete account before completing the WrestleIQ questionnaire.
+            You need an athlete account before completing the WrestleWellIQ questionnaire.
           </Text>
 
           <Pressable
@@ -148,7 +148,7 @@ export default function VarkQuestionnaireScreen() {
   if (appUser?.role === "coach") {
     return (
       <MobileScreenShell
-        title="WrestleIQ"
+        title="WrestleWellIQ"
         subtitle="This questionnaire is for athlete learning profiles."
         eyebrow="ATHLETE SETUP"
       >
@@ -158,7 +158,7 @@ export default function VarkQuestionnaireScreen() {
           </Text>
 
           <Text style={{ color: "#b7c9df", fontSize: 15, lineHeight: 22, marginTop: 8 }}>
-            WrestleIQ is used to help coaches understand how each athlete learns best.
+            WrestleWellIQ is used to help coaches understand how each athlete learns best.
           </Text>
 
           <Pressable
@@ -181,7 +181,7 @@ export default function VarkQuestionnaireScreen() {
 
   return (
     <MobileScreenShell
-      title="WrestleIQ"
+      title="WrestleWellIQ"
       subtitle="Complete your athlete learning profile so your coach can teach you the way you learn best."
       eyebrow="ATHLETE SETUP"
     >
@@ -362,7 +362,7 @@ export default function VarkQuestionnaireScreen() {
           })}
         >
           <Text style={{ color: "#ffffff", fontSize: 18, fontWeight: "900" }}>
-            {saving ? "Saving WrestleIQ..." : "Finish WrestleIQ Profile"}
+            {saving ? "Saving WrestleWellIQ..." : "Finish WrestleWellIQ Profile"}
           </Text>
         </Pressable>
 

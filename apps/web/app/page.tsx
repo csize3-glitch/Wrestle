@@ -529,7 +529,7 @@ export default function HomePage() {
 
             <div className="hero-actions" style={{ marginTop: 4 }}>
               <button className="button-primary" onClick={handleSetupSubmit} disabled={busy}>
-                {busy ? "Saving..." : form.role === "athlete" ? "Complete Setup & Start WrestleIQ" : "Complete Setup"}
+                {busy ? "Saving..." : form.role === "athlete" ? "Complete Setup & Start WrestleWellIQ" : "Complete Setup"}
               </button>
             </div>
           </div>
@@ -667,7 +667,7 @@ export default function HomePage() {
                       : mode === "sign_in"
                         ? "Sign In to WrestleWell"
                         : form.role === "athlete"
-                          ? "Create Account & Start WrestleIQ"
+                          ? "Create Account & Start WrestleWellIQ"
                           : "Create WrestleWell Account"}
                   </button>
                 </div>
@@ -685,7 +685,7 @@ export default function HomePage() {
 
               <div className="stat-card stat-card--accent">
                 <span className="stat-card__label">Athlete Path</span>
-                <span className="stat-card__value">WrestleIQ First</span>
+                <span className="stat-card__value">WrestleWellIQ First</span>
                 <p className="stat-card__copy">
                   Join a team, complete your learning profile, and get a personal lane into your development.
                 </p>
@@ -723,14 +723,14 @@ export default function HomePage() {
 
             {appUser.role === "athlete" && appUser.varkCompleted !== true ? (
               <div className="content-card" style={{ marginTop: 20 }}>
-                <div className="eyebrow">WrestleIQ setup needed</div>
+                <div className="eyebrow">WrestleWellIQ setup needed</div>
                 <h2 className="content-card__title">Complete your learning style profile.</h2>
                 <p className="content-card__copy">
-                  Athletes complete WrestleIQ first so coaches can understand how they learn best.
+                  Athletes complete WrestleWellIQ first so coaches can understand how they learn best.
                 </p>
                 <div className="hero-actions">
                   <Link href="/vark-questionnaire" className="button-primary">
-                    Start WrestleIQ
+                    Start WrestleWellIQ
                   </Link>
                 </div>
               </div>

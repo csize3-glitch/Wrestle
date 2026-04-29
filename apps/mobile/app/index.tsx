@@ -300,7 +300,7 @@ export default function IndexScreen() {
               }}
             >
               <Text style={{ color: "#7f1d1d", fontSize: 16, fontWeight: "900" }}>
-                WrestleIQ setup needed
+                WrestleWellIQ setup needed
               </Text>
 
               <Text style={{ color: "#991b1b", fontSize: 14, lineHeight: 20, marginTop: 5 }}>
@@ -319,7 +319,7 @@ export default function IndexScreen() {
                 }}
               >
                 <Text style={{ color: "#ffffff", fontWeight: "900" }}>
-                  Start WrestleIQ
+                  Start WrestleWellIQ
                 </Text>
               </Pressable>
             </View>

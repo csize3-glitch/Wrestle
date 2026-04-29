@@ -316,7 +316,7 @@ export default function JoinScreen() {
                     : mode === "sign_in"
                       ? "Sign In & Join"
                       : role === "athlete"
-                        ? "Join Team & Start WrestleIQ"
+                        ? "Join Team & Start WrestleWellIQ"
                         : "Join Team"
                 }
                 onPress={handleJoin}
@@ -325,7 +325,7 @@ export default function JoinScreen() {
 
               {role === "athlete" ? (
                 <Text style={{ color: "#93c5fd", fontSize: 13, lineHeight: 19 }}>
-                  Athletes will complete the WrestleIQ learning style questionnaire after joining.
+                  Athletes will complete the WrestleWellIQ learning style questionnaire after joining.
                 </Text>
               ) : null}
             </View>
