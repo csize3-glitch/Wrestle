@@ -265,7 +265,11 @@ service cloud.firestore {
     }
 
     match /device_push_registrations/{registrationId} {
-      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow read: if signedIn() &&
+        (
+          resource.data.userId == request.auth.uid ||
+          sameTeam(resource.data.teamId)
+        );
       allow create: if signedIn() &&
         request.resource.data.userId == request.auth.uid &&
         request.resource.data.teamId == currentTeamId();

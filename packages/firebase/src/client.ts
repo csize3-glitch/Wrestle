@@ -38,21 +38,17 @@ function createAuthInstance(): Auth {
   }
 
   try {
-    const nativeRequire = new Function("return typeof require === 'function' ? require : undefined;")() as
-      | ((id: string) => unknown)
-      | undefined;
-
-    if (typeof nativeRequire !== "function") {
-      return getAuth(app);
-    }
-
-    const storageModule = nativeRequire("@react-native-async-storage/async-storage") as {
+    const storageModule = require("@react-native-async-storage/async-storage") as {
       default?: unknown;
+      createAsyncStorage?: (namespace?: string) => unknown;
     };
-    const authModule = nativeRequire("firebase/auth") as {
+    const authModule = require("firebase/auth") as {
       getReactNativePersistence?: (storage: unknown) => unknown;
     };
-    const asyncStorage = storageModule?.default;
+    const asyncStorage =
+      typeof storageModule?.createAsyncStorage === "function"
+        ? storageModule.createAsyncStorage("wrestlewell")
+        : storageModule?.default;
     const reactNativePersistence = authModule?.getReactNativePersistence;
 
     if (!asyncStorage || !reactNativePersistence) {

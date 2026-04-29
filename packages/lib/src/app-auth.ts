@@ -23,6 +23,8 @@ import {
   type Team,
   type TeamMember,
   type UserRole,
+  type VarkProfile,
+  type VarkStyle,
 } from "@wrestlewell/types/index";
 
 export type AuthAccountInput = {
@@ -47,6 +49,19 @@ function normalizeRole(value: unknown): UserRole {
   return value === "coach" ? "coach" : "athlete";
 }
 
+function normalizeVarkStyle(value: unknown): VarkStyle | "" {
+  if (
+    value === "visual" ||
+    value === "auditory" ||
+    value === "readingWriting" ||
+    value === "kinesthetic"
+  ) {
+    return value;
+  }
+
+  return "";
+}
+
 function normalizeNotificationPreferences(value: unknown): NotificationPreferences {
   const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 
@@ -54,6 +69,25 @@ function normalizeNotificationPreferences(value: unknown): NotificationPreferenc
     announcements: record.announcements !== false,
     tournamentAlerts: record.tournamentAlerts !== false,
     practiceReminders: record.practiceReminders !== false,
+  };
+}
+
+function normalizeVarkProfile(value: unknown): VarkProfile | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return {
+    visual: typeof record.visual === "number" ? record.visual : 0,
+    auditory: typeof record.auditory === "number" ? record.auditory : 0,
+    readingWriting: typeof record.readingWriting === "number" ? record.readingWriting : 0,
+    kinesthetic: typeof record.kinesthetic === "number" ? record.kinesthetic : 0,
+    primaryStyle: normalizeVarkStyle(record.primaryStyle),
+    secondaryStyle: normalizeVarkStyle(record.secondaryStyle),
+    isMultimodal: record.isMultimodal === true,
+    completedAt: typeof record.completedAt === "string" ? record.completedAt : "",
   };
 }
 
@@ -91,6 +125,8 @@ function normalizeAppUser(id: string, value: Record<string, unknown>): AppUser {
     notificationPreferences: normalizeNotificationPreferences(value.notificationPreferences),
     lastSeenNotificationsAt:
       typeof value.lastSeenNotificationsAt === "string" ? value.lastSeenNotificationsAt : undefined,
+    varkCompleted: value.varkCompleted === true,
+    varkProfile: normalizeVarkProfile(value.varkProfile),
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
   };
@@ -167,6 +203,24 @@ async function findTeamByCoachInviteCode(
   return normalizeTeam(teamDoc.id, teamDoc.data() as Record<string, unknown>);
 }
 
+function createDefaultVarkFields(role: UserRole) {
+  const isAthlete = role === "athlete";
+
+  return {
+    varkCompleted: !isAthlete,
+    varkProfile: {
+      visual: 0,
+      auditory: 0,
+      readingWriting: 0,
+      kinesthetic: 0,
+      primaryStyle: "",
+      secondaryStyle: "",
+      isMultimodal: false,
+      completedAt: "",
+    },
+  };
+}
+
 async function createAccountRecords(
   db: Firestore,
   args: {
@@ -216,6 +270,8 @@ async function createAccountRecords(
     teamId = matchedTeam?.id;
   }
 
+  const varkFields = createDefaultVarkFields(args.role);
+
   batch.set(userRef, {
     email: args.email.trim().toLowerCase(),
     displayName: args.displayName.trim(),
@@ -227,6 +283,7 @@ async function createAccountRecords(
       practiceReminders: true,
     },
     lastSeenNotificationsAt: "",
+    ...varkFields,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   } satisfies Omit<AppUser, "id" | "createdAt" | "updatedAt"> & Record<string, unknown>);

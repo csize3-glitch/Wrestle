@@ -22,6 +22,16 @@ function copyText(value: string) {
   return navigator.clipboard.writeText(value).then(() => true).catch(() => false);
 }
 
+function formatTeamActionError(error: unknown) {
+  const baseMessage = error instanceof Error ? error.message : "Team update failed.";
+
+  if (baseMessage.toLowerCase().includes("missing or insufficient permissions")) {
+    return "Missing or insufficient permissions. If this is a new admin feature, deploy the latest Firestore rules and try again.";
+  }
+
+  return baseMessage;
+}
+
 export default function TeamPage() {
   const { appUser, currentTeam, refreshAppState } = useAuthState();
   const [members, setMembers] = useState<TeamMemberRecord[]>([]);
@@ -110,7 +120,7 @@ export default function TeamPage() {
       setSuccess("Team name updated.");
     } catch (nextError) {
       console.error("Failed to update team name:", nextError);
-      setError(nextError instanceof Error ? nextError.message : "Failed to update team name.");
+      setError(formatTeamActionError(nextError));
     } finally {
       setSavingTeam(false);
     }
@@ -136,7 +146,7 @@ export default function TeamPage() {
       setSuccess(kind === "team" ? "Team code refreshed." : "Coach invite code refreshed.");
     } catch (nextError) {
       console.error("Failed to regenerate code:", nextError);
-      setError(nextError instanceof Error ? nextError.message : "Failed to regenerate code.");
+      setError(formatTeamActionError(nextError));
     } finally {
       setSavingTeam(false);
     }
@@ -266,6 +276,7 @@ export default function TeamPage() {
                           className="button-secondary"
                           type="button"
                           onClick={() => handleCopy("team", currentTeam?.teamCode)}
+                          disabled={!currentTeam?.teamCode}
                         >
                           {copiedField === "team" ? "Copied" : "Copy Code"}
                         </button>
@@ -294,8 +305,13 @@ export default function TeamPage() {
                           className="button-secondary"
                           type="button"
                           onClick={() => handleCopy("coach", currentTeam?.coachInviteCode)}
+                          disabled={!currentTeam?.coachInviteCode}
                         >
-                          {copiedField === "coach" ? "Copied" : "Copy Code"}
+                          {!currentTeam?.coachInviteCode
+                            ? "Generate Code"
+                            : copiedField === "coach"
+                              ? "Copied"
+                              : "Copy Code"}
                         </button>
                         {isOwner ? (
                           <button
@@ -304,7 +320,7 @@ export default function TeamPage() {
                             onClick={() => handleRegenerateCode("coach")}
                             disabled={savingTeam}
                           >
-                            Refresh
+                            {currentTeam?.coachInviteCode ? "Refresh" : "Generate"}
                           </button>
                         ) : null}
                       </div>

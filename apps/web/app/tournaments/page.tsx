@@ -11,6 +11,7 @@ import {
   listTournaments,
   listTournamentEntries,
   listWrestlers,
+  sendTeamPushDelivery,
   updateTournament,
   updateTournamentEntry,
   updateTournamentEntryStatus,
@@ -467,6 +468,18 @@ export default function TournamentsPage() {
           tournamentEntryId: entry.id,
           wrestlerId: entry.wrestlerId,
         });
+        try {
+          await sendTeamPushDelivery(db, {
+            teamId: currentTeam.id,
+            title: "Tournament registration submitted",
+            body: `${entry.wrestlerName} marked themselves registered for ${tournament?.name || "a tournament"}.`,
+            audienceRole: "coach",
+            excludeUserIds: [firebaseUser?.uid || ""],
+            preferenceKey: "tournamentAlerts",
+          });
+        } catch (pushError) {
+          console.error("Failed to send tournament registration push:", pushError);
+        }
       }
       await refreshEntries(activeTournamentId);
       setStatusMessage({
@@ -527,6 +540,18 @@ export default function TournamentsPage() {
           tournamentEntryId: ownEntry.id,
           wrestlerId: ownEntry.wrestlerId,
         });
+        try {
+          await sendTeamPushDelivery(db, {
+            teamId: currentTeam.id,
+            title: "Tournament registration submitted",
+            body: `${ownEntry.wrestlerName} marked themselves registered for ${tournaments.find((item) => item.id === activeTournamentId)?.name || "a tournament"}.`,
+            audienceRole: "coach",
+            excludeUserIds: [firebaseUser?.uid || ""],
+            preferenceKey: "tournamentAlerts",
+          });
+        } catch (pushError) {
+          console.error("Failed to send athlete tournament push:", pushError);
+        }
       } else {
         const entryId = await createTournamentEntry(db, {
           teamId: currentTeam.id,
@@ -548,6 +573,18 @@ export default function TournamentsPage() {
           tournamentEntryId: entryId,
           wrestlerId: ownWrestler.id,
         });
+        try {
+          await sendTeamPushDelivery(db, {
+            teamId: currentTeam.id,
+            title: "Tournament registration submitted",
+            body: `${ownWrestler.firstName} ${ownWrestler.lastName} marked themselves registered for ${tournaments.find((item) => item.id === activeTournamentId)?.name || "a tournament"}.`,
+            audienceRole: "coach",
+            excludeUserIds: [firebaseUser?.uid || ""],
+            preferenceKey: "tournamentAlerts",
+          });
+        } catch (pushError) {
+          console.error("Failed to send new athlete tournament push:", pushError);
+        }
       }
 
       await refreshEntries(activeTournamentId);

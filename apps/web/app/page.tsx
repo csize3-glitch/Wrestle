@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { auth, db } from "@wrestlewell/firebase/client";
@@ -128,7 +129,9 @@ function formatDurationLabel(totalSeconds: number) {
 }
 
 export default function HomePage() {
+  const router = useRouter();
   const { firebaseUser, appUser, currentTeam, loading, refreshAppState } = useAuthState();
+
   const [mode, setMode] = useState<AuthMode>("sign_in");
   const [form, setForm] = useState<AuthFormState>(createInitialAuthForm);
   const [busy, setBusy] = useState(false);
@@ -140,17 +143,26 @@ export default function HomePage() {
     upcomingTournaments: 0,
     pendingRegistrations: 0,
     unreadAlerts: 0,
-    recentRosterUpdates: [] as string[],
+    recentRosterUpdates: [],
     assignedPracticePlans: 0,
     teamWidePracticePlans: 0,
-    wrestlersNeedingAssignments: [] as string[],
-    pendingVerificationNames: [] as string[],
-    styleBreakdown: [] as string[],
+    wrestlersNeedingAssignments: [],
+    pendingVerificationNames: [],
+    styleBreakdown: [],
   });
   const [dashboardLoading, setDashboardLoading] = useState(false);
 
   const needsSetup = Boolean(firebaseUser && !appUser);
   const isCoach = appUser?.role === "coach";
+
+  useEffect(() => {
+    if (loading) return;
+    if (!firebaseUser || !appUser) return;
+
+    if (appUser.role === "athlete" && appUser.varkCompleted !== true) {
+      router.replace("/vark-questionnaire");
+    }
+  }, [loading, firebaseUser?.uid, appUser?.role, appUser?.varkCompleted, router]);
 
   const heroStats = useMemo(
     () => [
@@ -160,7 +172,9 @@ export default function HomePage() {
     ],
     [appUser, currentTeam, firebaseUser, isCoach, needsSetup]
   );
+
   const homeCards = appUser?.role === "athlete" ? athleteCards : dashboardCards;
+
   const athleteHighlights = useMemo(
     () => [
       {
@@ -204,6 +218,7 @@ export default function HomePage() {
     try {
       if (mode === "sign_in") {
         await signInAccount(auth, form.email, form.password);
+        await refreshAppState();
       } else {
         await registerAccount(auth, db, {
           displayName: form.displayName,
@@ -214,9 +229,13 @@ export default function HomePage() {
           teamCode: form.role === "athlete" ? form.teamCode : undefined,
           coachInviteCode: form.role === "coach" ? form.coachInviteCode : undefined,
         });
-      }
 
-      await refreshAppState();
+        await refreshAppState();
+
+        if (form.role === "athlete") {
+          router.replace("/vark-questionnaire");
+        }
+      }
     } catch (nextError) {
       console.error("Authentication failed:", nextError);
       setError(nextError instanceof Error ? nextError.message : "Authentication failed.");
@@ -244,7 +263,12 @@ export default function HomePage() {
         teamCode: form.role === "athlete" ? form.teamCode : undefined,
         coachInviteCode: form.role === "coach" ? form.coachInviteCode : undefined,
       });
+
       await refreshAppState();
+
+      if (form.role === "athlete") {
+        router.replace("/vark-questionnaire");
+      }
     } catch (nextError) {
       console.error("Account setup failed:", nextError);
       setError(nextError instanceof Error ? nextError.message : "Account setup failed.");
@@ -261,10 +285,23 @@ export default function HomePage() {
         return;
       }
 
+      if (appUser.role === "athlete" && appUser.varkCompleted !== true) {
+        setUpcomingPractices([]);
+        setRosterCount(0);
+        return;
+      }
+
       try {
         setDashboardLoading(true);
 
-        const [roster, eventSnapshot, practicePlanSnapshot, tournamentRows, announcementRows, notificationRows] = await Promise.all([
+        const [
+          roster,
+          eventSnapshot,
+          practicePlanSnapshot,
+          tournamentRows,
+          announcementRows,
+          notificationRows,
+        ] = await Promise.all([
           listWrestlers(db, currentTeam.id),
           getDocs(query(collection(db, COLLECTIONS.CALENDAR_EVENTS), where("teamId", "==", currentTeam.id))),
           getDocs(query(collection(db, COLLECTIONS.PRACTICE_PLANS), where("teamId", "==", currentTeam.id))),
@@ -274,10 +311,11 @@ export default function HomePage() {
         ]);
 
         const todayKey = new Date().toISOString().split("T")[0];
+
         const nextEvents = eventSnapshot.docs
-          .map((doc) => ({
-            id: doc.id,
-            ...(doc.data() as Omit<UpcomingPractice, "id">),
+          .map((eventDoc) => ({
+            id: eventDoc.id,
+            ...(eventDoc.data() as Omit<UpcomingPractice, "id">),
           }))
           .filter((event) => event.date >= todayKey)
           .sort((a, b) => a.date.localeCompare(b.date))
@@ -292,30 +330,45 @@ export default function HomePage() {
             listTournamentEntries(db, { teamId: currentTeam.id, tournamentId: tournament.id })
           )
         );
+
         const allEntries = pendingEntryBatches.flat();
+
         const upcomingTournamentEntries = tournamentRows
           .filter((tournament) => tournament.eventDate && tournament.eventDate >= todayKey)
           .flatMap((tournament, index) =>
-            pendingEntryBatches[index].map((entry) => ({ ...entry, tournamentName: tournament.name }))
+            pendingEntryBatches[index].map((entry) => ({
+              ...entry,
+              tournamentName: tournament.name,
+            }))
           );
-        const practicePlans = practicePlanSnapshot.docs.map((doc) => doc.data() as {
-          assignedWrestlerIds?: string[];
-        });
+
+        const practicePlans = practicePlanSnapshot.docs.map(
+          (planDoc) =>
+            planDoc.data() as {
+              assignedWrestlerIds?: string[];
+            }
+        );
+
         const assignedPracticePlans = practicePlans.filter(
           (plan) => Array.isArray(plan.assignedWrestlerIds) && plan.assignedWrestlerIds.length > 0
         ).length;
+
         const teamWidePracticePlans = Math.max(0, practicePlans.length - assignedPracticePlans);
+
         const assignedPracticeWrestlerIds = new Set(
           nextEvents.flatMap((event) =>
             Array.isArray(event.assignedWrestlerIds) ? event.assignedWrestlerIds : []
           )
         );
+
         const futureTournamentWrestlerIds = new Set(
           upcomingTournamentEntries.map((entry) => entry.wrestlerId)
         );
+
         const teamWideUpcomingPracticeExists = nextEvents.some(
           (event) => !event.assignedWrestlerIds || event.assignedWrestlerIds.length === 0
         );
+
         const wrestlersNeedingAssignments = roster
           .filter((wrestler) => {
             if (teamWideUpcomingPracticeExists) {
@@ -329,24 +382,30 @@ export default function HomePage() {
           })
           .map((wrestler) => `${wrestler.firstName} ${wrestler.lastName}`.trim())
           .slice(0, 5);
+
         const pendingVerificationNames = upcomingTournamentEntries
           .filter((entry) => entry.status === "submitted")
           .slice(0, 5)
           .map((entry) => `${entry.wrestlerName} (${entry.tournamentName})`);
+
         const styleCounts = new Map<string, number>();
+
         roster.forEach((wrestler) => {
           wrestler.styles.forEach((style) => {
             styleCounts.set(style, (styleCounts.get(style) || 0) + 1);
           });
         });
+
         const styleBreakdown = Array.from(styleCounts.entries())
           .sort((a, b) => b[1] - a[1])
           .slice(0, 3)
           .map(([style, count]) => `${style}: ${count}`);
+
         const lastSeenAt =
           firebaseUser?.uid && appUser?.role
             ? readLastSeenNotificationAt(firebaseUser.uid, currentTeam.id, appUser.role)
             : "";
+
         const unreadAlerts = [...announcementRows, ...notificationRows].filter(
           (item) => item.createdAt && (!lastSeenAt || item.createdAt > lastSeenAt)
         ).length;
@@ -388,7 +447,7 @@ export default function HomePage() {
     }
 
     loadDashboardData();
-  }, [appUser, currentTeam?.id, firebaseUser?.uid]);
+  }, [appUser, appUser?.varkCompleted, currentTeam?.id, firebaseUser?.uid]);
 
   if (loading) {
     return (
@@ -470,7 +529,7 @@ export default function HomePage() {
 
             <div className="hero-actions" style={{ marginTop: 4 }}>
               <button className="button-primary" onClick={handleSetupSubmit} disabled={busy}>
-                {busy ? "Saving..." : "Complete Setup"}
+                {busy ? "Saving..." : form.role === "athlete" ? "Complete Setup & Start WrestleIQ" : "Complete Setup"}
               </button>
             </div>
           </div>
@@ -607,7 +666,9 @@ export default function HomePage() {
                       ? "Working..."
                       : mode === "sign_in"
                         ? "Sign In to WrestleWell"
-                        : "Create WrestleWell Account"}
+                        : form.role === "athlete"
+                          ? "Create Account & Start WrestleIQ"
+                          : "Create WrestleWell Account"}
                   </button>
                 </div>
               </div>
@@ -624,9 +685,9 @@ export default function HomePage() {
 
               <div className="stat-card stat-card--accent">
                 <span className="stat-card__label">Athlete Path</span>
-                <span className="stat-card__value">Personal View</span>
+                <span className="stat-card__value">WrestleIQ First</span>
                 <p className="stat-card__copy">
-                  Join a team, track your development, and view role-specific prep and goals.
+                  Join a team, complete your learning profile, and get a personal lane into your development.
                 </p>
               </div>
             </div>
@@ -659,6 +720,21 @@ export default function HomePage() {
                 ? "Your team hub is live. From here you can manage the roster, shape practice, and prep the mat-side workflow."
                 : "Your athlete account is active. Check upcoming practices, review team resources, and stay connected to your season workflow."}
             </p>
+
+            {appUser.role === "athlete" && appUser.varkCompleted !== true ? (
+              <div className="content-card" style={{ marginTop: 20 }}>
+                <div className="eyebrow">WrestleIQ setup needed</div>
+                <h2 className="content-card__title">Complete your learning style profile.</h2>
+                <p className="content-card__copy">
+                  Athletes complete WrestleIQ first so coaches can understand how they learn best.
+                </p>
+                <div className="hero-actions">
+                  <Link href="/vark-questionnaire" className="button-primary">
+                    Start WrestleIQ
+                  </Link>
+                </div>
+              </div>
+            ) : null}
 
             <div className="hero-actions">
               <Link href={appUser.role === "coach" ? "/team" : "/wrestlers"} className="button-primary">

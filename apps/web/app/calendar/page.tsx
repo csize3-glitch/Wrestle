@@ -15,7 +15,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@wrestlewell/firebase/client";
 import { COLLECTIONS, type WrestlerProfile } from "@wrestlewell/types/index";
-import { listTournamentEntries, listTournaments, listWrestlers } from "@wrestlewell/lib/index";
+import { listTournamentEntries, listTournaments, listWrestlers, sendTeamPushDelivery } from "@wrestlewell/lib/index";
 import { RequireAuth } from "../require-auth";
 import { useAuthState } from "../auth-provider";
 import { StatusBanner } from "../status-banner";
@@ -344,6 +344,26 @@ export default function CalendarPage() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
+
+      try {
+        const targetUserIds =
+          (selectedPlan.assignedWrestlerIds || []).length > 0
+            ? wrestlers
+                .filter((wrestler) => selectedPlan.assignedWrestlerIds?.includes(wrestler.id))
+                .map((wrestler) => wrestler.ownerUserId)
+                .filter((value): value is string => Boolean(value))
+            : undefined;
+        await sendTeamPushDelivery(db, {
+          teamId: currentTeam.id,
+          title: "New practice assignment",
+          body: `${selectedPlan.title} is scheduled for ${dateKey}.`,
+          audienceRole: "athlete",
+          targetUserIds,
+          preferenceKey: "practiceReminders",
+        });
+      } catch (pushError) {
+        console.error("Failed to send practice assignment push:", pushError);
+      }
 
       setSelectedPlanByDate((prev) => ({ ...prev, [dateKey]: "" }));
       setNotesByDate((prev) => ({ ...prev, [dateKey]: "" }));

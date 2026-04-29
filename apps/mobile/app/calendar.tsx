@@ -1,11 +1,15 @@
-import { Link } from "expo-router";
+import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { db } from "@wrestlewell/firebase/client";
-import { listCalendarEvents, listWrestlers, type CalendarEventRecord } from "@wrestlewell/lib/index";
+import {
+  listCalendarEvents,
+  listWrestlers,
+  type CalendarEventRecord,
+} from "@wrestlewell/lib/index";
 import type { WrestlerProfile } from "@wrestlewell/types/index";
 import { useMobileAuthState } from "../components/auth-provider";
-import { ScreenShell } from "../components/screen-shell";
+import { MobileScreenShell } from "../components/mobile-screen-shell";
 
 function formatPracticeDate(value: string) {
   const date = new Date(`${value}T12:00:00`);
@@ -24,17 +28,21 @@ function formatDurationLabel(totalSeconds: number) {
   const safeSeconds = Math.max(0, totalSeconds);
   const minutes = Math.floor(safeSeconds / 60);
   const seconds = safeSeconds % 60;
+
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 export default function CalendarScreen() {
-  const { firebaseUser, appUser, currentTeam, loading: authLoading } = useMobileAuthState();
+  const { firebaseUser, appUser, currentTeam, loading: authLoading } =
+    useMobileAuthState();
   const [events, setEvents] = useState<CalendarEventRecord[]>([]);
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
   const [loading, setLoading] = useState(true);
+
   const ownWrestler =
     appUser?.role === "athlete"
-      ? wrestlers.find((wrestler) => wrestler.ownerUserId === firebaseUser?.uid) || null
+      ? wrestlers.find((wrestler) => wrestler.ownerUserId === firebaseUser?.uid) ||
+        null
       : null;
 
   async function refresh() {
@@ -48,6 +56,7 @@ export default function CalendarScreen() {
       currentTeam.id,
       appUser?.role === "athlete" ? ownWrestler?.id : undefined
     );
+
     setEvents(rows);
   }
 
@@ -91,69 +100,62 @@ export default function CalendarScreen() {
   const upcomingEvents = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+
     const todayKey = today.toISOString().split("T")[0];
+
     return events.filter((event) => event.date >= todayKey);
   }, [events]);
 
   if (!authLoading && (!firebaseUser || !appUser)) {
     return (
-      <ScreenShell>
+      <MobileScreenShell
+        title="Calendar"
+        subtitle="Sign in to review your team practice calendar."
+      >
         <View
           style={{
-            borderRadius: 18,
+            borderRadius: 24,
             padding: 18,
             borderWidth: 1,
-            borderColor: "rgba(15, 39, 72, 0.12)",
-            backgroundColor: "#fff",
-            gap: 10,
+            borderColor: "#21486e",
+            backgroundColor: "#0b2542",
+            gap: 12,
           }}
         >
-          <Text style={{ fontSize: 24, fontWeight: "800", color: "#091729" }}>Sign in required</Text>
-          <Text style={{ fontSize: 15, color: "#5f6d83", lineHeight: 22 }}>
+          <Text style={{ fontSize: 24, fontWeight: "900", color: "#ffffff" }}>
+            Sign in required
+          </Text>
+
+          <Text style={{ fontSize: 15, color: "#b7c9df", lineHeight: 22 }}>
             Sign in on mobile to review your team practice calendar.
           </Text>
-          <Link href="/" asChild>
-            <Pressable
-              style={{
-                alignSelf: "flex-start",
-                paddingHorizontal: 14,
-                paddingVertical: 10,
-                borderRadius: 999,
-                backgroundColor: "#bf1029",
-              }}
-            >
-              <Text style={{ color: "#fff", fontWeight: "700" }}>Go Home</Text>
-            </Pressable>
-          </Link>
+
+          <Pressable
+            onPress={() => router.push("/")}
+            style={{
+              alignSelf: "flex-start",
+              paddingHorizontal: 16,
+              paddingVertical: 11,
+              borderRadius: 999,
+              backgroundColor: "#bf1029",
+            }}
+          >
+            <Text style={{ color: "#fff", fontWeight: "900" }}>Go Home</Text>
+          </Pressable>
         </View>
-      </ScreenShell>
+      </MobileScreenShell>
     );
   }
 
   return (
-    <ScreenShell>
-      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
-        <Link href="/" asChild>
-          <Pressable
-            style={{
-              paddingHorizontal: 14,
-              paddingVertical: 10,
-              borderRadius: 999,
-              backgroundColor: "#e5e7eb",
-            }}
-          >
-            <Text style={{ fontWeight: "700", color: "#111827" }}>Home</Text>
-          </Pressable>
-        </Link>
-      </View>
-
-      <Text style={{ fontSize: 28, fontWeight: "700", marginBottom: 12 }}>Calendar</Text>
-      <Text style={{ fontSize: 16, color: "#555", marginBottom: 20 }}>
-        {appUser?.role === "coach"
-          ? "Review the team practice schedule and jump straight into the assigned plan on your phone."
-          : "Stay ready with the live team schedule and open assigned practice plans from your phone."}
-      </Text>
-
+    <MobileScreenShell
+      title="Calendar"
+      subtitle={
+        appUser?.role === "coach"
+          ? "Review the team practice schedule and jump straight into assigned plans."
+          : "Stay ready with the live team schedule and open assigned practice plans."
+      }
+    >
       <Pressable
         onPress={() => {
           setLoading(true);
@@ -161,29 +163,35 @@ export default function CalendarScreen() {
         }}
         style={{
           alignSelf: "flex-start",
-          paddingHorizontal: 14,
-          paddingVertical: 10,
+          paddingHorizontal: 16,
+          paddingVertical: 11,
           borderRadius: 999,
-          backgroundColor: "#111827",
+          backgroundColor: "#ffffff",
           marginBottom: 20,
         }}
       >
-        <Text style={{ color: "#fff", fontWeight: "700" }}>{loading ? "Refreshing..." : "Refresh"}</Text>
+        <Text style={{ color: "#061a33", fontWeight: "900" }}>
+          {loading ? "Refreshing..." : "Refresh"}
+        </Text>
       </Pressable>
 
-      {loading ? <Text>Loading schedule...</Text> : null}
+      {loading ? (
+        <Text style={{ color: "#b7c9df", marginBottom: 16 }}>
+          Loading schedule...
+        </Text>
+      ) : null}
 
       {!loading && upcomingEvents.length === 0 ? (
         <View
           style={{
             borderWidth: 1,
-            borderColor: "#ddd",
-            borderRadius: 14,
+            borderColor: "#21486e",
+            borderRadius: 20,
             padding: 18,
-            backgroundColor: "#fff",
+            backgroundColor: "#0b2542",
           }}
         >
-          <Text style={{ fontSize: 16, lineHeight: 22 }}>
+          <Text style={{ fontSize: 16, lineHeight: 22, color: "#b7c9df" }}>
             {appUser?.role === "coach"
               ? "No upcoming practices are scheduled yet. Assign them on the website and they will appear here."
               : "No upcoming practices are assigned to you yet. Team-wide and wrestler-specific practices will appear here."}
@@ -197,48 +205,84 @@ export default function CalendarScreen() {
             key={event.id}
             style={{
               borderWidth: 1,
-              borderColor: "#ddd",
-              borderRadius: 18,
+              borderColor: "#21486e",
+              borderRadius: 24,
               padding: 18,
-              backgroundColor: "#fff",
+              backgroundColor: "#0b2542",
             }}
           >
-            <Text style={{ fontSize: 20, fontWeight: "800", color: "#091729" }}>
+            <View
+              style={{
+                alignSelf: "flex-start",
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                borderRadius: 999,
+                backgroundColor: "#102f52",
+                borderWidth: 1,
+                borderColor: "#315c86",
+                marginBottom: 10,
+              }}
+            >
+              <Text style={{ color: "#93c5fd", fontSize: 12, fontWeight: "900" }}>
+                PRACTICE
+              </Text>
+            </View>
+
+            <Text style={{ fontSize: 21, fontWeight: "900", color: "#ffffff" }}>
               {formatPracticeDate(event.date)}
             </Text>
-            <Text style={{ fontSize: 16, fontWeight: "700", color: "#0f2748", marginTop: 8 }}>
+
+            <Text
+              style={{
+                fontSize: 17,
+                fontWeight: "900",
+                color: "#93c5fd",
+                marginTop: 8,
+              }}
+            >
               {event.practicePlanTitle || "Untitled Practice Plan"}
             </Text>
-            <Text style={{ fontSize: 14, color: "#5f6d83", marginTop: 8, lineHeight: 20 }}>
+
+            <Text style={{ fontSize: 14, color: "#b7c9df", marginTop: 8, lineHeight: 20 }}>
               {event.practicePlanStyle || "Mixed"} •{" "}
               {formatDurationLabel(event.totalSeconds || event.totalMinutes || 0)}
             </Text>
-            <Text style={{ fontSize: 13, color: "#6b7280", marginTop: 8 }}>
-              {(event.assignedWrestlerIds || []).length === 0 ? "Team-wide" : "Assigned practice"}
+
+            <Text style={{ fontSize: 13, color: "#dbeafe", marginTop: 8, fontWeight: "800" }}>
+              {(event.assignedWrestlerIds || []).length === 0
+                ? "Team-wide"
+                : "Assigned practice"}
             </Text>
+
             {event.notes ? (
-              <Text style={{ fontSize: 14, color: "#374151", marginTop: 10, lineHeight: 21 }}>
+              <Text style={{ fontSize: 14, color: "#dbeafe", marginTop: 10, lineHeight: 21 }}>
                 {event.notes}
               </Text>
             ) : null}
 
-            <Link href={{ pathname: "/practice-plans", params: { planId: event.practicePlanId } }} asChild>
-              <Pressable
-                style={{
-                  marginTop: 14,
-                  alignSelf: "flex-start",
-                  paddingHorizontal: 14,
-                  paddingVertical: 10,
-                  borderRadius: 999,
-                  backgroundColor: "#bf1029",
-                }}
-              >
-                <Text style={{ color: "#fff", fontWeight: "700" }}>Open Practice Plan</Text>
-              </Pressable>
-            </Link>
+            <Pressable
+              onPress={() =>
+                router.push({
+                  pathname: "/practice-plans",
+                  params: { planId: event.practicePlanId },
+                } as any)
+              }
+              style={{
+                marginTop: 14,
+                alignSelf: "flex-start",
+                paddingHorizontal: 16,
+                paddingVertical: 11,
+                borderRadius: 999,
+                backgroundColor: "#bf1029",
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "900" }}>
+                Open Practice Plan
+              </Text>
+            </Pressable>
           </View>
         ))}
       </View>
-    </ScreenShell>
+    </MobileScreenShell>
   );
 }

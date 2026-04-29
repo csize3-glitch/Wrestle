@@ -1,4 +1,4 @@
-import { Link } from "expo-router";
+import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import { db } from "@wrestlewell/firebase/client";
@@ -7,15 +7,22 @@ import {
   listCalendarEvents,
   listTeamAnnouncements,
   listTeamNotifications,
+  sendTeamPushDelivery,
   listTournamentEntries,
   listTournaments,
   listWrestlers,
   type CalendarEventRecord,
 } from "@wrestlewell/lib/index";
-import type { TeamAnnouncement, TeamNotification, Tournament, TournamentEntry, WrestlerProfile } from "@wrestlewell/types/index";
+import type {
+  TeamAnnouncement,
+  TeamNotification,
+  Tournament,
+  TournamentEntry,
+  WrestlerProfile,
+} from "@wrestlewell/types/index";
 import { useMobileAuthState } from "../components/auth-provider";
+import { MobileScreenShell } from "../components/mobile-screen-shell";
 import { useNotificationsState } from "../components/notifications-provider";
-import { ScreenShell } from "../components/screen-shell";
 
 type NotificationCard = {
   id: string;
@@ -68,7 +75,9 @@ function createPracticeCards(events: CalendarEventRecord[]): NotificationCard[] 
       title: event.practicePlanTitle || "Upcoming practice",
       body:
         event.notes ||
-        `Your team has ${event.practicePlanStyle || "Mixed"} practice scheduled on ${formatPracticeDate(event.date)}.`,
+        `Your team has ${event.practicePlanStyle || "Mixed"} practice scheduled on ${formatPracticeDate(
+          event.date
+        )}.`,
       meta: `Practice reminder • ${formatPracticeDate(event.date)}`,
     }));
 }
@@ -85,6 +94,7 @@ function createTournamentCards(args: {
       .slice(0, 6)
       .map((tournament) => {
         const entryCount = (args.entriesByTournament[tournament.id] || []).length;
+
         return {
           id: `tournament-${tournament.id}`,
           kind: "tournament" as const,
@@ -150,11 +160,14 @@ export default function NotificationsScreen() {
     error: notificationError,
     scheduleLocalTestNotification,
   } = useNotificationsState();
+
   const [announcements, setAnnouncements] = useState<TeamAnnouncement[]>([]);
   const [teamNotifications, setTeamNotifications] = useState<TeamNotification[]>([]);
   const [events, setEvents] = useState<CalendarEventRecord[]>([]);
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
-  const [entriesByTournament, setEntriesByTournament] = useState<Record<string, TournamentEntry[]>>({});
+  const [entriesByTournament, setEntriesByTournament] = useState<Record<string, TournamentEntry[]>>(
+    {}
+  );
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -174,13 +187,14 @@ export default function NotificationsScreen() {
       return;
     }
 
-    const [announcementRows, notificationRows, eventRows, tournamentRows, wrestlerRows] = await Promise.all([
-      listTeamAnnouncements(db, currentTeam.id),
-      listTeamNotifications(db, currentTeam.id, appUser?.role),
-      listCalendarEvents(db, currentTeam.id),
-      listTournaments(db, currentTeam.id),
-      listWrestlers(db, currentTeam.id),
-    ]);
+    const [announcementRows, notificationRows, eventRows, tournamentRows, wrestlerRows] =
+      await Promise.all([
+        listTeamAnnouncements(db, currentTeam.id),
+        listTeamNotifications(db, currentTeam.id, appUser?.role),
+        listCalendarEvents(db, currentTeam.id),
+        listTournaments(db, currentTeam.id),
+        listWrestlers(db, currentTeam.id),
+      ]);
 
     setAnnouncements(announcementRows);
     setTeamNotifications(notificationRows);
@@ -189,11 +203,18 @@ export default function NotificationsScreen() {
     setWrestlers(wrestlerRows);
 
     const entryRows = await Promise.all(
-      tournamentRows.map(async (tournament) => [
-        tournament.id,
-        await listTournamentEntries(db, { teamId: currentTeam.id, tournamentId: tournament.id }),
-      ] as const)
+      tournamentRows.map(
+        async (tournament) =>
+          [
+            tournament.id,
+            await listTournamentEntries(db, {
+              teamId: currentTeam.id,
+              tournamentId: tournament.id,
+            }),
+          ] as const
+      )
     );
+
     setEntriesByTournament(Object.fromEntries(entryRows));
   }
 
@@ -238,7 +259,15 @@ export default function NotificationsScreen() {
     ];
 
     return cards.slice(0, 16);
-  }, [announcements, appUser?.role, athleteOwnedWrestler?.id, entriesByTournament, events, teamNotifications, tournaments]);
+  }, [
+    announcements,
+    appUser?.role,
+    athleteOwnedWrestler?.id,
+    entriesByTournament,
+    events,
+    teamNotifications,
+    tournaments,
+  ]);
 
   async function sendAnnouncement() {
     if (!firebaseUser || !currentTeam?.id || !isCoach) {
@@ -252,14 +281,29 @@ export default function NotificationsScreen() {
 
     try {
       setSaving(true);
+
       await createTeamAnnouncement(db, {
         teamId: currentTeam.id,
         title,
         body,
         createdBy: firebaseUser.uid,
       });
+
+      try {
+        await sendTeamPushDelivery(db, {
+          teamId: currentTeam.id,
+          title: title.trim(),
+          body: body.trim(),
+          excludeUserIds: [firebaseUser.uid],
+          preferenceKey: "announcements",
+        });
+      } catch (pushError) {
+        console.error("Failed to send announcement push:", pushError);
+      }
+
       setTitle("");
       setBody("");
+
       await refresh();
       Alert.alert("Announcement sent", "Your team notification is now posted.");
     } catch (error) {
@@ -272,91 +316,90 @@ export default function NotificationsScreen() {
 
   if (!authLoading && (!firebaseUser || !appUser)) {
     return (
-      <ScreenShell>
+      <MobileScreenShell
+        title="Alerts"
+        subtitle="Sign in to review team notifications and announcements."
+      >
         <View
           style={{
-            borderRadius: 18,
+            borderRadius: 24,
             padding: 18,
             borderWidth: 1,
-            borderColor: "rgba(15, 39, 72, 0.12)",
-            backgroundColor: "#fff",
-            gap: 10,
+            borderColor: "#21486e",
+            backgroundColor: "#0b2542",
+            gap: 12,
           }}
         >
-          <Text style={{ fontSize: 24, fontWeight: "800", color: "#091729" }}>Sign in required</Text>
-          <Text style={{ fontSize: 15, color: "#5f6d83", lineHeight: 22 }}>
+          <Text style={{ fontSize: 24, fontWeight: "900", color: "#ffffff" }}>
+            Sign in required
+          </Text>
+
+          <Text style={{ fontSize: 15, color: "#b7c9df", lineHeight: 22 }}>
             Sign in on mobile to review team notifications and announcements.
           </Text>
-          <Link href="/" asChild>
-            <Pressable
-              style={{
-                alignSelf: "flex-start",
-                paddingHorizontal: 14,
-                paddingVertical: 10,
-                borderRadius: 999,
-                backgroundColor: "#bf1029",
-              }}
-            >
-              <Text style={{ color: "#fff", fontWeight: "700" }}>Go Home</Text>
-            </Pressable>
-          </Link>
+
+          <Pressable
+            onPress={() => router.push("/")}
+            style={{
+              alignSelf: "flex-start",
+              paddingHorizontal: 16,
+              paddingVertical: 11,
+              borderRadius: 999,
+              backgroundColor: "#bf1029",
+            }}
+          >
+            <Text style={{ color: "#fff", fontWeight: "900" }}>Go Home</Text>
+          </Pressable>
         </View>
-      </ScreenShell>
+      </MobileScreenShell>
     );
   }
 
   return (
-    <ScreenShell>
-      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
-        <Link href="/" asChild>
-          <Pressable
-            style={{
-              paddingHorizontal: 14,
-              paddingVertical: 10,
-              borderRadius: 999,
-              backgroundColor: "#e5e7eb",
-            }}
-          >
-            <Text style={{ fontWeight: "700", color: "#111827" }}>Home</Text>
-          </Pressable>
-        </Link>
-      </View>
-
-      <Text style={{ fontSize: 28, fontWeight: "700", marginBottom: 12 }}>Notifications</Text>
-      <Text style={{ fontSize: 16, color: "#555", marginBottom: 20 }}>
-        {isCoach
-          ? "Post team announcements and review WrestleWell reminders for practices and tournament rosters."
-          : "Review coach announcements plus your practice and tournament reminders in one place."}
-      </Text>
-
+    <MobileScreenShell
+      title="Alerts"
+      subtitle={
+        isCoach
+          ? "Post team announcements and review practice, tournament, and registration updates."
+          : "Review coach announcements plus your practice and tournament reminders in one place."
+      }
+    >
       <View
         style={{
           borderWidth: 1,
-          borderColor: "#ddd",
-          borderRadius: 16,
+          borderColor: "#21486e",
+          borderRadius: 24,
           padding: 16,
-          backgroundColor: "#fff",
+          backgroundColor: "#0b2542",
           gap: 10,
           marginBottom: 18,
         }}
       >
-        <Text style={{ fontSize: 20, fontWeight: "800", color: "#091729" }}>Push Status</Text>
-        <Text style={{ fontSize: 15, color: "#374151", lineHeight: 22 }}>
-          Permission: {permissionStatus}
+        <Text style={{ fontSize: 20, fontWeight: "900", color: "#ffffff" }}>
+          Push Status
         </Text>
-        <Text style={{ fontSize: 15, color: "#374151", lineHeight: 22 }}>
-          Registration: {registered ? "Saved to WrestleWell" : "Not registered yet"}
-        </Text>
-        <Text style={{ fontSize: 15, color: "#374151", lineHeight: 22 }}>
-          Expo token: {expoPushToken ? `${expoPushToken.slice(0, 20)}...` : "Not available yet"}
-        </Text>
+
+        <StatusLine label="Permission" value={permissionStatus} />
+        <StatusLine
+          label="Registration"
+          value={registered ? "Saved to WrestleWell" : "Not registered yet"}
+        />
+        <StatusLine
+          label="Expo token"
+          value={expoPushToken ? `${expoPushToken.slice(0, 20)}...` : "Not available yet"}
+        />
+
         {notificationError ? (
-          <Text style={{ fontSize: 14, color: "#8b1e2d", lineHeight: 21 }}>{notificationError}</Text>
+          <Text style={{ fontSize: 14, color: "#fecaca", lineHeight: 21 }}>
+            {notificationError}
+          </Text>
         ) : (
-          <Text style={{ fontSize: 14, color: "#5f6d83", lineHeight: 21 }}>
-            Local test reminders work now. Remote push delivery will use the saved device registration after notification sending is wired up.
+          <Text style={{ fontSize: 14, color: "#b7c9df", lineHeight: 21 }}>
+            Local test reminders work now. Remote push delivery will use the saved device
+            registration after notification sending is wired up.
           </Text>
         )}
+
         <Pressable
           onPress={() =>
             scheduleLocalTestNotification({
@@ -369,13 +412,13 @@ export default function NotificationsScreen() {
           }
           style={{
             alignSelf: "flex-start",
-            paddingHorizontal: 14,
-            paddingVertical: 10,
+            paddingHorizontal: 16,
+            paddingVertical: 11,
             borderRadius: 999,
-            backgroundColor: "#0f2748",
+            backgroundColor: "#bf1029",
           }}
         >
-          <Text style={{ color: "#fff", fontWeight: "800" }}>Send Test Reminder</Text>
+          <Text style={{ color: "#fff", fontWeight: "900" }}>Send Test Reminder</Text>
         </Pressable>
       </View>
 
@@ -383,55 +426,64 @@ export default function NotificationsScreen() {
         <View
           style={{
             borderWidth: 1,
-            borderColor: "#ddd",
-            borderRadius: 16,
+            borderColor: "#21486e",
+            borderRadius: 24,
             padding: 16,
-            backgroundColor: "#fff",
+            backgroundColor: "#0b2542",
             gap: 12,
             marginBottom: 18,
           }}
         >
-          <Text style={{ fontSize: 20, fontWeight: "800", color: "#091729" }}>Send Team Announcement</Text>
+          <Text style={{ fontSize: 20, fontWeight: "900", color: "#ffffff" }}>
+            Send Team Announcement
+          </Text>
+
           <TextInput
             value={title}
             onChangeText={setTitle}
             placeholder="Practice update"
+            placeholderTextColor="#7c8da3"
             style={{
-              minHeight: 46,
+              minHeight: 48,
               borderWidth: 1,
-              borderColor: "rgba(15, 39, 72, 0.12)",
-              borderRadius: 14,
-              paddingHorizontal: 12,
-              backgroundColor: "#ffffff",
+              borderColor: "#315c86",
+              borderRadius: 16,
+              paddingHorizontal: 13,
+              backgroundColor: "#102f52",
+              color: "#ffffff",
             }}
           />
+
           <TextInput
             value={body}
             onChangeText={setBody}
             placeholder="Let the team know what changed..."
+            placeholderTextColor="#7c8da3"
             multiline
             textAlignVertical="top"
             style={{
               minHeight: 104,
               borderWidth: 1,
-              borderColor: "rgba(15, 39, 72, 0.12)",
-              borderRadius: 14,
-              paddingHorizontal: 12,
+              borderColor: "#315c86",
+              borderRadius: 16,
+              paddingHorizontal: 13,
               paddingVertical: 12,
-              backgroundColor: "#ffffff",
+              backgroundColor: "#102f52",
+              color: "#ffffff",
             }}
           />
+
           <Pressable
             onPress={sendAnnouncement}
             style={{
-              minHeight: 46,
-              borderRadius: 16,
+              minHeight: 50,
+              borderRadius: 18,
               backgroundColor: "#bf1029",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <Text style={{ color: "#fff", fontWeight: "800" }}>
+            <Text style={{ color: "#fff", fontWeight: "900" }}>
               {saving ? "Sending..." : "Send Announcement"}
             </Text>
           </Pressable>
@@ -445,29 +497,33 @@ export default function NotificationsScreen() {
         }}
         style={{
           alignSelf: "flex-start",
-          paddingHorizontal: 14,
-          paddingVertical: 10,
+          paddingHorizontal: 16,
+          paddingVertical: 11,
           borderRadius: 999,
-          backgroundColor: "#111827",
+          backgroundColor: "#ffffff",
           marginBottom: 20,
         }}
       >
-        <Text style={{ color: "#fff", fontWeight: "700" }}>{loading ? "Refreshing..." : "Refresh"}</Text>
+        <Text style={{ color: "#061a33", fontWeight: "900" }}>
+          {loading ? "Refreshing..." : "Refresh"}
+        </Text>
       </Pressable>
 
-      {loading ? <Text>Loading notifications...</Text> : null}
+      {loading ? (
+        <Text style={{ color: "#b7c9df", marginBottom: 16 }}>Loading notifications...</Text>
+      ) : null}
 
       {!loading && notificationCards.length === 0 ? (
         <View
           style={{
             borderWidth: 1,
-            borderColor: "#ddd",
-            borderRadius: 14,
+            borderColor: "#21486e",
+            borderRadius: 20,
             padding: 18,
-            backgroundColor: "#fff",
+            backgroundColor: "#0b2542",
           }}
         >
-          <Text style={{ fontSize: 16, lineHeight: 22 }}>
+          <Text style={{ fontSize: 16, lineHeight: 22, color: "#b7c9df" }}>
             No notifications yet. Team announcements, practice reminders, and tournament updates will show here.
           </Text>
         </View>
@@ -479,22 +535,92 @@ export default function NotificationsScreen() {
             key={item.id}
             style={{
               borderWidth: 1,
-              borderColor: "#ddd",
-              borderRadius: 18,
+              borderColor: "#21486e",
+              borderRadius: 24,
               padding: 18,
-              backgroundColor: "#fff",
+              backgroundColor: "#0b2542",
             }}
           >
-            <Text style={{ fontSize: 13, fontWeight: "800", color: "#bf1029", marginBottom: 8 }}>
+            <Text style={{ fontSize: 13, fontWeight: "900", color: "#93c5fd", marginBottom: 8 }}>
               {item.meta}
             </Text>
-            <Text style={{ fontSize: 19, fontWeight: "800", color: "#091729" }}>{item.title}</Text>
-            <Text style={{ fontSize: 15, color: "#374151", marginTop: 8, lineHeight: 22 }}>
+
+            <View
+              style={{
+                alignSelf: "flex-start",
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                borderRadius: 999,
+                backgroundColor:
+                  item.kind === "tournament"
+                    ? "#431407"
+                    : item.kind === "practice"
+                      ? "#102f52"
+                      : "#3b0a16",
+                borderWidth: 1,
+                borderColor:
+                  item.kind === "tournament"
+                    ? "#9a3412"
+                    : item.kind === "practice"
+                      ? "#315c86"
+                      : "#7f1d1d",
+                marginBottom: 10,
+              }}
+            >
+              <Text
+                style={{
+                  color:
+                    item.kind === "tournament"
+                      ? "#fed7aa"
+                      : item.kind === "practice"
+                        ? "#dbeafe"
+                        : "#fecaca",
+                  fontSize: 12,
+                  fontWeight: "900",
+                }}
+              >
+                {item.kind.toUpperCase()}
+              </Text>
+            </View>
+
+            <Text style={{ fontSize: 20, fontWeight: "900", color: "#ffffff" }}>
+              {item.title}
+            </Text>
+
+            <Text style={{ fontSize: 15, color: "#dbeafe", marginTop: 8, lineHeight: 22 }}>
               {item.body}
             </Text>
           </View>
         ))}
       </View>
-    </ScreenShell>
+    </MobileScreenShell>
+  );
+}
+
+function StatusLine({ label, value }: { label: string; value: string }) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        justifyContent: "space-between",
+        gap: 12,
+        paddingVertical: 3,
+      }}
+    >
+      <Text style={{ fontSize: 15, color: "#b7c9df", fontWeight: "700" }}>
+        {label}
+      </Text>
+      <Text
+        style={{
+          fontSize: 15,
+          color: "#ffffff",
+          fontWeight: "900",
+          flexShrink: 1,
+          textAlign: "right",
+        }}
+      >
+        {value}
+      </Text>
+    </View>
   );
 }

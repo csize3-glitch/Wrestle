@@ -1,6 +1,19 @@
 export type WrestlingStyle = "Freestyle" | "Folkstyle" | "Greco-Roman";
 export type UserRole = "coach" | "athlete";
 
+export type VarkStyle = "visual" | "auditory" | "readingWriting" | "kinesthetic";
+
+export interface VarkProfile {
+  visual: number;
+  auditory: number;
+  readingWriting: number;
+  kinesthetic: number;
+  primaryStyle: VarkStyle | "";
+  secondaryStyle?: VarkStyle | "";
+  isMultimodal: boolean;
+  completedAt: string;
+}
+
 export interface NotificationPreferences {
   announcements: boolean;
   tournamentAlerts: boolean;
@@ -146,6 +159,8 @@ export interface AppUser {
   currentTeamId?: string;
   notificationPreferences?: NotificationPreferences;
   lastSeenNotificationsAt?: string;
+  varkCompleted?: boolean;
+  varkProfile?: VarkProfile;
   createdAt: string;
   updatedAt: string;
 }
@@ -238,6 +253,8 @@ export interface DevicePushRegistration {
   id: string;
   userId: string;
   teamId: string;
+  userRole?: UserRole;
+  notificationPreferences?: NotificationPreferences;
   platform: string;
   expoPushToken?: string;
   devicePushToken?: string;
