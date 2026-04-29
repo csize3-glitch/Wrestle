@@ -65,6 +65,132 @@ type ImportedPlan = {
   blocks: PracticeBlock[];
 };
 
+type PracticePlanTemplate = {
+  id: string;
+  title: string;
+  style: string;
+  level: string;
+  text: string;
+};
+
+const PRACTICE_PLAN_TEMPLATES: PracticePlanTemplate[] = [
+  {
+    id: "folkstyle-chain-mat-returns",
+    title: "Folkstyle Chain Wrestling + Mat Returns",
+    style: "Folkstyle",
+    level: "Middle School / High School",
+    text: `Practice Plan: Folkstyle Chain Wrestling + Mat Returns
+Style: Folkstyle
+Level: Middle School / High School
+Description: Build chain wrestling habits from stance motion to single-leg finishes, mat returns, and short live goes.
+
+Warm-up | 10:00 | Jog, stance motion, sprawls, penetration steps, hip-heists
+Hand Fighting | 8:00 | Inside ties, head position, wrist control, circle to angle
+Technique | 15:00 | Single leg entry to shelf finish; coach demos, then partner reps
+Drill | 10:00 | Single leg finish chain: shelf, run the pipe, switch to double
+Mat Returns | 12:00 | Lift-return mechanics, safe mat return position, partner rotation
+Situational Live | 15:00 | Start in single leg position; wrestler A finishes, wrestler B defends
+Top/Bottom Review | 10:00 | Stand-up first move, chop breakdown, tight waist ride
+Conditioning | 8:00 | 20-second go behinds, sprawls, push-ups, repeat
+Cooldown | 5:00 | Stretch, breathing, team huddle, one goal for next practice`,
+  },
+  {
+    id: "beginner-stance-defense",
+    title: "Beginner Stance, Motion + Defense",
+    style: "Folkstyle",
+    level: "Beginner",
+    text: `Practice Plan: Beginner Stance, Motion + Defense
+Style: Folkstyle
+Level: Beginner
+Description: Simple practice for newer wrestlers focused on stance, motion, defense, and confidence.
+
+Team Talk | 5:00 | Set expectations, explain the focus, pair athletes safely
+Warm-up | 10:00 | Jog, skips, stance motion, sprawls, hip-heists
+Stance Motion | 12:00 | Level changes, circle motion, hands down, head up
+Defense Basics | 15:00 | Sprawl, hips heavy, crossface pressure, circle behind
+Partner Drill | 10:00 | Shot defense reps at 50 percent speed
+Technique | 12:00 | Go-behind finish after sprawl
+Situational Live | 10:00 | Start with one athlete on a leg, partner defends
+Game | 8:00 | Shark bait stance motion and defense game
+Cooldown | 5:00 | Stretch, review one thing learned, team break`,
+  },
+  {
+    id: "freestyle-leg-attacks-turns",
+    title: "Freestyle Leg Attacks + Turns",
+    style: "Freestyle",
+    level: "Intermediate",
+    text: `Practice Plan: Freestyle Leg Attacks + Turns
+Style: Freestyle
+Level: Intermediate
+Description: Build clean leg attacks, exposure awareness, and transition turns.
+
+Warm-up | 10:00 | Motion, level changes, sprawls, gut wrench bridges
+Hand Fighting | 8:00 | Wrist control, collar tie clears, inside tie pressure
+Leg Attack Entries | 15:00 | Sweep single and high crotch entries with angle finish
+Finish Drill | 10:00 | Finish clean, cover hips, secure exposure
+Turns | 15:00 | Gut wrench position, lock, pressure, safe rotation
+Par Terre Defense | 10:00 | Belly down defense, hand fighting, hip pressure
+Situational Live | 15:00 | Start from leg attack, then start from par terre
+Cooldown | 5:00 | Stretch, breathing, freestyle scoring review`,
+  },
+  {
+    id: "greco-pummeling-throws",
+    title: "Greco Pummeling + Throws",
+    style: "Greco-Roman",
+    level: "Intermediate",
+    text: `Practice Plan: Greco Pummeling + Throws
+Style: Greco-Roman
+Level: Intermediate
+Description: Build upper-body position, pressure, pummeling, and safe throw mechanics.
+
+Warm-up | 10:00 | Neck, shoulders, stance motion, back arches, hip pops
+Pummeling | 12:00 | Inside control, over-under, double unders, pressure steps
+Position Battle | 10:00 | Win inside control and move opponent without reaching
+Technique | 15:00 | Arm throw entry, hip position, safe finish
+Drill | 10:00 | Pummel to throw setup, reset after each finish
+Par Terre | 12:00 | Lock defense, lift awareness, short gut-wrench review
+Situational Live | 15:00 | Over-under starts and edge pressure
+Cooldown | 5:00 | Stretch shoulders, review safe throwing rules`,
+  },
+  {
+    id: "tournament-week-sharpener",
+    title: "Tournament Week Sharpener",
+    style: "Mixed",
+    level: "All Levels",
+    text: `Practice Plan: Tournament Week Sharpener
+Style: Mixed
+Level: All Levels
+Description: Short, sharp practice before competition. Keep intensity high but volume controlled.
+
+Warm-up | 8:00 | Light sweat, stance motion, mobility, short sprawls
+Hand Fighting | 8:00 | Win first contact, clear ties, circle to angle
+Best Attack Reps | 12:00 | Each wrestler drills their best takedown cleanly
+Bottom First Move | 10:00 | Explode to feet, hand control, mat return defense
+Top Ride Review | 8:00 | First breakdown and pressure ride
+Situational Goes | 15:00 | 30-second starts: down by one, up by one, short time
+Match Prep | 8:00 | Warm-up routine, breathing, first-period plan
+Cooldown | 5:00 | Stretch, weigh-in reminders, tournament mindset`,
+  },
+  {
+    id: "conditioning-live-situations",
+    title: "Conditioning + Live Situations",
+    style: "Mixed",
+    level: "Advanced",
+    text: `Practice Plan: Conditioning + Live Situations
+Style: Mixed
+Level: Advanced
+Description: High-output room day with live situations, short recoveries, and mental toughness.
+
+Warm-up | 10:00 | Jog, stance motion, sprawls, partner movement
+Hard Drill | 10:00 | 30-second takedown chain reps, rotate partners
+Technique Refresh | 10:00 | Best finish and best counter from neutral
+Situational Live | 20:00 | Short goes from single leg, front headlock, bottom start
+Top/Bottom Live | 15:00 | Ride, escape, mat return, immediate reset
+Conditioning | 15:00 | Sprint, sprawl, shot, go-behind circuit
+Team Finish | 5:00 | Partner push, breathing, team huddle`,
+  },
+];
+
 function createPlanSnapshot(args: {
   planId: string | null;
   title: string;
@@ -147,7 +273,104 @@ function parseDurationInput(value: string) {
   return Math.max(5, Math.round(numericMinutes * 60));
 }
 
-function parseImportedPracticePlan(rawText: string): ImportedPlan {
+function normalizeMatchText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function scoreLibraryMatch(blockTitle: string, blockNotes: string, item: LibraryItem) {
+  const blockText = normalizeMatchText(`${blockTitle} ${blockNotes}`);
+  const itemTitle = normalizeMatchText(item.title || "");
+  const itemMeta = normalizeMatchText(
+    `${item.title || ""} ${item.category || ""} ${item.subcategory || ""} ${item.format || ""} ${
+      item.notes || ""
+    } ${(item.tags || []).join(" ")}`
+  );
+
+  if (!blockText || !itemTitle) {
+    return 0;
+  }
+
+  let score = 0;
+
+  if (blockText.includes(itemTitle) || itemTitle.includes(blockText)) {
+    score += 70;
+  }
+
+  const blockWords = new Set(blockText.split(" ").filter((word) => word.length >= 4));
+  const titleWords = new Set(itemTitle.split(" ").filter((word) => word.length >= 4));
+  const metaWords = new Set(itemMeta.split(" ").filter((word) => word.length >= 4));
+
+  blockWords.forEach((word) => {
+    if (titleWords.has(word)) {
+      score += 14;
+    } else if (metaWords.has(word)) {
+      score += 5;
+    }
+  });
+
+  return score;
+}
+
+function findBestLibraryMatch(args: {
+  blockTitle: string;
+  blockNotes: string;
+  style: string;
+  libraryItems: LibraryItem[];
+}) {
+  const style = args.style.trim();
+  const candidates = args.libraryItems.filter((item) => {
+    if (!style || style === "Mixed") {
+      return true;
+    }
+
+    return item.style === style;
+  });
+
+  let bestItem: LibraryItem | null = null;
+  let bestScore = 0;
+
+  candidates.forEach((item) => {
+    const score = scoreLibraryMatch(args.blockTitle, args.blockNotes, item);
+    if (score > bestScore) {
+      bestScore = score;
+      bestItem = item;
+    }
+  });
+
+  return bestScore >= 28 ? bestItem : null;
+}
+
+function createBlockFromLibraryMatch(args: {
+  item: LibraryItem;
+  id: string;
+  title: string;
+  durationSeconds: number;
+  importedNotes: string;
+  fallbackVideoUrl?: string;
+}): PracticeBlock {
+  return {
+    id: args.id,
+    blockType: "library",
+    libraryItemId: args.item.id,
+    title: args.title || args.item.title,
+    style: args.item.style,
+    category: args.item.category,
+    subcategory: args.item.subcategory,
+    format: args.item.format,
+    durationMinutes: Math.max(1, Math.round(args.durationSeconds / 60)),
+    durationSeconds: args.durationSeconds,
+    videoUrl: args.fallbackVideoUrl || args.item.videoUrl,
+    notes: [args.importedNotes, args.item.notes ? `Library note: ${args.item.notes}` : ""]
+      .filter(Boolean)
+      .join("\n"),
+  };
+}
+
+function parseImportedPracticePlan(rawText: string, libraryItems: LibraryItem[] = []): ImportedPlan {
   const lines = rawText
     .split("\n")
     .map((line) => line.trim())
@@ -190,19 +413,48 @@ function parseImportedPracticePlan(rawText: string): ImportedPlan {
       const notesPart = parts[2] || "";
       const videoPart = parts[3] || "";
       const durationSeconds = parseDurationInput(durationPart) || 600;
+      const id = `import-${Date.now()}-${index}`;
+      const fallbackVideoUrl = videoPart.startsWith("http") ? videoPart : undefined;
+
+      const importedNotes = [
+        notesPart,
+        level ? `Level: ${level}` : "",
+        description ? `Plan note: ${description}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      const matchedLibraryItem = findBestLibraryMatch({
+        blockTitle: titlePart,
+        blockNotes: notesPart,
+        style,
+        libraryItems,
+      });
+
+      if (matchedLibraryItem) {
+        importedBlocks.push(
+          createBlockFromLibraryMatch({
+            item: matchedLibraryItem,
+            id,
+            title: titlePart,
+            durationSeconds,
+            importedNotes,
+            fallbackVideoUrl,
+          })
+        );
+        return;
+      }
 
       importedBlocks.push({
-        id: `import-${Date.now()}-${index}`,
+        id,
         blockType: "text",
         title: titlePart,
         style: style || undefined,
         category: titlePart,
         durationMinutes: Math.max(1, Math.round(durationSeconds / 60)),
         durationSeconds,
-        videoUrl: videoPart.startsWith("http") ? videoPart : undefined,
-        notes: [notesPart, level ? `Level: ${level}` : "", description ? `Plan note: ${description}` : ""]
-          .filter(Boolean)
-          .join("\n"),
+        videoUrl: fallbackVideoUrl,
+        notes: importedNotes,
       });
     }
   });
@@ -384,8 +636,17 @@ function PracticePlansPageContent() {
     ]);
   }
 
+  function useTemplate(template: PracticePlanTemplate) {
+    setImportText(template.text);
+    setImportPreview(null);
+    setStatusMessage({
+      tone: "info",
+      text: `${template.title} template loaded. Preview it, then apply it to the timeline.`,
+    });
+  }
+
   function previewImportedPlan() {
-    const parsed = parseImportedPracticePlan(importText);
+    const parsed = parseImportedPracticePlan(importText, libraryItems);
 
     if (!parsed.title && parsed.blocks.length === 0) {
       setStatusMessage({
@@ -403,10 +664,13 @@ function PracticePlansPageContent() {
       return;
     }
 
+    const matchedCount = parsed.blocks.filter((block) => block.blockType === "library").length;
     setImportPreview(parsed);
     setStatusMessage({
       tone: "success",
-      text: `Import preview ready with ${parsed.blocks.length} block${parsed.blocks.length === 1 ? "" : "s"}.`,
+      text: `Import preview ready with ${parsed.blocks.length} block${
+        parsed.blocks.length === 1 ? "" : "s"
+      }. ${matchedCount} linked to your library.`,
     });
   }
 
@@ -990,7 +1254,7 @@ function PracticePlansPageContent() {
                     </li>
                     <li>Video URL is optional.</li>
                     <li>Imported rows become editable timeline blocks before saving.</li>
-                    <li>Use Preview Import first, then Apply to Timeline.</li>
+                    <li>Preview Import also tries to link matching blocks to your library.</li>
                   </ul>
                 </div>
               ) : null}
@@ -1001,11 +1265,42 @@ function PracticePlansPageContent() {
               Click the <strong>?</strong> for the required format.
             </p>
 
+            <div
+              style={{
+                border: "1px solid #e5e7eb",
+                borderRadius: 12,
+                padding: 12,
+                background: "#f8fafc",
+                marginBottom: 12,
+              }}
+            >
+              <div style={{ fontWeight: 900, marginBottom: 8 }}>Quick Templates</div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {PRACTICE_PLAN_TEMPLATES.map((template) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    onClick={() => useTemplate(template)}
+                    style={{
+                      padding: "9px 12px",
+                      borderRadius: 999,
+                      border: "1px solid #d1d5db",
+                      background: "#ffffff",
+                      cursor: "pointer",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {template.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <textarea
               value={importText}
               onChange={(event) => setImportText(event.target.value)}
               rows={10}
-              placeholder="Paste practice plan here..."
+              placeholder="Paste practice plan here or choose a quick template..."
               style={{
                 width: "100%",
                 padding: 12,
@@ -1076,7 +1371,7 @@ function PracticePlansPageContent() {
                         border: "1px solid #e5e7eb",
                         borderRadius: 10,
                         padding: 10,
-                        background: "#fff",
+                        background: block.blockType === "library" ? "#f0fdf4" : "#fff",
                       }}
                     >
                       <strong>
@@ -1085,6 +1380,7 @@ function PracticePlansPageContent() {
                       <div style={{ fontSize: 13, color: "#666", marginTop: 4 }}>
                         {formatDurationLabel(block.durationSeconds)}
                         {block.videoUrl ? " • Video attached" : ""}
+                        {block.blockType === "library" ? " • Matched library item" : " • Text block"}
                       </div>
                       {block.notes ? (
                         <div style={{ fontSize: 13, marginTop: 6, whiteSpace: "pre-wrap" }}>
