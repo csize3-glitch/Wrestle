@@ -52,7 +52,13 @@ export interface LibraryItem {
   tags: string[];
   durationMinutes?: number;
   thumbnailUrl?: string;
-  source: "excel_import" | "manual";
+
+  source: "excel_import" | "manual" | "youtube_channel_import";
+
+  channelName?: string;
+  channelUrl?: string;
+  youtubeVideoId?: string;
+
   createdAt: string;
   updatedAt: string;
 }
