@@ -998,7 +998,7 @@ function PracticePlansPageContent() {
 
             <p style={{ marginTop: 0, color: "#666", fontSize: 14 }}>
               Paste a structured practice plan, preview the blocks, then apply it to the timeline.
-              Each block should use <strong>Block Title | Time | Notes | Optional Video URL</strong>.
+              Click the <strong>?</strong> for the required format.
             </p>
 
             <div
