@@ -1001,37 +1001,6 @@ function PracticePlansPageContent() {
               Click the <strong>?</strong> for the required format.
             </p>
 
-            <div
-              style={{
-                border: "1px solid #e5e7eb",
-                borderRadius: 12,
-                background: "#f8fafc",
-                padding: 12,
-                marginBottom: 12,
-                fontSize: 13,
-                lineHeight: 1.5,
-                color: "#334155",
-              }}
-            >
-              <strong>Format example:</strong>
-              <pre style={{ whiteSpace: "pre-wrap", margin: "8px 0 0" }}>
-{`Practice Plan: Folkstyle Chain Wrestling + Mat Returns
-Style: Folkstyle
-Level: Middle School / High School
-Description: Build chain wrestling habits from stance motion to single-leg finishes, mat returns, and short live goes.
-
-Warm-up | 10:00 | Jog, stance motion, sprawls, penetration steps, hip-heists
-Hand Fighting | 8:00 | Inside ties, head position, wrist control, circle to angle
-Technique | 15:00 | Single leg entry to shelf finish; coach demos, then partner reps | https://youtube.com/
-Drill | 10:00 | Single leg finish chain: shelf, run the pipe, switch to double
-Mat Returns | 12:00 | Lift-return mechanics, safe mat return position, partner rotation
-Situational Live | 15:00 | Start in single leg position; wrestler A finishes, wrestler B defends
-Top/Bottom Review | 10:00 | Stand-up first move, chop breakdown, tight waist ride
-Conditioning | 8:00 | 20-second go behinds, sprawls, push-ups, repeat
-Cooldown | 5:00 | Stretch, breathing, team huddle, one goal for next practice`}
-              </pre>
-            </div>
-
             <textarea
               value={importText}
               onChange={(event) => setImportText(event.target.value)}
