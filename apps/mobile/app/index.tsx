@@ -453,16 +453,24 @@ export default function IndexScreen() {
     try {
       setDashboardLoading(true);
 
+      const wrestlerRows = await listWrestlers(db, currentTeam.id);
+      const dashboardOwnWrestler =
+        appUser.role === "athlete" && firebaseUser
+          ? wrestlerRows.find((wrestler) => wrestler.ownerUserId === firebaseUser.uid) || null
+          : null;
+
       const [
-        wrestlerRows,
         eventRows,
         tournamentRows,
         announcementRows,
         notificationRows,
         practiceSessionRows,
       ] = await Promise.all([
-        listWrestlers(db, currentTeam.id),
-        listCalendarEvents(db, currentTeam.id),
+        appUser.role === "athlete"
+          ? dashboardOwnWrestler
+            ? listCalendarEvents(db, currentTeam.id, dashboardOwnWrestler)
+            : Promise.resolve([])
+          : listCalendarEvents(db, currentTeam.id),
         listTournaments(db, currentTeam.id),
         listTeamAnnouncements(db, currentTeam.id),
         listTeamNotifications(db, currentTeam.id, appUser.role),

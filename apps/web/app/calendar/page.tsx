@@ -20,15 +20,14 @@ import {
   type WrestlerProfile,
 } from "@wrestlewell/types/index";
 import {
-  createTrainingGroup,
-  deleteTrainingGroup,
+  listCalendarEvents,
   listPracticeSessions,
+  practicePlanMatchesAssignment,
   listTrainingGroups,
   listTournamentEntries,
   listTournaments,
   listWrestlers,
   sendTeamPushDelivery,
-  updateTrainingGroup,
 } from "@wrestlewell/lib/index";
 import { RequireAuth } from "../require-auth";
 import { useAuthState } from "../auth-provider";
@@ -54,9 +53,9 @@ type CalendarEventItem = {
   groupId?: string;
   groupName?: string;
   assignedWrestlerIds?: string[];
-  practicePlanTitle: string;
-  practicePlanStyle: string;
-  totalMinutes: number;
+  practicePlanTitle?: string;
+  practicePlanStyle?: string;
+  totalMinutes?: number;
   totalSeconds?: number;
   notes?: string;
 };
@@ -77,10 +76,6 @@ type CompletedPracticeSessionItem = PracticeSession & {
 };
 
 type AssignmentType = "team" | "group" | "custom";
-type TrainingGroupDraft = {
-  name: string;
-  description: string;
-};
 
 function getStartOfWeek(date = new Date()) {
   const d = new Date(date);
@@ -108,12 +103,6 @@ function formatDurationLabel(totalSeconds: number) {
   const minutes = Math.floor(safeSeconds / 60);
   const seconds = safeSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
-}
-
-function matchesAssignment(assignedIds: string[] | undefined, wrestlerId?: string | null) {
-  const safeIds = assignedIds || [];
-  if (safeIds.length === 0) return true;
-  return Boolean(wrestlerId && safeIds.includes(wrestlerId));
 }
 
 function wrestlerMatchesTrainingGroup(wrestler: WrestlerProfile, groupId: string) {
@@ -199,6 +188,7 @@ export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEventItem[]>([]);
   const [tournaments, setTournaments] = useState<TournamentCalendarItem[]>([]);
   const [completedPractices, setCompletedPractices] = useState<CompletedPracticeSessionItem[]>([]);
+  const [wrestlersLoaded, setWrestlersLoaded] = useState(false);
 
   const [loadingPlans, setLoadingPlans] = useState(true);
   const [loadingEvents, setLoadingEvents] = useState(true);
@@ -210,11 +200,6 @@ export default function CalendarPage() {
   const [selectedGroupByDate, setSelectedGroupByDate] = useState<Record<string, string>>({});
   const [customWrestlersByDate, setCustomWrestlersByDate] = useState<Record<string, string[]>>({});
   const [notesByDate, setNotesByDate] = useState<Record<string, string>>({});
-  const [newGroupName, setNewGroupName] = useState("");
-  const [newGroupDescription, setNewGroupDescription] = useState("");
-  const [groupDrafts, setGroupDrafts] = useState<Record<string, TrainingGroupDraft>>({});
-  const [savingGroupId, setSavingGroupId] = useState<string | null>(null);
-  const [creatingGroup, setCreatingGroup] = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(1440);
 
@@ -271,12 +256,16 @@ export default function CalendarPage() {
       try {
         if (!currentTeam?.id) {
           setWrestlers([]);
+          setWrestlersLoaded(true);
           return;
         }
 
+        setWrestlersLoaded(false);
         setWrestlers(await listWrestlers(db, currentTeam.id));
       } catch (error) {
         console.error("Failed to load wrestlers for calendar assignment filtering:", error);
+      } finally {
+        setWrestlersLoaded(true);
       }
     }
 
@@ -287,24 +276,12 @@ export default function CalendarPage() {
     async function loadTrainingGroupsForTeam() {
       if (!currentTeam?.id) {
         setTrainingGroups([]);
-        setGroupDrafts({});
         return;
       }
 
       try {
         const groups = await listTrainingGroups(db, currentTeam.id);
         setTrainingGroups(groups);
-        setGroupDrafts(
-          Object.fromEntries(
-            groups.map((group) => [
-              group.id,
-              {
-                name: group.name,
-                description: group.description || "",
-              },
-            ])
-          )
-        );
       } catch (error) {
         console.error("Failed to load training groups:", error);
       }
@@ -335,7 +312,13 @@ export default function CalendarPage() {
             id: d.id,
             ...(d.data() as Omit<SavedPracticePlan, "id">),
           }))
-          .filter((plan) => matchesAssignment(plan.assignedWrestlerIds, athleteOwnedWrestler?.id))
+          .filter((plan) =>
+            appUser?.role === "athlete"
+              ? athleteOwnedWrestler
+                ? practicePlanMatchesAssignment(plan, athleteOwnedWrestler)
+                : false
+              : true
+          )
           .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
 
         setSavedPlans(rows);
@@ -357,20 +340,21 @@ export default function CalendarPage() {
       return;
     }
 
-    const calendarQuery = query(
-      collection(db, COLLECTIONS.CALENDAR_EVENTS),
-      where("teamId", "==", currentTeam.id)
-    );
+    if (appUser?.role === "athlete" && !athleteOwnedWrestler) {
+      setEvents([]);
+      setTournaments([]);
+      setCompletedPractices([]);
+      return;
+    }
 
-    const calendarSnapshot = await getDocs(calendarQuery);
-
-    const eventRows = calendarSnapshot.docs
-      .map((d) => ({
-        id: d.id,
-        ...(d.data() as Omit<CalendarEventItem, "id">),
-      }))
+    const eventRows = (
+      await listCalendarEvents(
+        db,
+        currentTeam.id,
+        appUser?.role === "athlete" ? athleteOwnedWrestler : undefined
+      )
+    )
       .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
-      .filter((event) => matchesAssignment(event.assignedWrestlerIds, athleteOwnedWrestler?.id))
       .filter((event) => event.date >= weekStartKey && event.date <= weekEndKey);
 
     setEvents(eventRows);
@@ -446,6 +430,10 @@ export default function CalendarPage() {
           return;
         }
 
+        if (appUser?.role === "athlete" && !wrestlersLoaded) {
+          return;
+        }
+
         await refreshEvents();
       } catch (error) {
         console.error("Failed to load calendar events:", error);
@@ -455,29 +443,7 @@ export default function CalendarPage() {
     }
 
     loadEvents();
-  }, [athleteOwnedWrestler?.id, currentTeam?.id, weekStartKey, weekEndKey]);
-
-  async function refreshTrainingGroupsForTeam() {
-    if (!currentTeam?.id) {
-      setTrainingGroups([]);
-      setGroupDrafts({});
-      return;
-    }
-
-    const groups = await listTrainingGroups(db, currentTeam.id);
-    setTrainingGroups(groups);
-    setGroupDrafts(
-      Object.fromEntries(
-        groups.map((group) => [
-          group.id,
-          {
-            name: group.name,
-            description: group.description || "",
-          },
-        ])
-      )
-    );
-  }
+  }, [appUser?.role, athleteOwnedWrestler, currentTeam?.id, weekStartKey, weekEndKey, wrestlersLoaded]);
 
   function getResolvedAssignedWrestlerIds(
     assignmentType: AssignmentType,
@@ -533,154 +499,108 @@ export default function CalendarPage() {
     });
   }
 
-  async function handleCreateGroup() {
-    if (!currentTeam?.id) {
-      alert("You need an active team before creating training groups.");
-      return;
-    }
+  const weeklyReviewCards = useMemo(() => {
+    type ReviewTone = "team" | "group" | "custom";
+    type WeeklyReviewCard = {
+      key: string;
+      title: string;
+      subtitle: string;
+      tone: ReviewTone;
+      scheduled: CalendarEventItem[];
+      completed: CompletedPracticeSessionItem[];
+      totalScheduledMinutes: number;
+      completionRate: number;
+      latestNote: CompletedPracticeSessionItem | null;
+      noteSessions: CompletedPracticeSessionItem[];
+      rosterHref: string;
+      rosterLabel: string;
+    };
 
-    if (!newGroupName.trim()) {
-      alert("Enter a training group name first.");
-      return;
-    }
-
-    try {
-      setCreatingGroup(true);
-      await createTrainingGroup(db, {
-        teamId: currentTeam.id,
-        name: newGroupName,
-        description: newGroupDescription,
-        sortOrder: trainingGroups.length,
-        active: true,
-      });
-      setNewGroupName("");
-      setNewGroupDescription("");
-      await refreshTrainingGroupsForTeam();
-    } catch (error) {
-      console.error("Failed to create training group:", error);
-      alert("Failed to create training group.");
-    } finally {
-      setCreatingGroup(false);
-    }
-  }
-
-  async function handleSaveGroup(groupId: string) {
-    const draft = groupDrafts[groupId];
-    if (!draft?.name.trim()) {
-      alert("Training group name cannot be empty.");
-      return;
-    }
-
-    try {
-      setSavingGroupId(groupId);
-      await updateTrainingGroup(db, groupId, {
-        name: draft.name,
-        description: draft.description,
-      });
-      await refreshTrainingGroupsForTeam();
-    } catch (error) {
-      console.error("Failed to update training group:", error);
-      alert("Failed to update training group.");
-    } finally {
-      setSavingGroupId(null);
-    }
-  }
-
-  async function handleToggleGroupActive(group: TrainingGroup) {
-    try {
-      setSavingGroupId(group.id);
-      await updateTrainingGroup(db, group.id, { active: !group.active });
-      await refreshTrainingGroupsForTeam();
-    } catch (error) {
-      console.error("Failed to update training group status:", error);
-      alert("Failed to update training group.");
-    } finally {
-      setSavingGroupId(null);
-    }
-  }
-
-  async function handleDeleteGroup(group: TrainingGroup) {
-    if (!window.confirm(`Delete ${group.name}?`)) {
-      return;
-    }
-
-    try {
-      setSavingGroupId(group.id);
-
-      const [planRefs, eventRefs, sessionRefs] = await Promise.all([
-        getDocs(
-          query(
-            collection(db, COLLECTIONS.PRACTICE_PLANS),
-            where("teamId", "==", currentTeam?.id || ""),
-            where("groupId", "==", group.id)
-          )
-        ),
-        getDocs(
-          query(
-            collection(db, COLLECTIONS.CALENDAR_EVENTS),
-            where("teamId", "==", currentTeam?.id || ""),
-            where("groupId", "==", group.id)
-          )
-        ),
-        getDocs(
-          query(
-            collection(db, COLLECTIONS.PRACTICE_SESSIONS),
-            where("teamId", "==", currentTeam?.id || ""),
-            where("groupId", "==", group.id)
-          )
-        ),
-      ]);
-
-      const isReferenced =
-        wrestlers.some((wrestler) => wrestlerMatchesTrainingGroup(wrestler, group.id)) ||
-        !planRefs.empty ||
-        !eventRefs.empty ||
-        !sessionRefs.empty;
-
-      if (isReferenced) {
-        alert(
-          "This training group is still referenced by wrestlers or practice work. Rename or deactivate it instead."
-        );
-        return;
+    function buildCard(
+      key: string,
+      title: string,
+      subtitle: string,
+      tone: ReviewTone,
+      scheduled: CalendarEventItem[],
+      completed: CompletedPracticeSessionItem[],
+      rosterLabel: string
+    ): WeeklyReviewCard | null {
+      if (scheduled.length === 0 && completed.length === 0) {
+        return null;
       }
 
-      await deleteTrainingGroup(db, group.id);
-      await refreshTrainingGroupsForTeam();
-    } catch (error) {
-      console.error("Failed to delete training group:", error);
-      alert("Failed to delete training group.");
-    } finally {
-      setSavingGroupId(null);
+      const totalScheduledMinutes = scheduled.reduce(
+        (sum, event) => sum + (event.totalMinutes || Math.round((event.totalSeconds || 0) / 60) || 0),
+        0
+      );
+      const completionRate =
+        scheduled.length === 0 ? (completed.length > 0 ? 100 : 0) : Math.min(100, Math.round((completed.length / scheduled.length) * 100));
+      const noteSessions = completed.filter((session) => session.notes?.trim());
+      const latestNote = noteSessions[0] || null;
+
+      return {
+        key,
+        title,
+        subtitle,
+        tone,
+        scheduled,
+        completed,
+        totalScheduledMinutes,
+        completionRate,
+        latestNote,
+        noteSessions,
+        rosterHref: "/wrestlers",
+        rosterLabel,
+      };
     }
-  }
 
-  const weeklyReviewBlocks = useMemo(() => {
-    const blocks = [];
-
-    const teamScheduled = events.filter((event) => (event.assignmentType || "team") === "team");
-    const teamCompleted = completedPractices.filter(
-      (session) => (session.assignmentType || "team") === "team"
+    const cards: WeeklyReviewCard[] = [];
+    const legacyTeamScheduled = events.filter(
+      (event) =>
+        (event.assignmentType || "team") === "team" ||
+        (!event.assignmentType && !event.groupId && !(event.assignedWrestlerIds || []).length)
     );
-
-    if (teamScheduled.length || teamCompleted.length) {
-      blocks.push({
-        key: "team",
-        title: "Team-wide",
-        scheduled: teamScheduled,
-        completed: teamCompleted,
-      });
-    }
+    const legacyTeamCompleted = completedPractices.filter(
+      (session) =>
+        (session.assignmentType || "team") === "team" ||
+        (!session.assignmentType && !session.groupId && !(session.assignedWrestlerIds || []).length)
+    );
+    const teamCard = buildCard(
+      "team",
+      "Team-wide",
+      "Shared training work for the full roster this week.",
+      "team",
+      legacyTeamScheduled,
+      legacyTeamCompleted,
+      "Open roster"
+    );
+    if (teamCard) cards.push(teamCard);
 
     for (const group of activeTrainingGroups) {
-      blocks.push({
-        key: group.id,
-        title: group.name,
-        scheduled: events.filter((event) => event.groupId === group.id),
-        completed: completedPractices.filter((session) => session.groupId === group.id),
-      });
+      const card = buildCard(
+        group.id,
+        group.name,
+        group.description?.trim() || "Training group review for the selected week.",
+        "group",
+        events.filter((event) => event.groupId === group.id),
+        completedPractices.filter((session) => session.groupId === group.id),
+        `Open ${group.name} roster`
+      );
+      if (card) cards.push(card);
     }
 
-    return blocks;
+    const customCard = buildCard(
+      "custom",
+      "Custom / 1-on-1",
+      "Individually assigned practices and private work this week.",
+      "custom",
+      events.filter((event) => event.assignmentType === "custom"),
+      completedPractices.filter((session) => session.assignmentType === "custom"),
+      "Open wrestler assignments"
+    );
+    if (customCard) cards.push(customCard);
+
+    return cards;
   }, [activeTrainingGroups, completedPractices, events]);
 
   async function assignPlanToDate(dateKey: string) {
@@ -826,135 +746,6 @@ export default function CalendarPage() {
               text: "Calendar scheduling is coach-managed. Athletes can review the team schedule here, but only coaches can assign or remove plans.",
             }}
           />
-        ) : null}
-
-        {isCoach ? (
-          <section
-            style={{
-              border: "1px solid #ddd",
-              borderRadius: 12,
-              padding: 16,
-              background: "#fff",
-              marginBottom: 24,
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-              <div>
-                <h2 style={{ marginTop: 0, marginBottom: 6 }}>Training Groups</h2>
-                <p style={{ marginTop: 0, color: "#666", fontSize: 14 }}>
-                  Build your own live group names here so calendar assignments and weekly review stay coach-specific.
-                </p>
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "minmax(220px, 1fr) minmax(260px, 1.4fr) auto",
-                gap: 10,
-                alignItems: "end",
-                marginBottom: 16,
-              }}
-            >
-              <label style={{ display: "grid", gap: 6 }}>
-                <span>Group name</span>
-                <input
-                  value={newGroupName}
-                  onChange={(e) => setNewGroupName(e.target.value)}
-                  placeholder="White Group"
-                  style={{ padding: 10 }}
-                />
-              </label>
-
-              <label style={{ display: "grid", gap: 6 }}>
-                <span>Description</span>
-                <input
-                  value={newGroupDescription}
-                  onChange={(e) => setNewGroupDescription(e.target.value)}
-                  placeholder="Optional notes about who this group is for"
-                  style={{ padding: 10 }}
-                />
-              </label>
-
-              <button onClick={handleCreateGroup} disabled={creatingGroup} style={{ padding: "10px 14px" }}>
-                {creatingGroup ? "Creating..." : "Create Group"}
-              </button>
-            </div>
-
-            <div style={{ display: "grid", gap: 10 }}>
-              {trainingGroups.length === 0 ? (
-                <div style={{ fontSize: 14, color: "#666" }}>
-                  No custom groups yet. Add the first one above and it will immediately become available for wrestler profiles and calendar assignments.
-                </div>
-              ) : (
-                trainingGroups.map((group) => (
-                  <div
-                    key={group.id}
-                    style={{
-                      border: "1px solid #e5e7eb",
-                      borderRadius: 12,
-                      padding: 12,
-                      display: "grid",
-                      gridTemplateColumns: "minmax(200px, 1fr) minmax(260px, 1.4fr) auto auto auto",
-                      gap: 10,
-                      alignItems: "end",
-                      background: group.active ? "#fff" : "#f8fafc",
-                    }}
-                  >
-                    <label style={{ display: "grid", gap: 6 }}>
-                      <span>Name</span>
-                      <input
-                        value={groupDrafts[group.id]?.name || ""}
-                        onChange={(e) =>
-                          setGroupDrafts((prev) => ({
-                            ...prev,
-                            [group.id]: {
-                              ...(prev[group.id] || { name: "", description: "" }),
-                              name: e.target.value,
-                            },
-                          }))
-                        }
-                        style={{ padding: 10 }}
-                      />
-                    </label>
-
-                    <label style={{ display: "grid", gap: 6 }}>
-                      <span>Description</span>
-                      <input
-                        value={groupDrafts[group.id]?.description || ""}
-                        onChange={(e) =>
-                          setGroupDrafts((prev) => ({
-                            ...prev,
-                            [group.id]: {
-                              ...(prev[group.id] || { name: "", description: "" }),
-                              description: e.target.value,
-                            },
-                          }))
-                        }
-                        style={{ padding: 10 }}
-                      />
-                    </label>
-
-                    <button onClick={() => handleSaveGroup(group.id)} disabled={savingGroupId === group.id}>
-                      {savingGroupId === group.id ? "Saving..." : "Save"}
-                    </button>
-
-                    <button onClick={() => handleToggleGroupActive(group)} disabled={savingGroupId === group.id}>
-                      {group.active ? "Deactivate" : "Activate"}
-                    </button>
-
-                    <button
-                      onClick={() => handleDeleteGroup(group)}
-                      disabled={savingGroupId === group.id}
-                      style={{ color: "#8a1c1c" }}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
         ) : null}
 
         <div
@@ -1355,7 +1146,9 @@ export default function CalendarPage() {
 
                       <div style={{ fontSize: isDenseLayout ? 13 : 14, marginTop: 6 }}>
                         {event.practicePlanStyle || "Mixed"} ·{" "}
-                        {formatDurationLabel(event.totalSeconds || event.totalMinutes * 60 || 0)}
+                        {formatDurationLabel(
+                          event.totalSeconds || (event.totalMinutes || 0) * 60 || 0
+                        )}
                       </div>
 
                       <div style={{ fontSize: 12, color: "#666", marginTop: 6 }}>
@@ -1394,18 +1187,98 @@ export default function CalendarPage() {
 
         {isCoach ? (
           <section style={{ marginTop: 28 }}>
-            <h2 style={{ marginBottom: 8 }}>Coach Weekly Review</h2>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 16,
+                flexWrap: "wrap",
+                alignItems: "end",
+                marginBottom: 18,
+              }}
+            >
+              <div>
+                <h2 style={{ marginBottom: 8 }}>Coach Weekly Review</h2>
+                <p style={{ color: "#666", marginTop: 0, marginBottom: 4 }}>
+                  Week of {formatPrettyDate(weekDates[0])} - {formatPrettyDate(weekDates[6])}
+                </p>
+                <p style={{ color: "#666", marginTop: 0, marginBottom: 0 }}>
+                  Review team-wide work, active training groups, and post-practice notes without leaving the schedule.
+                </p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: 12,
+                marginBottom: 18,
+              }}
+            >
+              <div
+                style={{
+                  borderRadius: 14,
+                  border: "1px solid #dbe5f0",
+                  background: "#f8fbff",
+                  padding: 16,
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 800, color: "#0f3d68", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+                  Active groups
+                </div>
+                <div style={{ fontSize: 28, fontWeight: 800 }}>{activeTrainingGroups.length}</div>
+                <div style={{ color: "#667085", fontSize: 14, marginTop: 4 }}>
+                  Available for scheduling, review, and roster assignments
+                </div>
+              </div>
+
+              <div
+                style={{
+                  borderRadius: 14,
+                  border: "1px solid #e7e2ff",
+                  background: "#fbf9ff",
+                  padding: 16,
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 800, color: "#5b3cc4", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+                  Scheduled this week
+                </div>
+                <div style={{ fontSize: 28, fontWeight: 800 }}>{events.length}</div>
+                <div style={{ color: "#667085", fontSize: 14, marginTop: 4 }}>
+                  Total practices on the board across team, groups, and custom work
+                </div>
+              </div>
+
+              <div
+                style={{
+                  borderRadius: 14,
+                  border: "1px solid #dcefe2",
+                  background: "#f7fcf8",
+                  padding: 16,
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 800, color: "#166534", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+                  Completed this week
+                </div>
+                <div style={{ fontSize: 28, fontWeight: 800 }}>{completedPractices.length}</div>
+                <div style={{ color: "#667085", fontSize: 14, marginTop: 4 }}>
+                  Logged practice sessions feeding coach notes and completion trends
+                </div>
+              </div>
+            </div>
+
             <p style={{ color: "#666", marginTop: 0, marginBottom: 18 }}>
-              Review live group names, scheduled work, and post-practice notes for the selected week.
+              Group names and roster setup now live on the Wrestlers page. Calendar stays focused on scheduling and review.
             </p>
 
             <div style={{ display: "grid", gap: 14 }}>
-              {weeklyReviewBlocks.length === 0 ? (
+              {weeklyReviewCards.length === 0 ? (
                 <div
                   style={{
-                    border: "1px solid #ddd",
-                    borderRadius: 12,
-                    padding: 16,
+                    border: "1px solid #dbe5f0",
+                    borderRadius: 16,
+                    padding: 18,
                     background: "#fff",
                     color: "#666",
                   }}
@@ -1413,17 +1286,38 @@ export default function CalendarPage() {
                   No team-wide or group-assigned practices landed in this week yet.
                 </div>
               ) : (
-                weeklyReviewBlocks.map((block) => {
-                  const noteSessions = block.completed.filter((session) => session.notes?.trim());
+                weeklyReviewCards.map((block) => {
+                  const toneStyles =
+                    block.tone === "team"
+                      ? {
+                          border: "#dbe5f0",
+                          background: "linear-gradient(180deg, #f8fbff 0%, #ffffff 100%)",
+                          badgeBackground: "#0f3d68",
+                          badgeText: "#ffffff",
+                        }
+                      : block.tone === "custom"
+                        ? {
+                            border: "#f3dfc2",
+                            background: "linear-gradient(180deg, #fffaf2 0%, #ffffff 100%)",
+                            badgeBackground: "#8a4b00",
+                            badgeText: "#ffffff",
+                          }
+                        : {
+                            border: "#eadff7",
+                            background: "linear-gradient(180deg, #fcf9ff 0%, #ffffff 100%)",
+                            badgeBackground: "#5b3cc4",
+                            badgeText: "#ffffff",
+                          };
 
                   return (
                     <section
                       key={block.key}
                       style={{
-                        border: "1px solid #ddd",
-                        borderRadius: 12,
-                        padding: 16,
-                        background: "#fff",
+                        border: `1px solid ${toneStyles.border}`,
+                        borderRadius: 18,
+                        padding: 18,
+                        background: toneStyles.background,
+                        boxShadow: "0 10px 30px rgba(15, 23, 42, 0.04)",
                       }}
                     >
                       <div
@@ -1432,94 +1326,274 @@ export default function CalendarPage() {
                           justifyContent: "space-between",
                           gap: 12,
                           flexWrap: "wrap",
-                          marginBottom: 12,
+                          marginBottom: 14,
                         }}
                       >
                         <div>
-                          <h3 style={{ marginTop: 0, marginBottom: 6 }}>{block.title}</h3>
-                          <div style={{ color: "#666", fontSize: 14 }}>
-                            {block.completed.length} completed · {block.scheduled.length} upcoming
+                          <div
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              padding: "4px 10px",
+                              borderRadius: 999,
+                              background: toneStyles.badgeBackground,
+                              color: toneStyles.badgeText,
+                              fontSize: 11,
+                              fontWeight: 800,
+                              letterSpacing: "0.06em",
+                              textTransform: "uppercase",
+                              marginBottom: 10,
+                            }}
+                          >
+                            {block.tone === "team"
+                              ? "Team-wide"
+                              : block.tone === "custom"
+                                ? "Custom Focus"
+                                : "Training Group"}
                           </div>
+                          <h3 style={{ marginTop: 0, marginBottom: 6 }}>{block.title}</h3>
+                          <div style={{ color: "#667085", fontSize: 14 }}>{block.subtitle}</div>
+                        </div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <div
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                              padding: "8px 12px",
+                              borderRadius: 999,
+                              background: "#ffffff",
+                              border: "1px solid rgba(15, 23, 42, 0.08)",
+                              fontSize: 13,
+                              color: "#344054",
+                            }}
+                          >
+                            <strong>{block.completionRate}%</strong> completion
+                          </div>
+
+                          <Link
+                            href={block.rosterHref}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              padding: "8px 12px",
+                              borderRadius: 999,
+                              border: "1px solid rgba(15, 23, 42, 0.08)",
+                              background: "#ffffff",
+                              color: "#0f3d68",
+                              textDecoration: "none",
+                              fontWeight: 600,
+                            }}
+                          >
+                            {block.rosterLabel}
+                          </Link>
                         </div>
                       </div>
 
                       <div
                         style={{
                           display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                          gap: 12,
+                          marginBottom: 16,
+                        }}
+                      >
+                        {[
+                          { label: "Scheduled", value: block.scheduled.length, helper: "Practices on the board" },
+                          { label: "Completed", value: block.completed.length, helper: "Sessions logged this week" },
+                          { label: "Minutes", value: block.totalScheduledMinutes, helper: "Total scheduled training minutes" },
+                        ].map((stat) => (
+                          <div
+                            key={stat.label}
+                            style={{
+                              borderRadius: 14,
+                              padding: 14,
+                              background: "#ffffff",
+                              border: "1px solid rgba(15, 23, 42, 0.08)",
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontSize: 12,
+                                color: "#667085",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.06em",
+                                marginBottom: 8,
+                                fontWeight: 800,
+                              }}
+                            >
+                              {stat.label}
+                            </div>
+                            <div style={{ fontSize: 28, fontWeight: 800, lineHeight: 1 }}>{stat.value}</div>
+                            <div style={{ color: "#667085", fontSize: 13, marginTop: 8 }}>{stat.helper}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
                           gap: 12,
                           marginBottom: 14,
                         }}
                       >
                         <div
                           style={{
-                            borderRadius: 10,
-                            padding: 12,
-                            background: "#f8fafc",
-                            border: "1px solid #e5e7eb",
+                            borderRadius: 14,
+                            padding: 14,
+                            background: "#ffffff",
+                            border: "1px solid rgba(15, 23, 42, 0.08)",
                           }}
                         >
-                          <div style={{ fontSize: 12, color: "#666", textTransform: "uppercase", marginBottom: 6 }}>
-                            Upcoming / Scheduled
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "#667085",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.06em",
+                              marginBottom: 8,
+                              fontWeight: 800,
+                            }}
+                          >
+                            Latest note
                           </div>
-                          {block.scheduled.length === 0 ? (
-                            <div style={{ color: "#666", fontSize: 14 }}>Nothing scheduled yet this week.</div>
+                          {block.latestNote ? (
+                            <>
+                              <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                                {block.latestNote.practicePlanTitle || "Completed practice"}
+                              </div>
+                              <div style={{ color: "#667085", fontSize: 13, marginBottom: 8 }}>
+                                {formatCompletedAt(block.latestNote.completedAt || block.latestNote.createdAt)}
+                              </div>
+                              <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                                {block.latestNote.notes}
+                              </div>
+                            </>
                           ) : (
-                            <ul style={{ margin: 0, paddingLeft: 18 }}>
-                              {block.scheduled.map((event) => (
-                                <li key={event.id} style={{ marginBottom: 6 }}>
-                                  {event.date}: {event.practicePlanTitle}
-                                </li>
-                              ))}
-                            </ul>
+                            <div style={{ color: "#667085", fontSize: 14 }}>
+                              No post-practice notes yet. Coaches will see the newest reflection here after a session is marked complete.
+                            </div>
                           )}
+                        </div>
+
+                        <div
+                          style={{
+                            borderRadius: 14,
+                            padding: 14,
+                            background: "#ffffff",
+                            border: "1px solid rgba(15, 23, 42, 0.08)",
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "#667085",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.06em",
+                              marginBottom: 8,
+                              fontWeight: 800,
+                            }}
+                          >
+                            Week snapshot
+                          </div>
+                          <div style={{ display: "grid", gap: 6, color: "#344054", fontSize: 14 }}>
+                            <div>{block.scheduled.length} scheduled practices queued for this review lane.</div>
+                            <div>{block.completed.length} completed sessions feeding weekly notes.</div>
+                            <div>
+                              {block.completionRate === 100 && block.scheduled.length > 0
+                                ? "All scheduled work is completed."
+                                : block.scheduled.length === 0
+                                  ? "No upcoming practices in this lane right now."
+                                  : `${Math.max(0, block.scheduled.length - block.completed.length)} scheduled practices still need completion notes.`}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          borderRadius: 14,
+                          padding: 14,
+                          background: "#fffdf5",
+                          border: "1px solid #f3e8a8",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: 12,
+                            flexWrap: "wrap",
+                            alignItems: "center",
+                            marginBottom: 10,
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "#8a6d00",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.06em",
+                              fontWeight: 800,
+                            }}
+                          >
+                            All post-practice notes
+                          </div>
+                          <div style={{ color: "#8a6d00", fontSize: 13 }}>
+                            {block.noteSessions.length} note{block.noteSessions.length === 1 ? "" : "s"} this week
+                          </div>
                         </div>
 
                         <div
                           style={{
                             borderRadius: 10,
                             padding: 12,
-                            background: "#f8fafc",
-                            border: "1px solid #e5e7eb",
+                            background: "#ffffff",
+                            border: "1px solid #f0e3a8",
+                            marginBottom: 12,
                           }}
                         >
-                          <div style={{ fontSize: 12, color: "#666", textTransform: "uppercase", marginBottom: 6 }}>
-                            Completed This Week
+                          <div style={{ fontSize: 12, color: "#8a6d00", textTransform: "uppercase", marginBottom: 6, fontWeight: 800, letterSpacing: "0.06em" }}>
+                            Scheduled lineup
                           </div>
-                          {block.completed.length === 0 ? (
-                            <div style={{ color: "#666", fontSize: 14 }}>No completed practices recorded yet.</div>
+                          {block.scheduled.length === 0 ? (
+                            <div style={{ color: "#666", fontSize: 14 }}>Nothing scheduled yet this week.</div>
                           ) : (
-                            <ul style={{ margin: 0, paddingLeft: 18 }}>
-                              {block.completed.map((session) => (
-                                <li key={session.id} style={{ marginBottom: 6 }}>
-                                  {session.practicePlanTitle || "Completed practice"} ·{" "}
-                                  {formatCompletedAt(session.completedAt || session.createdAt)}
-                                </li>
+                            <div style={{ display: "grid", gap: 8 }}>
+                              {block.scheduled.map((event) => (
+                                <div
+                                  key={event.id}
+                                  style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    gap: 12,
+                                    flexWrap: "wrap",
+                                    fontSize: 14,
+                                  }}
+                                >
+                                  <span>
+                                    <strong>{event.practicePlanTitle}</strong> · {event.date}
+                                  </span>
+                                  <span style={{ color: "#667085" }}>
+                                    {formatDurationLabel(
+                                      event.totalSeconds || (event.totalMinutes || 0) * 60 || 0
+                                    )}
+                                  </span>
+                                </div>
                               ))}
-                            </ul>
+                            </div>
                           )}
                         </div>
-                      </div>
 
-                      <div
-                        style={{
-                          borderRadius: 10,
-                          padding: 12,
-                          background: "#fffdf5",
-                          border: "1px solid #f3e8a8",
-                        }}
-                      >
-                        <div style={{ fontSize: 12, color: "#8a6d00", textTransform: "uppercase", marginBottom: 8 }}>
-                          Post-practice notes
-                        </div>
-
-                        {noteSessions.length === 0 ? (
+                        {block.noteSessions.length === 0 ? (
                           <div style={{ color: "#666", fontSize: 14 }}>
-                            No post-practice notes for this group yet. When coaches mark practices complete, their notes will land here automatically.
+                            No post-practice notes for this review lane yet. When coaches mark practices complete, their notes will land here automatically.
                           </div>
                         ) : (
                           <div style={{ display: "grid", gap: 10 }}>
-                            {noteSessions.map((session) => (
+                            {block.noteSessions.map((session) => (
                               <div
                                 key={session.id}
                                 style={{

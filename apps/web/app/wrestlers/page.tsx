@@ -1,11 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore";
 import { db } from "@wrestlewell/firebase/client";
 import {
   WRESTLING_STYLES,
+  createTrainingGroup,
   createWrestlerMatch,
   createWrestler,
+  deleteTrainingGroup,
   deleteWrestlerMatch,
   deleteWrestler,
   emptyMatSideSummary,
@@ -15,6 +23,7 @@ import {
   listWrestlerMatches,
   listWrestlers,
   removeMatSideSummary,
+  updateTrainingGroup,
   updateWrestler,
   upsertMatSideSummary,
   type MatSideSummaryInput,
@@ -31,6 +40,7 @@ import type {
   WrestlerProfile,
   WrestlingStyle,
 } from "@wrestlewell/types/index";
+import { COLLECTIONS } from "@wrestlewell/types/index";
 import { RequireAuth } from "../require-auth";
 import { useAuthState } from "../auth-provider";
 import { StatusBanner, type StatusMessage } from "../status-banner";
@@ -92,6 +102,11 @@ type MatchFormState = {
   score: string;
   method: string;
   notes: string;
+};
+
+type TrainingGroupDraft = {
+  name: string;
+  description: string;
 };
 
 function createEmptyStyleForm(): StyleFormState {
@@ -454,6 +469,11 @@ export default function WrestlersPage() {
   const { appUser, currentTeam, firebaseUser } = useAuthState();
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
   const [trainingGroups, setTrainingGroups] = useState<TrainingGroup[]>([]);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupDescription, setNewGroupDescription] = useState("");
+  const [groupDrafts, setGroupDrafts] = useState<Record<string, TrainingGroupDraft>>({});
+  const [savingGroupId, setSavingGroupId] = useState<string | null>(null);
+  const [creatingGroup, setCreatingGroup] = useState(false);
   const [wrestlerUsers, setWrestlerUsers] = useState<Record<string, AppUser>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -540,20 +560,9 @@ export default function WrestlersPage() {
   }
 
   useEffect(() => {
-    async function loadTrainingGroups() {
-      if (!currentTeam?.id) {
-        setTrainingGroups([]);
-        return;
-      }
-
-      try {
-        setTrainingGroups(await listTrainingGroups(db, currentTeam.id));
-      } catch (error) {
-        console.error("Failed to load training groups:", error);
-      }
-    }
-
-    loadTrainingGroups();
+    refreshTrainingGroupsForTeam().catch((error) => {
+      console.error("Failed to load training groups:", error);
+    });
   }, [currentTeam?.id]);
 
   useEffect(() => {
@@ -615,6 +624,28 @@ export default function WrestlersPage() {
   );
 
   const activeWrestleWellIQ = getWrestleWellIQSummary(activeWrestlerUser);
+  const activeTrainingGroups = useMemo(
+    () => trainingGroups.filter((group) => group.active),
+    [trainingGroups]
+  );
+  const trainingGroupUsage = useMemo(
+    () =>
+      Object.fromEntries(
+        trainingGroups.map((group) => [
+          group.id,
+          {
+            assignedCount: wrestlers.filter(
+              (wrestler) =>
+                wrestler.primaryTrainingGroupId === group.id ||
+                Boolean(wrestler.trainingGroupIds?.includes(group.id))
+            ).length,
+            primaryCount: wrestlers.filter((wrestler) => wrestler.primaryTrainingGroupId === group.id)
+              .length,
+          },
+        ])
+      ) as Record<string, { assignedCount: number; primaryCount: number }>,
+    [trainingGroups, wrestlers]
+  );
 
   const athleteOwnedWrestler = useMemo(
     () =>
@@ -703,6 +734,165 @@ export default function WrestlersPage() {
             : prev.primaryTrainingGroupId,
       };
     });
+  }
+
+  async function refreshTrainingGroupsForTeam() {
+    if (!currentTeam?.id) {
+      setTrainingGroups([]);
+      setGroupDrafts({});
+      return;
+    }
+
+    const groups = await listTrainingGroups(db, currentTeam.id);
+    setTrainingGroups(groups);
+    setGroupDrafts(
+      Object.fromEntries(
+        groups.map((group) => [
+          group.id,
+          {
+            name: group.name,
+            description: group.description || "",
+          },
+        ])
+      )
+    );
+  }
+
+  async function handleCreateGroup() {
+    if (!currentTeam?.id) {
+      setStatusMessage({ tone: "error", text: "You need an active team before creating groups." });
+      return;
+    }
+
+    if (!newGroupName.trim()) {
+      setStatusMessage({ tone: "error", text: "Enter a training group name first." });
+      return;
+    }
+
+    try {
+      setCreatingGroup(true);
+      await createTrainingGroup(db, {
+        teamId: currentTeam.id,
+        name: newGroupName,
+        description: newGroupDescription,
+        sortOrder: trainingGroups.length,
+        active: true,
+      });
+      setNewGroupName("");
+      setNewGroupDescription("");
+      await refreshTrainingGroupsForTeam();
+      setStatusMessage({ tone: "success", text: "Training group created." });
+    } catch (error) {
+      console.error("Failed to create training group:", error);
+      setStatusMessage({ tone: "error", text: "Failed to create training group." });
+    } finally {
+      setCreatingGroup(false);
+    }
+  }
+
+  async function handleSaveGroup(groupId: string) {
+    const draft = groupDrafts[groupId];
+    if (!draft?.name.trim()) {
+      setStatusMessage({ tone: "error", text: "Training group name cannot be empty." });
+      return;
+    }
+
+    try {
+      setSavingGroupId(groupId);
+      await updateTrainingGroup(db, groupId, {
+        name: draft.name,
+        description: draft.description,
+      });
+      await refreshTrainingGroupsForTeam();
+      setStatusMessage({ tone: "success", text: "Training group updated." });
+    } catch (error) {
+      console.error("Failed to update training group:", error);
+      setStatusMessage({ tone: "error", text: "Failed to update training group." });
+    } finally {
+      setSavingGroupId(null);
+    }
+  }
+
+  async function handleToggleGroupActive(group: TrainingGroup) {
+    try {
+      setSavingGroupId(group.id);
+      await updateTrainingGroup(db, group.id, { active: !group.active });
+      await refreshTrainingGroupsForTeam();
+      setStatusMessage({
+        tone: "success",
+        text: `${group.name} ${group.active ? "deactivated" : "activated"}.`,
+      });
+    } catch (error) {
+      console.error("Failed to update training group status:", error);
+      setStatusMessage({ tone: "error", text: "Failed to update training group." });
+    } finally {
+      setSavingGroupId(null);
+    }
+  }
+
+  async function handleDeleteGroup(group: TrainingGroup) {
+    if (!currentTeam?.id) {
+      return;
+    }
+
+    if (!window.confirm(`Delete ${group.name}?`)) {
+      return;
+    }
+
+    try {
+      setSavingGroupId(group.id);
+
+      const [planRefs, eventRefs, sessionRefs] = await Promise.all([
+        getDocs(
+          query(
+            collection(db, COLLECTIONS.PRACTICE_PLANS),
+            where("teamId", "==", currentTeam.id),
+            where("groupId", "==", group.id)
+          )
+        ),
+        getDocs(
+          query(
+            collection(db, COLLECTIONS.CALENDAR_EVENTS),
+            where("teamId", "==", currentTeam.id),
+            where("groupId", "==", group.id)
+          )
+        ),
+        getDocs(
+          query(
+            collection(db, COLLECTIONS.PRACTICE_SESSIONS),
+            where("teamId", "==", currentTeam.id),
+            where("groupId", "==", group.id)
+          )
+        ),
+      ]);
+
+      const isReferenced =
+        wrestlers.some(
+          (wrestler) =>
+            wrestler.primaryTrainingGroupId === group.id ||
+            Boolean(wrestler.trainingGroupIds?.includes(group.id))
+        ) ||
+        !planRefs.empty ||
+        !eventRefs.empty ||
+        !sessionRefs.empty;
+
+      if (isReferenced) {
+        setStatusMessage({
+          tone: "info",
+          text: "This group is still linked to wrestlers or practice work. Rename or deactivate it instead.",
+        });
+        return;
+      }
+
+      await deleteTrainingGroup(db, group.id);
+      await refreshTrainingGroupsForTeam();
+      setStatusMessage({ tone: "success", text: "Training group deleted." });
+    } catch (error) {
+      console.error("Failed to delete training group:", error);
+      setStatusMessage({ tone: "error", text: "Failed to delete training group." });
+    } finally {
+      setSavingGroupId(null);
+    }
   }
 
   function resetMatchForm() {
@@ -1026,6 +1216,212 @@ export default function WrestlersPage() {
           )}
         </div>
 
+        {isCoach ? (
+          <section
+            style={{
+              marginBottom: 20,
+              border: "1px solid #ddd",
+              borderRadius: 16,
+              padding: 18,
+              background: "#fff",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div>
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    padding: "4px 10px",
+                    borderRadius: 999,
+                    background: "#eef2ff",
+                    color: "#312e81",
+                    fontSize: 12,
+                    fontWeight: 800,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    marginBottom: 8,
+                  }}
+                >
+                  Training Groups
+                </div>
+                <h2 style={{ marginTop: 0, marginBottom: 6 }}>Training Groups</h2>
+                <p style={{ marginTop: 0, color: "#666", fontSize: 14, maxWidth: 760 }}>
+                  Create the custom groups your room actually uses, then assign wrestlers to them in
+                  their profile. Calendar can schedule team-wide, by group, or by custom wrestlers.
+                </p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(220px, 1fr) minmax(260px, 1.4fr) auto",
+                gap: 10,
+                alignItems: "end",
+                marginBottom: 16,
+              }}
+            >
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Group name</span>
+                <input
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                  placeholder="Red Group"
+                  style={{ padding: 10 }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Description</span>
+                <input
+                  value={newGroupDescription}
+                  onChange={(e) => setNewGroupDescription(e.target.value)}
+                  placeholder="Optional coach notes about this room or level"
+                  style={{ padding: 10 }}
+                />
+              </label>
+
+              <button onClick={handleCreateGroup} disabled={creatingGroup} style={{ padding: "10px 14px" }}>
+                {creatingGroup ? "Creating..." : "Create Group"}
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gap: 12 }}>
+              {trainingGroups.length === 0 ? (
+                <div style={{ fontSize: 14, color: "#666" }}>
+                  No groups created yet. Add your first custom group above and it will be available
+                  immediately in wrestler profiles and calendar assignments.
+                </div>
+              ) : (
+                trainingGroups.map((group) => {
+                  const usage = trainingGroupUsage[group.id] || {
+                    assignedCount: 0,
+                    primaryCount: 0,
+                  };
+
+                  return (
+                    <div
+                      key={group.id}
+                      style={{
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 14,
+                        padding: 14,
+                        background: group.active ? "#fff" : "#f8fafc",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "minmax(220px, 1fr) minmax(260px, 1.3fr) auto auto auto",
+                          gap: 10,
+                          alignItems: "end",
+                        }}
+                      >
+                        <label style={{ display: "grid", gap: 6 }}>
+                          <span>Name</span>
+                          <input
+                            value={groupDrafts[group.id]?.name || ""}
+                            onChange={(e) =>
+                              setGroupDrafts((prev) => ({
+                                ...prev,
+                                [group.id]: {
+                                  ...(prev[group.id] || { name: "", description: "" }),
+                                  name: e.target.value,
+                                },
+                              }))
+                            }
+                            style={{ padding: 10 }}
+                          />
+                        </label>
+
+                        <label style={{ display: "grid", gap: 6 }}>
+                          <span>Description</span>
+                          <input
+                            value={groupDrafts[group.id]?.description || ""}
+                            onChange={(e) =>
+                              setGroupDrafts((prev) => ({
+                                ...prev,
+                                [group.id]: {
+                                  ...(prev[group.id] || { name: "", description: "" }),
+                                  description: e.target.value,
+                                },
+                              }))
+                            }
+                            style={{ padding: 10 }}
+                          />
+                        </label>
+
+                        <button onClick={() => handleSaveGroup(group.id)} disabled={savingGroupId === group.id}>
+                          {savingGroupId === group.id ? "Saving..." : "Save"}
+                        </button>
+
+                        <button
+                          onClick={() => handleToggleGroupActive(group)}
+                          disabled={savingGroupId === group.id}
+                        >
+                          {group.active ? "Deactivate" : "Activate"}
+                        </button>
+
+                        <button
+                          onClick={() => handleDeleteGroup(group)}
+                          disabled={savingGroupId === group.id}
+                          style={{ color: "#8a1c1c" }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 10,
+                          flexWrap: "wrap",
+                          marginTop: 12,
+                        }}
+                      >
+                        {[
+                          {
+                            label: group.active ? "Active" : "Inactive",
+                            bg: group.active ? "#ecfdf3" : "#f3f4f6",
+                            color: group.active ? "#166534" : "#4b5563",
+                          },
+                          {
+                            label: `${usage.assignedCount} assigned`,
+                            bg: "#eef2ff",
+                            color: "#312e81",
+                          },
+                          {
+                            label: `${usage.primaryCount} primary`,
+                            bg: "#fff7ed",
+                            color: "#9a3412",
+                          },
+                        ].map((badge) => (
+                          <span
+                            key={badge.label}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              padding: "5px 10px",
+                              borderRadius: 999,
+                              background: badge.bg,
+                              color: badge.color,
+                              fontSize: 12,
+                              fontWeight: 700,
+                            }}
+                          >
+                            {badge.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
+        ) : null}
+
         {activeWrestler ? (
           <section
             style={{
@@ -1304,7 +1700,7 @@ export default function WrestlersPage() {
 
                   {trainingGroups.length === 0 ? (
                     <div style={{ fontSize: 14, color: "#666" }}>
-                      No training groups created yet. Coaches can add them from the Calendar page.
+                      No training groups created yet. Coaches can add them from the Training Groups section above.
                     </div>
                   ) : (
                     <>
