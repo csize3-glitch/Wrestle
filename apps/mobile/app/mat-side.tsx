@@ -1,7 +1,15 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import {
+  Alert,
+  Modal,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { collection, doc, getDocs, query, setDoc, where } from "firebase/firestore";
 import { db } from "@wrestlewell/firebase/client";
 import {
   getAppUser,
@@ -13,6 +21,7 @@ import {
   COLLECTIONS,
   type AppUser,
   type MatSideSummary,
+  type StyleMatSideSection,
   type VarkStyle,
   type WrestlerMatch,
   type WrestlerProfile,
@@ -21,10 +30,71 @@ import {
 import { useMobileAuthState } from "../components/auth-provider";
 import { MobileScreenShell } from "../components/mobile-screen-shell";
 
+const STYLE_OPTIONS: WrestlingStyle[] = ["Folkstyle", "Freestyle", "Greco-Roman"];
+
 type StyleRecord = {
   wins: number;
   losses: number;
 };
+
+type MatSideEditForm = {
+  quickReminders: string;
+  warmupChecklist: string;
+  strengths: string;
+  weaknesses: string;
+  gamePlan: string;
+  recentNotes: string;
+  styleQuickReminders: string;
+  styleFocusPoints: string;
+  styleGamePlan: string;
+  styleRecentNotes: string;
+};
+
+function listToText(items?: string[]) {
+  return (items || []).join("\n");
+}
+
+function textToList(value: string) {
+  return value
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function createEmptyEditForm(): MatSideEditForm {
+  return {
+    quickReminders: "",
+    warmupChecklist: "",
+    strengths: "",
+    weaknesses: "",
+    gamePlan: "",
+    recentNotes: "",
+    styleQuickReminders: "",
+    styleFocusPoints: "",
+    styleGamePlan: "",
+    styleRecentNotes: "",
+  };
+}
+
+function createEditFormFromSummary(
+  summary: ReturnType<typeof mergeMatSideSummaryWithProfile> | null,
+  activeStyle: WrestlingStyle
+): MatSideEditForm {
+  const stylePlan = summary?.stylePlans?.[activeStyle];
+
+  return {
+    quickReminders: listToText(summary?.quickReminders),
+    warmupChecklist: listToText(summary?.warmupChecklist),
+    strengths: listToText(summary?.strengths),
+    weaknesses: listToText(summary?.weaknesses),
+    gamePlan: listToText(summary?.gamePlan),
+    recentNotes: listToText(summary?.recentNotes),
+    styleQuickReminders: listToText(stylePlan?.quickReminders),
+    styleFocusPoints: listToText(stylePlan?.focusPoints),
+    styleGamePlan: listToText(stylePlan?.gamePlan),
+    styleRecentNotes: listToText(stylePlan?.recentNotes),
+  };
+}
 
 function getVarkStyleLabel(style?: VarkStyle | "") {
   switch (style) {
@@ -404,6 +474,73 @@ function SummarySection({ title, items }: { title: string; items: string[] }) {
   );
 }
 
+function EditField({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <View style={{ gap: 6 }}>
+      <Text style={{ color: "#ffffff", fontWeight: "900" }}>{label}</Text>
+
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder || "One item per line"}
+        placeholderTextColor="#7c8da3"
+        multiline
+        textAlignVertical="top"
+        style={{
+          minHeight: 104,
+          borderWidth: 1,
+          borderColor: "#315c86",
+          borderRadius: 16,
+          paddingHorizontal: 13,
+          paddingVertical: 12,
+          backgroundColor: "#102f52",
+          color: "#ffffff",
+        }}
+      />
+    </View>
+  );
+}
+
+function ActionPill({
+  label,
+  active,
+  onPress,
+  disabled,
+}: {
+  label: string;
+  active?: boolean;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={({ pressed }) => ({
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: active ? "#bf1029" : "#315c86",
+        backgroundColor: active ? "#bf1029" : pressed ? "#173b67" : "#102f52",
+        opacity: disabled ? 0.45 : 1,
+      })}
+    >
+      <Text style={{ color: "#ffffff", fontWeight: "900" }}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export default function MatSideScreen() {
   const { firebaseUser, appUser, currentTeam, loading: authLoading } =
     useMobileAuthState();
@@ -418,6 +555,10 @@ export default function MatSideScreen() {
   const [activeStyle, setActiveStyle] = useState<WrestlingStyle>("Folkstyle");
   const [summary, setSummary] = useState<MatSideSummary | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
+
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editForm, setEditForm] = useState<MatSideEditForm>(createEmptyEditForm);
+  const [savingSummary, setSavingSummary] = useState(false);
 
   const isCoach = appUser?.role === "coach";
 
@@ -482,6 +623,39 @@ export default function MatSideScreen() {
     });
   }
 
+  async function refreshSummary(wrestlerId = selectedId) {
+    if (!wrestlerId) {
+      setSummary(null);
+      return;
+    }
+
+    try {
+      setLoadingSummary(true);
+      setSummary(await getMatSideSummary(db, wrestlerId));
+    } catch (error) {
+      console.error("Failed to load mat-side summary:", error);
+    } finally {
+      setLoadingSummary(false);
+    }
+  }
+
+  async function refreshMatchHistory(wrestlerId = selectedId) {
+    if (!currentTeam?.id || !wrestlerId) {
+      setWrestlerMatches([]);
+      return;
+    }
+
+    try {
+      setLoadingMatches(true);
+      setWrestlerMatches(await listWrestlerMatchHistory(currentTeam.id, wrestlerId));
+    } catch (error) {
+      console.error("Failed to load mat-side match history:", error);
+      setWrestlerMatches([]);
+    } finally {
+      setLoadingMatches(false);
+    }
+  }
+
   useEffect(() => {
     async function load() {
       try {
@@ -497,45 +671,12 @@ export default function MatSideScreen() {
   }, [currentTeam?.id, params.wrestlerId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    async function loadSummary() {
-      if (!selectedId) {
-        setSummary(null);
-        return;
-      }
-
-      try {
-        setLoadingSummary(true);
-        setSummary(await getMatSideSummary(db, selectedId));
-      } catch (error) {
-        console.error("Failed to load mat-side summary:", error);
-      } finally {
-        setLoadingSummary(false);
-      }
-    }
-
-    loadSummary();
-  }, [selectedId]);
+    refreshSummary(selectedId);
+  }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    async function loadMatchHistory() {
-      if (!currentTeam?.id || !selectedId) {
-        setWrestlerMatches([]);
-        return;
-      }
-
-      try {
-        setLoadingMatches(true);
-        setWrestlerMatches(await listWrestlerMatchHistory(currentTeam.id, selectedId));
-      } catch (error) {
-        console.error("Failed to load mat-side match history:", error);
-        setWrestlerMatches([]);
-      } finally {
-        setLoadingMatches(false);
-      }
-    }
-
-    loadMatchHistory();
-  }, [currentTeam?.id, selectedId]);
+    refreshMatchHistory(selectedId);
+  }, [currentTeam?.id, selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedWrestler = useMemo(
     () =>
@@ -573,6 +714,61 @@ export default function MatSideScreen() {
 
   const activeStylePlan = resolvedSummary?.stylePlans?.[activeStyle] || null;
 
+  function openEditMatSide() {
+    if (!isCoach || !selectedWrestler || !resolvedSummary) return;
+
+    setEditForm(createEditFormFromSummary(resolvedSummary, activeStyle));
+    setEditModalVisible(true);
+  }
+
+  function updateEditField<K extends keyof MatSideEditForm>(field: K, value: MatSideEditForm[K]) {
+    setEditForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function saveMatSideSummary() {
+    if (!isCoach || !selectedWrestler) return;
+
+    try {
+      setSavingSummary(true);
+
+      const existingStylePlans = summary?.stylePlans || {};
+      const nextStylePlan: StyleMatSideSection = {
+        quickReminders: textToList(editForm.styleQuickReminders),
+        focusPoints: textToList(editForm.styleFocusPoints),
+        gamePlan: textToList(editForm.styleGamePlan),
+        recentNotes: textToList(editForm.styleRecentNotes),
+      };
+
+      const nextSummary: MatSideSummary = {
+        wrestlerId: selectedWrestler.id,
+        quickReminders: textToList(editForm.quickReminders),
+        warmupChecklist: textToList(editForm.warmupChecklist),
+        strengths: textToList(editForm.strengths),
+        weaknesses: textToList(editForm.weaknesses),
+        gamePlan: textToList(editForm.gamePlan),
+        recentNotes: textToList(editForm.recentNotes),
+        stylePlans: {
+          ...existingStylePlans,
+          [activeStyle]: nextStylePlan,
+        },
+        updatedAt: new Date().toISOString(),
+      };
+
+      await setDoc(doc(db, COLLECTIONS.MAT_SIDE_SUMMARIES, selectedWrestler.id), nextSummary, {
+        merge: true,
+      });
+
+      setSummary(nextSummary);
+      setEditModalVisible(false);
+      Alert.alert("Mat-Side saved", "These notes will now appear in Match-Day.");
+    } catch (error) {
+      console.error("Failed to save mat-side summary:", error);
+      Alert.alert("Save failed", "There was a problem saving these mat-side notes.");
+    } finally {
+      setSavingSummary(false);
+    }
+  }
+
   return (
     <MobileScreenShell
       title="Mat-Side"
@@ -582,6 +778,128 @@ export default function MatSideScreen() {
           : "Your match-prep view for reminders, warm-up, strengths, weaknesses, history, and game plan."
       }
     >
+      <Modal
+        visible={editModalVisible}
+        animationType="slide"
+        onRequestClose={() => setEditModalVisible(false)}
+      >
+        <ScrollView
+          style={{ flex: 1, backgroundColor: "#061a33" }}
+          contentContainerStyle={{ padding: 18, gap: 14 }}
+        >
+          <Text style={{ color: "#ffffff", fontSize: 28, fontWeight: "900" }}>
+            Edit Mat-Side
+          </Text>
+
+          {selectedWrestler ? (
+            <Text style={{ color: "#b7c9df", fontSize: 15, lineHeight: 22 }}>
+              {selectedWrestler.firstName} {selectedWrestler.lastName} • Active style: {activeStyle}
+            </Text>
+          ) : null}
+
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: "#315c86",
+              borderRadius: 18,
+              padding: 13,
+              backgroundColor: "#102f52",
+            }}
+          >
+            <Text style={{ color: "#ffffff", fontSize: 16, fontWeight: "900" }}>
+              Coach note format
+            </Text>
+
+            <Text style={{ color: "#b7c9df", fontSize: 14, lineHeight: 20, marginTop: 6 }}>
+              Put one item per line. These notes save to the wrestler’s mat-side summary and show in Match-Day.
+            </Text>
+          </View>
+
+          <Text style={{ color: "#ffffff", fontSize: 20, fontWeight: "900" }}>
+            General Mat-Side Notes
+          </Text>
+
+          <EditField
+            label="Quick Reminders"
+            value={editForm.quickReminders}
+            onChangeText={(value) => updateEditField("quickReminders", value)}
+          />
+
+          <EditField
+            label="Warm-up Checklist"
+            value={editForm.warmupChecklist}
+            onChangeText={(value) => updateEditField("warmupChecklist", value)}
+          />
+
+          <EditField
+            label="Strengths"
+            value={editForm.strengths}
+            onChangeText={(value) => updateEditField("strengths", value)}
+          />
+
+          <EditField
+            label="Weaknesses"
+            value={editForm.weaknesses}
+            onChangeText={(value) => updateEditField("weaknesses", value)}
+          />
+
+          <EditField
+            label="Game Plan"
+            value={editForm.gamePlan}
+            onChangeText={(value) => updateEditField("gamePlan", value)}
+          />
+
+          <EditField
+            label="Recent Notes"
+            value={editForm.recentNotes}
+            onChangeText={(value) => updateEditField("recentNotes", value)}
+          />
+
+          <Text style={{ color: "#ffffff", fontSize: 20, fontWeight: "900", marginTop: 8 }}>
+            {activeStyle} Style-Specific Notes
+          </Text>
+
+          <EditField
+            label={`${activeStyle} Quick Reminders`}
+            value={editForm.styleQuickReminders}
+            onChangeText={(value) => updateEditField("styleQuickReminders", value)}
+          />
+
+          <EditField
+            label={`${activeStyle} Focus Points`}
+            value={editForm.styleFocusPoints}
+            onChangeText={(value) => updateEditField("styleFocusPoints", value)}
+          />
+
+          <EditField
+            label={`${activeStyle} Game Plan`}
+            value={editForm.styleGamePlan}
+            onChangeText={(value) => updateEditField("styleGamePlan", value)}
+          />
+
+          <EditField
+            label={`${activeStyle} Recent Notes`}
+            value={editForm.styleRecentNotes}
+            onChangeText={(value) => updateEditField("styleRecentNotes", value)}
+          />
+
+          <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+            <ActionPill
+              label={savingSummary ? "Saving..." : "Save Mat-Side"}
+              active
+              onPress={saveMatSideSummary}
+              disabled={savingSummary}
+            />
+
+            <ActionPill
+              label="Cancel"
+              onPress={() => setEditModalVisible(false)}
+              disabled={savingSummary}
+            />
+          </View>
+        </ScrollView>
+      </Modal>
+
       {!authLoading && (!firebaseUser || !appUser) ? (
         <View
           style={{
@@ -823,6 +1141,24 @@ export default function MatSideScreen() {
                     </Pressable>
                   ))}
                 </View>
+              ) : null}
+
+              {isCoach ? (
+                <Pressable
+                  onPress={openEditMatSide}
+                  style={{
+                    marginTop: 14,
+                    alignSelf: "flex-start",
+                    paddingHorizontal: 16,
+                    paddingVertical: 11,
+                    borderRadius: 999,
+                    backgroundColor: "#bf1029",
+                  }}
+                >
+                  <Text style={{ fontWeight: "900", color: "#ffffff" }}>
+                    Edit Mat-Side
+                  </Text>
+                </Pressable>
               ) : null}
 
               <RecentMatchHistoryCard
