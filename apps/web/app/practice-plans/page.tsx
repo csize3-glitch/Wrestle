@@ -16,8 +16,17 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "@wrestlewell/firebase/client";
-import { listWrestlers } from "@wrestlewell/lib/index";
-import { COLLECTIONS, type LibraryItem, type WrestlerProfile } from "@wrestlewell/types/index";
+import {
+  getPositionOptionsForStyle,
+  inferLibraryPosition,
+  listWrestlers,
+  type LibraryPositionGroup,
+} from "@wrestlewell/lib/index";
+import {
+  COLLECTIONS,
+  type LibraryItem,
+  type WrestlerProfile,
+} from "@wrestlewell/types/index";
 import { RequireAuth } from "../require-auth";
 import { useAuthState } from "../auth-provider";
 import { StatusBanner, type StatusMessage } from "../status-banner";
@@ -281,6 +290,10 @@ function normalizeMatchText(value: string) {
     .trim();
 }
 
+function safeText(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
 function scoreLibraryMatch(blockTitle: string, blockNotes: string, item: LibraryItem) {
   const blockText = normalizeMatchText(`${blockTitle} ${blockNotes}`);
   const itemTitle = normalizeMatchText(item.title || "");
@@ -479,6 +492,9 @@ function PracticePlansPageContent() {
   const [loadingPlans, setLoadingPlans] = useState(true);
   const [search, setSearch] = useState("");
   const [styleFilter, setStyleFilter] = useState("");
+  const [libraryPositionFilter, setLibraryPositionFilter] = useState<LibraryPositionGroup | "">("");
+  const [libraryCategoryFilter, setLibraryCategoryFilter] = useState("");
+  const [libraryChannelFilter, setLibraryChannelFilter] = useState("");
   const [blocks, setBlocks] = useState<PracticeBlock[]>([]);
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
   const [assignedWrestlerIds, setAssignedWrestlerIds] = useState<string[]>([]);
@@ -505,7 +521,10 @@ function PracticePlansPageContent() {
       try {
         const q = query(collection(db, COLLECTIONS.LIBRARY_ITEMS), orderBy("title"));
         const snapshot = await getDocs(q);
-        const rows = snapshot.docs.map((d) => d.data() as LibraryItem);
+        const rows = snapshot.docs.map((itemDoc) => ({
+          id: itemDoc.id,
+          ...(itemDoc.data() as Omit<LibraryItem, "id">),
+        })) as LibraryItem[];
         setLibraryItems(rows);
       } catch (error) {
         console.error("Failed to load library items:", error);
@@ -564,25 +583,73 @@ function PracticePlansPageContent() {
       : null;
 
   const styles = useMemo(() => {
-    return Array.from(new Set(libraryItems.map((item) => item.style))).sort();
+    return Array.from(new Set(libraryItems.map((item) => item.style).filter(Boolean))).sort();
+  }, [libraryItems]);
+
+  const libraryPositionOptions = useMemo(
+    () => getPositionOptionsForStyle(styleFilter as LibraryItem["style"] | ""),
+    [styleFilter]
+  );
+
+  const libraryCategories = useMemo(() => {
+    return Array.from(new Set(libraryItems.map((item) => item.category).filter(Boolean))).sort();
+  }, [libraryItems]);
+
+  const libraryChannels = useMemo(() => {
+    return Array.from(
+      new Set(
+        libraryItems
+          .map((item) => item.channelName)
+          .filter((value): value is string => Boolean(value))
+      )
+    ).sort();
   }, [libraryItems]);
 
   const filteredLibrary = useMemo(() => {
     const needle = search.trim().toLowerCase();
 
     return libraryItems.filter((item) => {
-      const matchesStyle = !styleFilter || item.style === styleFilter;
-      const matchesSearch =
-        !needle ||
-        item.title.toLowerCase().includes(needle) ||
-        item.category.toLowerCase().includes(needle) ||
-        item.subcategory.toLowerCase().includes(needle) ||
-        item.format.toLowerCase().includes(needle) ||
-        item.notes.toLowerCase().includes(needle);
+      const itemPosition = inferLibraryPosition(item);
 
-      return matchesStyle && matchesSearch;
+      const matchesStyle = !styleFilter || item.style === styleFilter;
+      const matchesPosition = !libraryPositionFilter || itemPosition === libraryPositionFilter;
+      const matchesCategory = !libraryCategoryFilter || item.category === libraryCategoryFilter;
+      const matchesChannel = !libraryChannelFilter || item.channelName === libraryChannelFilter;
+
+      const searchableText = [
+        item.title,
+        item.style,
+        item.category,
+        item.subcategory,
+        item.format,
+        item.notes,
+        item.channelName,
+        item.channelUrl,
+        item.videoUrl,
+        ...(Array.isArray(item.tags) ? item.tags : []),
+      ]
+        .map(safeText)
+        .join(" ")
+        .toLowerCase();
+
+      const matchesSearch = !needle || searchableText.includes(needle);
+
+      return (
+        matchesStyle &&
+        matchesPosition &&
+        matchesCategory &&
+        matchesChannel &&
+        matchesSearch
+      );
     });
-  }, [libraryItems, search, styleFilter]);
+  }, [
+    libraryItems,
+    search,
+    styleFilter,
+    libraryPositionFilter,
+    libraryCategoryFilter,
+    libraryChannelFilter,
+  ]);
 
   const totalSeconds = blocks.reduce((sum, block) => sum + block.durationSeconds, 0);
   const totalMinutes = Math.round(totalSeconds / 60);
@@ -602,6 +669,14 @@ function PracticePlansPageContent() {
   const isCoach = appUser?.role === "coach";
   const assignmentSummaryLabel = formatAssignmentSummary(wrestlers, assignedWrestlerIds);
 
+  function clearLibraryFilters() {
+    setStyleFilter("");
+    setLibraryPositionFilter("");
+    setLibraryCategoryFilter("");
+    setLibraryChannelFilter("");
+    setSearch("");
+  }
+
   function addLibraryBlock(item: LibraryItem) {
     setBlocks((prev) => [
       ...prev,
@@ -614,8 +689,8 @@ function PracticePlansPageContent() {
         category: item.category,
         subcategory: item.subcategory,
         format: item.format,
-        durationMinutes: 10,
-        durationSeconds: 600,
+        durationMinutes: item.durationMinutes || 10,
+        durationSeconds: Math.max(60, (item.durationMinutes || 10) * 60),
         videoUrl: item.videoUrl,
         notes: item.notes || "",
       },
@@ -1531,40 +1606,83 @@ function PracticePlansPageContent() {
           >
             <h2 style={{ marginTop: 0 }}>Library</h2>
             <p style={{ marginTop: 0, color: "#666", fontSize: 14 }}>
-              Filter by style, search by keyword, then add blocks directly into the timeline.
+              Filter by style, position, category, channel, or keyword, then add technique videos directly into the timeline.
             </p>
 
-            <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-              <select
-                value={styleFilter}
-                onChange={(e) => setStyleFilter(e.target.value)}
-                style={{ padding: 10, minWidth: 180 }}
-              >
-                <option value="">All Styles</option>
-                {styles.map((style) => (
-                  <option key={style} value={style}>
-                    {style}
-                  </option>
-                ))}
-              </select>
+            <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <select
+                  value={styleFilter}
+                  onChange={(e) => {
+                    setStyleFilter(e.target.value);
+                    setLibraryPositionFilter("");
+                  }}
+                  style={{ padding: 10, minWidth: 160 }}
+                >
+                  <option value="">All Styles</option>
+                  {styles.map((style) => (
+                    <option key={style} value={style}>
+                      {style}
+                    </option>
+                  ))}
+                </select>
 
-              <input
-                type="text"
-                placeholder="Search library..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                style={{ flex: 1, minWidth: 180, padding: 10 }}
-              />
+                <select
+                  value={libraryPositionFilter}
+                  onChange={(e) => setLibraryPositionFilter(e.target.value as LibraryPositionGroup | "")}
+                  style={{ padding: 10, minWidth: 160 }}
+                >
+                  <option value="">All Positions</option>
+                  {libraryPositionOptions.map((position) => (
+                    <option key={position} value={position}>
+                      {position}
+                    </option>
+                  ))}
+                </select>
 
-              <button
-                onClick={() => {
-                  setStyleFilter("");
-                  setSearch("");
-                }}
-                style={{ padding: "10px 14px", cursor: "pointer" }}
-              >
-                Clear Filters
-              </button>
+                <select
+                  value={libraryCategoryFilter}
+                  onChange={(e) => setLibraryCategoryFilter(e.target.value)}
+                  style={{ padding: 10, minWidth: 160 }}
+                >
+                  <option value="">All Categories</option>
+                  {libraryCategories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={libraryChannelFilter}
+                  onChange={(e) => setLibraryChannelFilter(e.target.value)}
+                  style={{ padding: 10, minWidth: 180 }}
+                >
+                  <option value="">All Channels</option>
+                  {libraryChannels.map((channel) => (
+                    <option key={channel} value={channel}>
+                      {channel}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <input
+                  type="text"
+                  placeholder="Search title, channel, category, tags..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  style={{ flex: 1, minWidth: 180, padding: 10 }}
+                />
+
+                <button
+                  onClick={clearLibraryFilters}
+                  style={{ padding: "10px 14px", cursor: "pointer" }}
+                >
+                  Clear Filters
+                </button>
+              </div>
             </div>
 
             <div style={{ fontSize: 14, color: "#666", marginBottom: 12 }}>{libraryCountLabel}</div>
@@ -1578,34 +1696,101 @@ function PracticePlansPageContent() {
                     No library items match the current filters.
                   </p>
                 ) : (
-                  filteredLibrary.map((item) => (
-                    <div
-                      key={item.id}
-                      style={{
-                        border: "1px solid #eee",
-                        borderRadius: 10,
-                        padding: 12,
-                      }}
-                    >
-                      <strong>{item.title}</strong>
+                  filteredLibrary.map((item) => {
+                    const position = inferLibraryPosition(item);
 
-                      <div style={{ fontSize: 14, marginTop: 6 }}>
-                        {item.style} · {item.category} · {item.subcategory} · {item.format}
-                      </div>
-
-                      {item.notes ? (
-                        <p style={{ fontSize: 14, marginTop: 8, marginBottom: 8 }}>{item.notes}</p>
-                      ) : null}
-
-                      <button
-                        onClick={() => addLibraryBlock(item)}
-                        disabled={!isCoach}
-                        style={{ marginTop: 6, padding: "8px 12px", cursor: "pointer" }}
+                    return (
+                      <div
+                        key={item.id || item.videoUrl}
+                        style={{
+                          border: "1px solid #eee",
+                          borderRadius: 10,
+                          padding: 12,
+                        }}
                       >
-                        Add to Practice
-                      </button>
-                    </div>
-                  ))
+                        {item.thumbnailUrl ? (
+                          <a href={item.videoUrl} target="_blank" rel="noreferrer">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={item.thumbnailUrl}
+                              alt={item.title}
+                              style={{
+                                width: "100%",
+                                borderRadius: 8,
+                                border: "1px solid #eee",
+                                marginBottom: 10,
+                              }}
+                            />
+                          </a>
+                        ) : null}
+
+                        <strong>{item.title}</strong>
+
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 6,
+                            flexWrap: "wrap",
+                            marginTop: 8,
+                            marginBottom: 8,
+                          }}
+                        >
+                          {[item.style, position, item.category, item.subcategory, item.channelName]
+                            .filter(Boolean)
+                            .map((label) => (
+                              <span
+                                key={`${item.id}-${label}`}
+                                style={{
+                                  border: "1px solid #d1d5db",
+                                  borderRadius: 999,
+                                  padding: "4px 8px",
+                                  fontSize: 12,
+                                  background: "#f8fafc",
+                                  color: "#334155",
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {label}
+                              </span>
+                            ))}
+                        </div>
+
+                        <div style={{ fontSize: 14, marginTop: 6 }}>
+                          {item.style} · {position} · {item.category} · {item.subcategory} · {item.format}
+                        </div>
+
+                        {item.channelName ? (
+                          <div style={{ fontSize: 13, color: "#666", marginTop: 6 }}>
+                            Channel: {item.channelName}
+                          </div>
+                        ) : null}
+
+                        {item.durationMinutes ? (
+                          <div style={{ fontSize: 13, color: "#666", marginTop: 6 }}>
+                            Duration: about {item.durationMinutes} min
+                          </div>
+                        ) : null}
+
+                        {item.notes ? (
+                          <p style={{ fontSize: 14, marginTop: 8, marginBottom: 8 }}>{item.notes}</p>
+                        ) : null}
+
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8 }}>
+                          <button
+                            onClick={() => addLibraryBlock(item)}
+                            disabled={!isCoach}
+                            style={{ padding: "8px 12px", cursor: isCoach ? "pointer" : "default" }}
+                          >
+                            Add to Practice
+                          </button>
+
+                          <a href={item.videoUrl} target="_blank" rel="noreferrer">
+                            Open video
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             )}
