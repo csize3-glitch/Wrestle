@@ -13,12 +13,13 @@ import {
   listWrestlers,
   type CalendarEventRecord,
 } from "@wrestlewell/lib/index";
-import type {
-  TeamAnnouncement,
-  TeamNotification,
-  Tournament,
-  TournamentEntry,
-  WrestlerProfile,
+import {
+  COLLECTIONS,
+  type TeamAnnouncement,
+  type TeamNotification,
+  type Tournament,
+  type TournamentEntry,
+  type WrestlerProfile,
 } from "@wrestlewell/types/index";
 import { useMobileAuthState } from "../components/auth-provider";
 import {
@@ -221,6 +222,20 @@ function formatDurationLabel(totalSeconds: number) {
 function getPracticeEventSeconds(event?: CalendarEventRecord | null) {
   if (!event) return 0;
   return Math.max(0, event.totalSeconds || (event.totalMinutes || 0) * 60);
+}
+
+async function listCoachCalendarEvents(teamId: string) {
+  const snapshot = await getDocs(
+    query(
+      collection(db, COLLECTIONS.CALENDAR_EVENTS),
+      where("teamId", "==", teamId)
+    )
+  );
+
+  return snapshot.docs.map((eventDoc) => ({
+    id: eventDoc.id,
+    ...(eventDoc.data() as Omit<CalendarEventRecord, "id">),
+  }));
 }
 
 function getFullName(wrestler?: WrestlerProfile | null) {
@@ -470,7 +485,7 @@ export default function IndexScreen() {
           ? dashboardOwnWrestler
             ? listCalendarEvents(db, currentTeam.id, dashboardOwnWrestler)
             : Promise.resolve([])
-          : listCalendarEvents(db, currentTeam.id),
+          : listCoachCalendarEvents(currentTeam.id),
         listTournaments(db, currentTeam.id),
         listTeamAnnouncements(db, currentTeam.id),
         listTeamNotifications(db, currentTeam.id, appUser.role),

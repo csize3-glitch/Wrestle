@@ -1,13 +1,14 @@
 import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@wrestlewell/firebase/client";
 import {
   listCalendarEvents,
   listWrestlers,
   type CalendarEventRecord,
 } from "@wrestlewell/lib/index";
-import type { WrestlerProfile } from "@wrestlewell/types/index";
+import { COLLECTIONS, type WrestlerProfile } from "@wrestlewell/types/index";
 import { useMobileAuthState } from "../components/auth-provider";
 import { MobileScreenShell } from "../components/mobile-screen-shell";
 
@@ -34,6 +35,20 @@ function formatDurationLabel(totalSeconds: number) {
 
 function getEventSeconds(event: CalendarEventRecord) {
   return Math.max(0, event.totalSeconds || (event.totalMinutes || 0) * 60);
+}
+
+async function listCoachCalendarEvents(teamId: string) {
+  const snapshot = await getDocs(
+    query(
+      collection(db, COLLECTIONS.CALENDAR_EVENTS),
+      where("teamId", "==", teamId)
+    )
+  );
+
+  return snapshot.docs.map((eventDoc) => ({
+    id: eventDoc.id,
+    ...(eventDoc.data() as Omit<CalendarEventRecord, "id">),
+  }));
 }
 
 function openPracticePlan(event: CalendarEventRecord) {
@@ -75,17 +90,18 @@ export default function CalendarScreen() {
       return;
     }
 
-    if (appUser?.role === "athlete" && !ownWrestler) {
-      setEvents([]);
+    if (appUser?.role === "athlete") {
+      if (!wrestlersLoaded || !ownWrestler) {
+        setEvents([]);
+        return;
+      }
+
+      const rows = await listCalendarEvents(db, currentTeam.id, ownWrestler);
+      setEvents(rows);
       return;
     }
 
-    const rows = await listCalendarEvents(
-      db,
-      currentTeam.id,
-      appUser?.role === "athlete" ? ownWrestler : undefined
-    );
-
+    const rows = await listCoachCalendarEvents(currentTeam.id);
     setEvents(rows);
   }
 
@@ -138,7 +154,13 @@ export default function CalendarScreen() {
     }
 
     load();
-  }, [appUser, currentTeam?.id, firebaseUser, ownWrestler, wrestlersLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    appUser?.role,
+    currentTeam?.id,
+    firebaseUser?.uid,
+    ownWrestler?.id,
+    wrestlersLoaded,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const upcomingEvents = useMemo(() => {
     const today = new Date();
