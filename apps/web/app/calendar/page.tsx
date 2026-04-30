@@ -180,7 +180,7 @@ function getCompletedPracticeDate(session: CompletedPracticeSessionItem) {
 }
 
 export default function CalendarPage() {
-  const { appUser, currentTeam } = useAuthState();
+  const { firebaseUser, appUser, currentTeam } = useAuthState();
 
   const [savedPlans, setSavedPlans] = useState<SavedPracticePlan[]>([]);
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
@@ -207,7 +207,11 @@ export default function CalendarPage() {
 
   const athleteOwnedWrestler =
     appUser?.role === "athlete"
-      ? wrestlers.find((wrestler) => wrestler.ownerUserId === appUser.id) || null
+      ? wrestlers.find(
+          (wrestler) =>
+            wrestler.ownerUserId === firebaseUser?.uid ||
+            wrestler.ownerUserId === appUser.id
+        ) || null
       : null;
 
   useEffect(() => {
@@ -224,10 +228,12 @@ export default function CalendarPage() {
     viewportWidth <= 640 ? 1 : viewportWidth <= 960 ? 2 : viewportWidth <= 1280 ? 4 : 7;
 
   const isDenseLayout = calendarColumns === 7;
+
   const activeTrainingGroups = useMemo(
     () => trainingGroups.filter((group) => group.active),
     [trainingGroups]
   );
+
   const trainingGroupNameById = useMemo(
     () =>
       Object.fromEntries(trainingGroups.map((group) => [group.id, group.name])) as Record<
@@ -330,7 +336,12 @@ export default function CalendarPage() {
     }
 
     loadPlans();
-  }, [athleteOwnedWrestler?.id, currentTeam?.id]);
+  }, [
+    appUser?.role,
+    athleteOwnedWrestler?.id,
+    currentTeam?.id,
+    firebaseUser?.uid,
+  ]);
 
   async function refreshEvents() {
     if (!currentTeam?.id) {
@@ -428,6 +439,42 @@ export default function CalendarPage() {
     setTournaments(calendarTournaments.filter(Boolean) as TournamentCalendarItem[]);
   }
 
+  useEffect(() => {
+    async function loadEvents() {
+      try {
+        setLoadingEvents(true);
+
+        if (!currentTeam?.id) {
+          setEvents([]);
+          setTournaments([]);
+          setCompletedPractices([]);
+          return;
+        }
+
+        if (appUser?.role === "athlete" && !wrestlersLoaded) {
+          return;
+        }
+
+        await refreshEvents();
+      } catch (error) {
+        console.error("Failed to load calendar events:", error);
+      } finally {
+        setLoadingEvents(false);
+      }
+    }
+
+    loadEvents();
+  }, [
+    appUser?.id,
+    appUser?.role,
+    athleteOwnedWrestler?.id,
+    currentTeam?.id,
+    firebaseUser?.uid,
+    weekStartKey,
+    weekEndKey,
+    wrestlersLoaded,
+  ]);
+
   function getResolvedAssignedWrestlerIds(
     assignmentType: AssignmentType,
     groupId: string,
@@ -516,8 +563,14 @@ export default function CalendarPage() {
         (sum, event) => sum + (event.totalMinutes || Math.round((event.totalSeconds || 0) / 60) || 0),
         0
       );
+
       const completionRate =
-        scheduled.length === 0 ? (completed.length > 0 ? 100 : 0) : Math.min(100, Math.round((completed.length / scheduled.length) * 100));
+        scheduled.length === 0
+          ? completed.length > 0
+            ? 100
+            : 0
+          : Math.min(100, Math.round((completed.length / scheduled.length) * 100));
+
       const noteSessions = completed.filter((session) => session.notes?.trim());
       const latestNote = noteSessions[0] || null;
 
@@ -538,16 +591,19 @@ export default function CalendarPage() {
     }
 
     const cards: WeeklyReviewCard[] = [];
+
     const legacyTeamScheduled = events.filter(
       (event) =>
         (event.assignmentType || "team") === "team" ||
         (!event.assignmentType && !event.groupId && !(event.assignedWrestlerIds || []).length)
     );
+
     const legacyTeamCompleted = completedPractices.filter(
       (session) =>
         (session.assignmentType || "team") === "team" ||
         (!session.assignmentType && !session.groupId && !(session.assignedWrestlerIds || []).length)
     );
+
     const teamCard = buildCard(
       "team",
       "Team-wide",
@@ -557,6 +613,7 @@ export default function CalendarPage() {
       legacyTeamCompleted,
       "Open roster"
     );
+
     if (teamCard) cards.push(teamCard);
 
     for (const group of activeTrainingGroups) {
@@ -569,6 +626,7 @@ export default function CalendarPage() {
         completedPractices.filter((session) => session.groupId === group.id),
         `Open ${group.name} roster`
       );
+
       if (card) cards.push(card);
     }
 
@@ -581,6 +639,7 @@ export default function CalendarPage() {
       completedPractices.filter((session) => session.assignmentType === "custom"),
       "Open wrestler assignments"
     );
+
     if (customCard) cards.push(customCard);
 
     return cards;
