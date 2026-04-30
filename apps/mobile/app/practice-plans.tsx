@@ -11,17 +11,19 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from "react-native";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { WebView } from "react-native-webview";
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "@wrestlewell/firebase/client";
 import {
-  getYouTubeEmbedUrl,
   getPracticePlanDetail,
-  listWrestlers,
+  getYouTubeEmbedUrl,
   listPracticePlans,
+  listWrestlers,
   type PracticePlanBlockRecord,
 } from "@wrestlewell/lib/index";
 import type { PracticePlan, WrestlerProfile } from "@wrestlewell/types/index";
@@ -32,18 +34,26 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function getBlockSeconds(block?: PracticePlanBlockRecord | null) {
+  return Math.max(0, (block?.durationSeconds || 0) || (block?.durationMinutes || 0) * 60);
+}
+
 function formatClock(totalSeconds: number) {
-  const safeSeconds = Math.max(0, totalSeconds);
+  const safeSeconds = Math.max(0, totalSeconds || 0);
   const minutes = Math.floor(safeSeconds / 60);
   const seconds = safeSeconds % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function formatDurationLabel(totalSeconds: number) {
-  const safeSeconds = Math.max(0, totalSeconds);
+  const safeSeconds = Math.max(0, totalSeconds || 0);
   const minutes = Math.floor(safeSeconds / 60);
   const seconds = safeSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function getPlanSeconds(plan?: PracticePlan | null) {
+  return Math.max(0, (plan?.totalSeconds || 0) || (plan?.totalMinutes || 0) * 60);
 }
 
 function getBlockDisplayTitle(block: PracticePlanBlockRecord | null, index?: number) {
@@ -110,6 +120,10 @@ export default function PracticePlansScreen() {
   const [inlineVideoUrl, setInlineVideoUrl] = useState<string | null>(null);
   const [inlineVideoTitle, setInlineVideoTitle] = useState("");
   const [orientationLandscape, setOrientationLandscape] = useState(false);
+
+  const [completionModalVisible, setCompletionModalVisible] = useState(false);
+  const [postPracticeNotes, setPostPracticeNotes] = useState("");
+  const [savingCompletion, setSavingCompletion] = useState(false);
 
   const announcedBlockRef = useRef<string | null>(null);
   const announcedCountdownRef = useRef<string | null>(null);
@@ -192,7 +206,7 @@ export default function PracticePlansScreen() {
       setTimerFullscreen(false);
       setOrientationLandscape(false);
       setActiveBlockIndex(0);
-      setRemainingSeconds(nextBlocks[0] ? nextBlocks[0].durationSeconds : 0);
+      setRemainingSeconds(getBlockSeconds(nextBlocks[0]));
       announcedBlockRef.current = null;
       announcedCountdownRef.current = null;
 
@@ -315,7 +329,7 @@ export default function PracticePlansScreen() {
     }
 
     setActiveBlockIndex(nextIndex);
-    setRemainingSeconds(blocks[nextIndex].durationSeconds);
+    setRemainingSeconds(getBlockSeconds(blocks[nextIndex]));
   }, [
     activeBlockIndex,
     blocks,
@@ -327,7 +341,13 @@ export default function PracticePlansScreen() {
   ]);
 
   useEffect(() => {
-    if (!timerActive || !isCoach || !countdownEnabled || remainingSeconds <= 0 || remainingSeconds > 3) {
+    if (
+      !timerActive ||
+      !isCoach ||
+      !countdownEnabled ||
+      remainingSeconds <= 0 ||
+      remainingSeconds > 3
+    ) {
       if (remainingSeconds > 3 || remainingSeconds <= 0 || !timerActive) {
         announcedCountdownRef.current = null;
       }
@@ -371,6 +391,7 @@ export default function PracticePlansScreen() {
 
     announcedBlockRef.current = announcementKey;
     const title = getBlockDisplayTitle(activeBlock, activeBlockIndex);
+    const blockSeconds = getBlockSeconds(activeBlock);
 
     if (hapticsEnabled) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => undefined);
@@ -380,8 +401,8 @@ export default function PracticePlansScreen() {
       Speech.stop();
       Speech.speak(
         `Block ${activeBlockIndex + 1}. ${title}. ${Math.floor(
-          activeBlock.durationSeconds / 60
-        )} minutes and ${activeBlock.durationSeconds % 60} seconds.`,
+          blockSeconds / 60
+        )} minutes and ${blockSeconds % 60} seconds.`,
         {
           pitch: 1,
           rate: 0.92,
@@ -430,7 +451,7 @@ export default function PracticePlansScreen() {
 
     setTimerActive(false);
     setActiveBlockIndex(index);
-    setRemainingSeconds(nextSelectedBlock.durationSeconds);
+    setRemainingSeconds(getBlockSeconds(nextSelectedBlock));
     announcedBlockRef.current = null;
     announcedCountdownRef.current = null;
   }
@@ -439,7 +460,7 @@ export default function PracticePlansScreen() {
     if (!activeBlock) return;
 
     setTimerActive(false);
-    setRemainingSeconds(activeBlock.durationSeconds);
+    setRemainingSeconds(getBlockSeconds(activeBlock));
     announcedCountdownRef.current = null;
   }
 
@@ -493,6 +514,66 @@ export default function PracticePlansScreen() {
     directVideoPlayer.pause();
   }
 
+  async function openCompletionModal() {
+    if (!selectedPlan || !currentTeam?.id || !firebaseUser?.uid) {
+      Alert.alert("Practice needed", "Select a practice plan before marking it complete.");
+      return;
+    }
+
+    setTimerActive(false);
+    setTimerFullscreen(false);
+    setOrientationLandscape(false);
+
+    try {
+      await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.DEFAULT);
+    } catch (error) {
+      console.warn("Could not unlock orientation before completion modal:", error);
+    }
+
+    setCompletionModalVisible(true);
+  }
+
+  async function savePracticeCompletion() {
+    if (!selectedPlan || !currentTeam?.id || !firebaseUser?.uid) {
+      return;
+    }
+
+    try {
+      setSavingCompletion(true);
+
+      await addDoc(collection(db, "practice_sessions"), {
+        teamId: currentTeam.id,
+        practicePlanId: selectedPlan.id,
+        practicePlanTitle: selectedPlan.title || "Untitled Practice Plan",
+        practicePlanStyle: selectedPlan.style || "Mixed",
+        totalSeconds: getPlanSeconds(selectedPlan),
+        blockCount: blocks.length,
+        notes: postPracticeNotes.trim(),
+        completedBy: firebaseUser.uid,
+        completedByRole: appUser?.role || "coach",
+        completedAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      setCompletionModalVisible(false);
+      setPostPracticeNotes("");
+
+      Alert.alert("Practice complete", "Post-practice notes were saved.", [
+        { text: "Stay Here" },
+        {
+          text: "Go Home",
+          onPress: () => router.push("/"),
+        },
+      ]);
+    } catch (error) {
+      console.error("Failed to save completed practice:", error);
+      Alert.alert("Save failed", "Could not save the completed practice notes.");
+    } finally {
+      setSavingCompletion(false);
+    }
+  }
+
   if (!authLoading && (!firebaseUser || !appUser)) {
     return (
       <MobileScreenShell
@@ -523,6 +604,82 @@ export default function PracticePlansScreen() {
           : "Review assigned plans and follow the session flow from your phone."
       }
     >
+      <Modal
+        animationType="slide"
+        presentationStyle="pageSheet"
+        visible={completionModalVisible}
+        onRequestClose={() => setCompletionModalVisible(false)}
+      >
+        <ScrollView
+          style={{ flex: 1, backgroundColor: "#061a33" }}
+          contentContainerStyle={{ padding: 18, gap: 14 }}
+        >
+          <Text style={{ color: "#ffffff", fontSize: 28, fontWeight: "900" }}>
+            Complete Practice
+          </Text>
+
+          <Text style={{ color: "#b7c9df", fontSize: 15, lineHeight: 22 }}>
+            {selectedPlan?.title || "Selected practice"} •{" "}
+            {formatDurationLabel(getPlanSeconds(selectedPlan))} • {blocks.length} blocks
+          </Text>
+
+          <View style={styles.completionSummaryCard}>
+            <Text style={styles.completionSummaryTitle}>Post-practice notes</Text>
+
+            <Text style={styles.completionSummaryCopy}>
+              Use this for who looked sharp, what needs work, injuries, attitude, conditioning,
+              or what you want to remember before building the next plan.
+            </Text>
+          </View>
+
+          <TextInput
+            value={postPracticeNotes}
+            onChangeText={setPostPracticeNotes}
+            placeholder="Example: Great pace today. Need more work on bottom escapes. Joey looked strong in live goes..."
+            placeholderTextColor="#7c8da3"
+            multiline
+            textAlignVertical="top"
+            style={styles.postPracticeInput}
+          />
+
+          <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+            <Pressable
+              onPress={savePracticeCompletion}
+              disabled={savingCompletion}
+              style={{
+                alignSelf: "flex-start",
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                borderRadius: 999,
+                backgroundColor: "#bf1029",
+                opacity: savingCompletion ? 0.55 : 1,
+              }}
+            >
+              <Text style={{ color: "#ffffff", fontWeight: "900" }}>
+                {savingCompletion ? "Saving..." : "Save Complete Practice"}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => setCompletionModalVisible(false)}
+              disabled={savingCompletion}
+              style={{
+                alignSelf: "flex-start",
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                borderRadius: 999,
+                backgroundColor: "#102f52",
+                borderWidth: 1,
+                borderColor: "#315c86",
+                opacity: savingCompletion ? 0.55 : 1,
+              }}
+            >
+              <Text style={{ color: "#ffffff", fontWeight: "900" }}>Cancel</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </Modal>
+
       <Modal
         animationType="slide"
         presentationStyle="fullScreen"
@@ -567,6 +724,7 @@ export default function PracticePlansScreen() {
               onToggleCountdown={() => setCountdownEnabled((prev) => !prev)}
               onWatchVideo={() => openInlineVideo(activeBlock?.videoUrl, activeBlockTitle)}
               onOpenVideo={() => openVideo(activeBlock?.videoUrl)}
+              onCompletePractice={openCompletionModal}
             />
           ) : (
             <PortraitTimer
@@ -590,6 +748,7 @@ export default function PracticePlansScreen() {
               onToggleCountdown={() => setCountdownEnabled((prev) => !prev)}
               onWatchVideo={() => openInlineVideo(activeBlock?.videoUrl, activeBlockTitle)}
               onOpenVideo={() => openVideo(activeBlock?.videoUrl)}
+              onCompletePractice={openCompletionModal}
             />
           )}
         </View>
@@ -724,8 +883,7 @@ export default function PracticePlansScreen() {
                     <Text style={styles.planTitle}>{plan.title || "Untitled Plan"}</Text>
 
                     <Text style={styles.planMeta}>
-                      {plan.style || "Mixed"} •{" "}
-                      {formatDurationLabel(plan.totalSeconds || plan.totalMinutes * 60 || 0)}
+                      {plan.style || "Mixed"} • {formatDurationLabel(getPlanSeconds(plan))}
                     </Text>
                   </Pressable>
                 );
@@ -738,8 +896,7 @@ export default function PracticePlansScreen() {
               <Text style={styles.detailTitle}>{selectedPlan.title}</Text>
 
               <Text style={styles.detailMeta}>
-                {selectedPlan.style || "Mixed"} •{" "}
-                {formatDurationLabel(selectedPlan.totalSeconds || selectedPlan.totalMinutes * 60 || 0)} •{" "}
+                {selectedPlan.style || "Mixed"} • {formatDurationLabel(getPlanSeconds(selectedPlan))} •{" "}
                 {blocks.length} blocks
               </Text>
 
@@ -754,7 +911,7 @@ export default function PracticePlansScreen() {
                   </Text>
 
                   <Text style={styles.livePreviewMeta}>
-                    {formatDurationLabel(activeBlock.durationSeconds)} •{" "}
+                    {formatDurationLabel(getBlockSeconds(activeBlock))} •{" "}
                     {activeBlock.blockType === "text" ? "Text block" : "Library block"}
                   </Text>
 
@@ -789,6 +946,10 @@ export default function PracticePlansScreen() {
                     <Text style={styles.startFullButtonText}>
                       {timerActive ? "PAUSE TIMER" : "START FULL-SCREEN TIMER"}
                     </Text>
+                  </Pressable>
+
+                  <Pressable onPress={openCompletionModal} style={styles.completePracticeButton}>
+                    <Text style={styles.completePracticeButtonText}>MARK PRACTICE COMPLETE</Text>
                   </Pressable>
 
                   <View style={styles.previewControlRow}>
@@ -851,7 +1012,7 @@ export default function PracticePlansScreen() {
                         </Text>
 
                         <Text style={styles.blockMeta}>
-                          {formatDurationLabel(block.durationSeconds)}
+                          {formatDurationLabel(getBlockSeconds(block))}
                           {block.style ? ` • ${block.style}` : ""}
                           {block.category ? ` • ${block.category}` : ""}
                         </Text>
@@ -911,6 +1072,7 @@ function PortraitTimer({
   onToggleCountdown,
   onWatchVideo,
   onOpenVideo,
+  onCompletePractice,
 }: {
   activeBlock: PracticePlanBlockRecord | null;
   activeBlockIndex: number;
@@ -932,6 +1094,7 @@ function PortraitTimer({
   onToggleCountdown: () => void;
   onWatchVideo: () => void;
   onOpenVideo: () => void;
+  onCompletePractice: () => void;
 }) {
   return (
     <>
@@ -952,7 +1115,7 @@ function PortraitTimer({
 
         <Text style={styles.timerMeta}>
           {activeBlock
-            ? `${formatDurationLabel(activeBlock.durationSeconds)} • ${
+            ? `${formatDurationLabel(getBlockSeconds(activeBlock))} • ${
                 activeBlock.blockType === "text" ? "Text block" : "Library block"
               }`
             : "No active block"}
@@ -990,6 +1153,7 @@ function PortraitTimer({
         onToggleVoice={onToggleVoice}
         onToggleHaptics={onToggleHaptics}
         onToggleCountdown={onToggleCountdown}
+        onCompletePractice={onCompletePractice}
       />
     </>
   );
@@ -1016,6 +1180,7 @@ function LandscapeTimer({
   onToggleCountdown,
   onWatchVideo,
   onOpenVideo,
+  onCompletePractice,
 }: {
   activeBlock: PracticePlanBlockRecord | null;
   activeBlockIndex: number;
@@ -1037,6 +1202,7 @@ function LandscapeTimer({
   onToggleCountdown: () => void;
   onWatchVideo: () => void;
   onOpenVideo: () => void;
+  onCompletePractice: () => void;
 }) {
   return (
     <View style={styles.landscapeBody}>
@@ -1053,7 +1219,7 @@ function LandscapeTimer({
 
         <Text style={styles.timerMeta}>
           {activeBlock
-            ? `${formatDurationLabel(activeBlock.durationSeconds)} • ${
+            ? `${formatDurationLabel(getBlockSeconds(activeBlock))} • ${
                 activeBlock.blockType === "text" ? "Text block" : "Library block"
               }`
             : "No active block"}
@@ -1096,6 +1262,7 @@ function LandscapeTimer({
             onToggleVoice={onToggleVoice}
             onToggleHaptics={onToggleHaptics}
             onToggleCountdown={onToggleCountdown}
+            onCompletePractice={onCompletePractice}
             compact
           />
         </View>
@@ -1116,6 +1283,7 @@ function TimerControls({
   onToggleVoice,
   onToggleHaptics,
   onToggleCountdown,
+  onCompletePractice,
   compact = false,
 }: {
   timerActive: boolean;
@@ -1129,6 +1297,7 @@ function TimerControls({
   onToggleVoice: () => void;
   onToggleHaptics: () => void;
   onToggleCountdown: () => void;
+  onCompletePractice: () => void;
   compact?: boolean;
 }) {
   return (
@@ -1141,6 +1310,10 @@ function TimerControls({
         ]}
       >
         <Text style={styles.timerPrimaryButtonText}>{timerActive ? "Pause" : "Start"}</Text>
+      </Pressable>
+
+      <Pressable onPress={onCompletePractice} style={styles.timerCompleteButton}>
+        <Text style={styles.timerCompleteButtonText}>Mark Complete</Text>
       </Pressable>
 
       <View style={styles.timerControlRow}>
@@ -1417,6 +1590,18 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "900",
   },
+  completePracticeButton: {
+    marginTop: 12,
+    borderRadius: 22,
+    paddingVertical: 15,
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+  },
+  completePracticeButtonText: {
+    color: "#061a33",
+    fontSize: 15,
+    fontWeight: "900",
+  },
   previewControlRow: {
     flexDirection: "row",
     gap: 10,
@@ -1430,6 +1615,36 @@ const styles = StyleSheet.create({
     marginTop: 12,
     lineHeight: 20,
     textAlign: "center",
+  },
+  completionSummaryCard: {
+    borderWidth: 1,
+    borderColor: "#315c86",
+    backgroundColor: "#102f52",
+    borderRadius: 18,
+    padding: 14,
+  },
+  completionSummaryTitle: {
+    color: "#ffffff",
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  completionSummaryCopy: {
+    color: "#b7c9df",
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 6,
+  },
+  postPracticeInput: {
+    minHeight: 180,
+    borderWidth: 1,
+    borderColor: "#315c86",
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    backgroundColor: "#102f52",
+    color: "#ffffff",
+    fontSize: 15,
+    lineHeight: 21,
   },
   blockCard: {
     borderWidth: 1,
@@ -1668,6 +1883,17 @@ const styles = StyleSheet.create({
   timerPrimaryButtonText: {
     color: "#ffffff",
     fontSize: 20,
+    fontWeight: "900",
+  },
+  timerCompleteButton: {
+    borderRadius: 20,
+    paddingVertical: 13,
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+  },
+  timerCompleteButtonText: {
+    color: "#061a33",
+    fontSize: 15,
     fontWeight: "900",
   },
   timerControlRow: {

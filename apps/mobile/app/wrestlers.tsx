@@ -81,12 +81,12 @@ function createFormFromWrestler(wrestler: WrestlerProfile | null): AthleteProfil
     weightClass: wrestler.weightClass || "",
     schoolOrClub: wrestler.schoolOrClub || "",
     styles: wrestler.styles || [],
-    strengths: listToText(wrestler.strengths),
-    weaknesses: listToText(wrestler.weaknesses),
-    warmupRoutine: listToText(wrestler.warmupRoutine),
-    keyAttacks: listToText(wrestler.keyAttacks),
-    keyDefense: listToText(wrestler.keyDefense),
-    goals: listToText(wrestler.goals),
+    strengths: listToText(wrestler.strengths || []),
+    weaknesses: listToText(wrestler.weaknesses || []),
+    warmupRoutine: listToText(wrestler.warmupRoutine || []),
+    keyAttacks: listToText(wrestler.keyAttacks || []),
+    keyDefense: listToText(wrestler.keyDefense || []),
+    goals: listToText(wrestler.goals || []),
   };
 }
 
@@ -194,6 +194,34 @@ function getRecordByStyle(matches: WrestlerMatch[]) {
   return records;
 }
 
+function sortValue(value: unknown) {
+  if (!value) return "";
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "toDate" in value &&
+    typeof (value as { toDate?: unknown }).toDate === "function"
+  ) {
+    return (value as { toDate: () => Date }).toDate().toISOString();
+  }
+
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "seconds" in value &&
+    typeof (value as { seconds?: unknown }).seconds === "number"
+  ) {
+    return new Date((value as { seconds: number }).seconds * 1000).toISOString();
+  }
+
+  return String(value);
+}
+
 function formatMatchDate(value?: string) {
   if (!value) return "Date not set";
 
@@ -222,14 +250,14 @@ async function listWrestlerMatchHistory(teamId: string, wrestlerId: string) {
       ...(matchDoc.data() as Omit<WrestlerMatch, "id">),
     }))
     .sort((a, b) => {
-      const aDate = a.matchDate || "";
-      const bDate = b.matchDate || "";
+      const aDate = sortValue(a.matchDate);
+      const bDate = sortValue(b.matchDate);
 
       if (aDate !== bDate) {
         return bDate.localeCompare(aDate);
       }
 
-      return (b.createdAt || "").localeCompare(a.createdAt || "");
+      return sortValue(b.createdAt).localeCompare(sortValue(a.createdAt));
     });
 }
 
@@ -1078,12 +1106,12 @@ export default function WrestlersScreen() {
                 </Pressable>
               </View>
 
-              <SectionList title="Strengths" items={selected.strengths} />
-              <SectionList title="Weaknesses" items={selected.weaknesses} />
-              <SectionList title="Warm-up Routine" items={selected.warmupRoutine} />
-              <SectionList title="Key Attacks" items={selected.keyAttacks} />
-              <SectionList title="Key Defense" items={selected.keyDefense} />
-              <SectionList title="Goals" items={selected.goals} />
+              <SectionList title="Strengths" items={selected.strengths || []} />
+              <SectionList title="Weaknesses" items={selected.weaknesses || []} />
+              <SectionList title="Warm-up Routine" items={selected.warmupRoutine || []} />
+              <SectionList title="Key Attacks" items={selected.keyAttacks || []} />
+              <SectionList title="Key Defense" items={selected.keyDefense || []} />
+              <SectionList title="Goals" items={selected.goals || []} />
 
               {selected.coachNotes ? (
                 <View style={{ marginTop: 18 }}>

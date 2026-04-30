@@ -8,14 +8,18 @@ import {
   deleteDoc,
   doc,
   getDocs,
-  orderBy,
   query,
   serverTimestamp,
   where,
 } from "firebase/firestore";
 import { db } from "@wrestlewell/firebase/client";
 import { COLLECTIONS, type WrestlerProfile } from "@wrestlewell/types/index";
-import { listTournamentEntries, listTournaments, listWrestlers, sendTeamPushDelivery } from "@wrestlewell/lib/index";
+import {
+  listTournamentEntries,
+  listTournaments,
+  listWrestlers,
+  sendTeamPushDelivery,
+} from "@wrestlewell/lib/index";
 import { RequireAuth } from "../require-auth";
 import { useAuthState } from "../auth-provider";
 import { StatusBanner } from "../status-banner";
@@ -52,10 +56,26 @@ type TournamentCalendarItem = {
   verifiedCount: number;
 };
 
+type CompletedPracticeSessionItem = {
+  id: string;
+  date: string;
+  teamId: string;
+  practicePlanId: string;
+  practicePlanTitle: string;
+  practicePlanStyle?: string;
+  totalSeconds?: number;
+  blockCount?: number;
+  notes?: string;
+  completedBy?: string;
+  completedByRole?: string;
+  completedAt?: unknown;
+  createdAt?: unknown;
+};
+
 function getStartOfWeek(date = new Date()) {
   const d = new Date(date);
   const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day; // Monday start
+  const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
   d.setHours(0, 0, 0, 0);
   return d;
@@ -74,7 +94,7 @@ function formatPrettyDate(date: Date) {
 }
 
 function formatDurationLabel(totalSeconds: number) {
-  const safeSeconds = Math.max(0, totalSeconds);
+  const safeSeconds = Math.max(0, totalSeconds || 0);
   const minutes = Math.floor(safeSeconds / 60);
   const seconds = safeSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
@@ -82,19 +102,82 @@ function formatDurationLabel(totalSeconds: number) {
 
 function matchesAssignment(assignedIds: string[] | undefined, wrestlerId?: string | null) {
   const safeIds = assignedIds || [];
-  if (safeIds.length === 0) {
-    return true;
+  if (safeIds.length === 0) return true;
+  return Boolean(wrestlerId && safeIds.includes(wrestlerId));
+}
+
+function normalizeDateValue(value: unknown): string {
+  if (!value) return "";
+
+  if (typeof value === "string") return value;
+
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "toDate" in value &&
+    typeof (value as { toDate?: unknown }).toDate === "function"
+  ) {
+    try {
+      return (value as { toDate: () => Date }).toDate().toISOString();
+    } catch {
+      return "";
+    }
   }
 
-  return Boolean(wrestlerId && safeIds.includes(wrestlerId));
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "seconds" in value &&
+    typeof (value as { seconds?: unknown }).seconds === "number"
+  ) {
+    return new Date((value as { seconds: number }).seconds * 1000).toISOString();
+  }
+
+  return "";
+}
+
+function toDateKeyFromTimestamp(value: unknown) {
+  const normalized = normalizeDateValue(value);
+  if (!normalized) return "";
+
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return date.toISOString().split("T")[0];
+}
+
+function formatCompletedAt(value: unknown) {
+  const normalized = normalizeDateValue(value);
+  if (!normalized) return "Completed recently";
+
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return "Completed recently";
+
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function getCompletedPracticeDate(session: CompletedPracticeSessionItem) {
+  return (
+    session.date ||
+    toDateKeyFromTimestamp(session.completedAt) ||
+    toDateKeyFromTimestamp(session.createdAt)
+  );
 }
 
 export default function CalendarPage() {
   const { appUser, currentTeam } = useAuthState();
+
   const [savedPlans, setSavedPlans] = useState<SavedPracticePlan[]>([]);
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
   const [events, setEvents] = useState<CalendarEventItem[]>([]);
   const [tournaments, setTournaments] = useState<TournamentCalendarItem[]>([]);
+  const [completedPractices, setCompletedPractices] = useState<CompletedPracticeSessionItem[]>([]);
+
   const [loadingPlans, setLoadingPlans] = useState(true);
   const [loadingEvents, setLoadingEvents] = useState(true);
   const [assigningDate, setAssigningDate] = useState<string | null>(null);
@@ -102,7 +185,9 @@ export default function CalendarPage() {
   const [notesByDate, setNotesByDate] = useState<Record<string, string>>({});
   const [weekOffset, setWeekOffset] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(1440);
+
   const isCoach = appUser?.role === "coach";
+
   const athleteOwnedWrestler =
     appUser?.role === "athlete"
       ? wrestlers.find((wrestler) => wrestler.ownerUserId === appUser.id) || null
@@ -120,6 +205,7 @@ export default function CalendarPage() {
 
   const calendarColumns =
     viewportWidth <= 640 ? 1 : viewportWidth <= 960 ? 2 : viewportWidth <= 1280 ? 4 : 7;
+
   const isDenseLayout = calendarColumns === 7;
 
   const weekDates = useMemo(() => {
@@ -135,37 +221,6 @@ export default function CalendarPage() {
 
   const weekStartKey = formatDateKey(weekDates[0]);
   const weekEndKey = formatDateKey(weekDates[6]);
-
-  useEffect(() => {
-    async function loadPlans() {
-      try {
-        if (!currentTeam?.id) {
-          setSavedPlans([]);
-          return;
-        }
-
-        const q = query(
-          collection(db, COLLECTIONS.PRACTICE_PLANS),
-          where("teamId", "==", currentTeam.id)
-        );
-        const snapshot = await getDocs(q);
-        const rows = snapshot.docs
-          .map((d) => ({
-            id: d.id,
-            ...(d.data() as Omit<SavedPracticePlan, "id">),
-          }))
-          .filter((plan) => matchesAssignment(plan.assignedWrestlerIds, athleteOwnedWrestler?.id))
-          .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
-        setSavedPlans(rows);
-      } catch (error) {
-        console.error("Failed to load saved practice plans:", error);
-      } finally {
-        setLoadingPlans(false);
-      }
-    }
-
-    loadPlans();
-  }, [athleteOwnedWrestler?.id, currentTeam?.id]);
 
   useEffect(() => {
     async function loadWrestlers() {
@@ -185,87 +240,57 @@ export default function CalendarPage() {
   }, [currentTeam?.id]);
 
   useEffect(() => {
-    async function loadEvents() {
+    async function loadPlans() {
       try {
-        setLoadingEvents(true);
+        setLoadingPlans(true);
 
         if (!currentTeam?.id) {
-          setEvents([]);
-          setTournaments([]);
+          setSavedPlans([]);
           return;
         }
 
         const q = query(
-          collection(db, COLLECTIONS.CALENDAR_EVENTS),
+          collection(db, COLLECTIONS.PRACTICE_PLANS),
           where("teamId", "==", currentTeam.id)
         );
+
         const snapshot = await getDocs(q);
 
         const rows = snapshot.docs
           .map((d) => ({
             id: d.id,
-            ...(d.data() as Omit<CalendarEventItem, "id">),
+            ...(d.data() as Omit<SavedPracticePlan, "id">),
           }))
-          .filter((event) => matchesAssignment(event.assignedWrestlerIds, athleteOwnedWrestler?.id))
-          .filter((event) => event.date >= weekStartKey && event.date <= weekEndKey);
+          .filter((plan) => matchesAssignment(plan.assignedWrestlerIds, athleteOwnedWrestler?.id))
+          .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
 
-        setEvents(rows);
-
-        const tournamentRows = await listTournaments(db, currentTeam.id);
-        const calendarTournaments = await Promise.all(
-          tournamentRows
-            .filter((tournament) => tournament.eventDate && tournament.eventDate >= weekStartKey && tournament.eventDate <= weekEndKey)
-            .map(async (tournament) => {
-              const entries = await listTournamentEntries(db, {
-                teamId: currentTeam.id,
-                tournamentId: tournament.id,
-              });
-              if (
-                appUser?.role === "athlete" &&
-                athleteOwnedWrestler &&
-                entries.length > 0 &&
-                !entries.some((entry) => entry.wrestlerId === athleteOwnedWrestler.id)
-              ) {
-                return null;
-              }
-
-              return {
-                id: tournament.id,
-                date: tournament.eventDate || "",
-                name: tournament.name,
-                registrationUrl: tournament.registrationUrl,
-                notes: tournament.notes,
-                rosterCount: entries.length,
-                submittedCount: entries.filter((entry) => entry.status === "submitted").length,
-                verifiedCount: entries.filter((entry) => entry.status === "confirmed").length,
-              } satisfies TournamentCalendarItem;
-            })
-        );
-        setTournaments(calendarTournaments.filter(Boolean) as TournamentCalendarItem[]);
+        setSavedPlans(rows);
       } catch (error) {
-        console.error("Failed to load calendar events:", error);
+        console.error("Failed to load saved practice plans:", error);
       } finally {
-        setLoadingEvents(false);
+        setLoadingPlans(false);
       }
     }
 
-    loadEvents();
-  }, [athleteOwnedWrestler?.id, currentTeam?.id, weekStartKey, weekEndKey]);
+    loadPlans();
+  }, [athleteOwnedWrestler?.id, currentTeam?.id]);
 
   async function refreshEvents() {
     if (!currentTeam?.id) {
       setEvents([]);
       setTournaments([]);
+      setCompletedPractices([]);
       return;
     }
 
-    const q = query(
+    const calendarQuery = query(
       collection(db, COLLECTIONS.CALENDAR_EVENTS),
       where("teamId", "==", currentTeam.id)
     );
-    const snapshot = await getDocs(q);
 
-    const rows = snapshot.docs
+    const calendarSnapshot = await getDocs(calendarQuery);
+
+    const eventRows = calendarSnapshot.docs
       .map((d) => ({
         id: d.id,
         ...(d.data() as Omit<CalendarEventItem, "id">),
@@ -274,17 +299,54 @@ export default function CalendarPage() {
       .filter((event) => matchesAssignment(event.assignedWrestlerIds, athleteOwnedWrestler?.id))
       .filter((event) => event.date >= weekStartKey && event.date <= weekEndKey);
 
-    setEvents(rows);
+    setEvents(eventRows);
+
+    const sessionsQuery = query(
+      collection(db, "practice_sessions"),
+      where("teamId", "==", currentTeam.id)
+    );
+
+    const sessionsSnapshot = await getDocs(sessionsQuery);
+
+    const sessionRows = sessionsSnapshot.docs
+      .map((d) => {
+        const data = d.data() as Omit<CompletedPracticeSessionItem, "id" | "date">;
+        const row = {
+          id: d.id,
+          ...data,
+          date:
+            toDateKeyFromTimestamp(data.completedAt) ||
+            toDateKeyFromTimestamp(data.createdAt) ||
+            "",
+        };
+
+        return row;
+      })
+      .filter((session) => session.date >= weekStartKey && session.date <= weekEndKey)
+      .sort((a, b) => {
+        const aDate = normalizeDateValue(a.completedAt) || normalizeDateValue(a.createdAt);
+        const bDate = normalizeDateValue(b.completedAt) || normalizeDateValue(b.createdAt);
+        return bDate.localeCompare(aDate);
+      });
+
+    setCompletedPractices(sessionRows);
 
     const tournamentRows = await listTournaments(db, currentTeam.id);
+
     const calendarTournaments = await Promise.all(
       tournamentRows
-        .filter((tournament) => tournament.eventDate && tournament.eventDate >= weekStartKey && tournament.eventDate <= weekEndKey)
+        .filter(
+          (tournament) =>
+            tournament.eventDate &&
+            tournament.eventDate >= weekStartKey &&
+            tournament.eventDate <= weekEndKey
+        )
         .map(async (tournament) => {
           const entries = await listTournamentEntries(db, {
             teamId: currentTeam.id,
             tournamentId: tournament.id,
           });
+
           if (
             appUser?.role === "athlete" &&
             athleteOwnedWrestler &&
@@ -310,6 +372,29 @@ export default function CalendarPage() {
     setTournaments(calendarTournaments.filter(Boolean) as TournamentCalendarItem[]);
   }
 
+  useEffect(() => {
+    async function loadEvents() {
+      try {
+        setLoadingEvents(true);
+
+        if (!currentTeam?.id) {
+          setEvents([]);
+          setTournaments([]);
+          setCompletedPractices([]);
+          return;
+        }
+
+        await refreshEvents();
+      } catch (error) {
+        console.error("Failed to load calendar events:", error);
+      } finally {
+        setLoadingEvents(false);
+      }
+    }
+
+    loadEvents();
+  }, [athleteOwnedWrestler?.id, currentTeam?.id, weekStartKey, weekEndKey]);
+
   async function assignPlanToDate(dateKey: string) {
     if (!currentTeam?.id) {
       alert("You need an active team before scheduling practices.");
@@ -317,12 +402,14 @@ export default function CalendarPage() {
     }
 
     const selectedPlanId = selectedPlanByDate[dateKey];
+
     if (!selectedPlanId) {
       alert("Choose a practice plan first.");
       return;
     }
 
     const selectedPlan = savedPlans.find((plan) => plan.id === selectedPlanId);
+
     if (!selectedPlan) {
       alert("Selected practice plan not found.");
       return;
@@ -353,6 +440,7 @@ export default function CalendarPage() {
                 .map((wrestler) => wrestler.ownerUserId)
                 .filter((value): value is string => Boolean(value))
             : undefined;
+
         await sendTeamPushDelivery(db, {
           teamId: currentTeam.id,
           title: "New practice assignment",
@@ -395,178 +483,307 @@ export default function CalendarPage() {
     return tournaments.filter((tournament) => tournament.date === dateKey);
   }
 
+  function getCompletedPracticesForDate(dateKey: string) {
+    return completedPractices.filter((session) => getCompletedPracticeDate(session) === dateKey);
+  }
+
   return (
     <RequireAuth
       title="Weekly Calendar"
       description="Assign saved practice plans to specific days of the week."
     >
-    <main style={{ padding: viewportWidth <= 768 ? 16 : 24, width: "100%", boxSizing: "border-box" }}>
-      <h1 style={{ fontSize: 32, marginBottom: 8 }}>Weekly Calendar</h1>
-      <p style={{ marginBottom: 24 }}>
-        Assign saved practice plans to specific days of the week.
-      </p>
-
-      {!isCoach ? (
-        <StatusBanner
-          message={{
-            tone: "info",
-            text: "Calendar scheduling is coach-managed. Athletes can review the team schedule here, but only coaches can assign or remove plans.",
-          }}
-        />
-      ) : null}
-
-      <div style={{ display: "flex", gap: 12, marginBottom: 24, alignItems: "center", flexWrap: "wrap" }}>
-        <button onClick={() => setWeekOffset((prev) => prev - 1)} style={{ padding: "10px 14px" }}>
-          Previous Week
-        </button>
-
-        <div style={{ fontWeight: 600 }}>
-          {formatPrettyDate(weekDates[0])} - {formatPrettyDate(weekDates[6])}
-        </div>
-
-        <button onClick={() => setWeekOffset((prev) => prev + 1)} style={{ padding: "10px 14px" }}>
-          Next Week
-        </button>
-
-        <button onClick={() => setWeekOffset(0)} style={{ padding: "10px 14px" }}>
-          This Week
-        </button>
-      </div>
-
-      {loadingPlans ? <p>Loading practice plans...</p> : null}
-      {loadingEvents ? <p>Loading calendar...</p> : null}
-
-      <div
+      <main
         style={{
-          display: "grid",
-          gridTemplateColumns: `repeat(${calendarColumns}, minmax(0, 1fr))`,
-          gap: isDenseLayout ? 12 : 16,
-          alignItems: "start",
+          padding: viewportWidth <= 768 ? 16 : 24,
           width: "100%",
+          boxSizing: "border-box",
         }}
       >
-        {weekDates.map((date) => {
-          const dateKey = formatDateKey(date);
-          const dayEvents = getEventsForDate(dateKey);
-          const dayTournaments = getTournamentsForDate(dateKey);
+        <h1 style={{ fontSize: 32, marginBottom: 8 }}>Weekly Calendar</h1>
 
-          return (
-            <section
-              key={dateKey}
-              style={{
-                border: "1px solid #ddd",
-                borderRadius: 12,
-                padding: isDenseLayout ? 12 : 16,
-                background: "#fff",
-                minHeight: isDenseLayout ? 420 : 500,
-                minWidth: 0,
-              }}
-            >
-              <h2 style={{ marginTop: 0, marginBottom: 6, fontSize: isDenseLayout ? 16 : 18 }}>
-                {formatPrettyDate(date)}
-              </h2>
-              <div style={{ fontSize: 12, color: "#666", marginBottom: 12 }}>{dateKey}</div>
+        <p style={{ marginBottom: 24 }}>
+          Assign practice plans, view tournaments, and review completed practice notes.
+        </p>
 
-              <select
-                value={selectedPlanByDate[dateKey] || ""}
-                onChange={(e) =>
-                  setSelectedPlanByDate((prev) => ({ ...prev, [dateKey]: e.target.value }))
-                }
-                disabled={!isCoach}
-                style={{ width: "100%", padding: isDenseLayout ? 8 : 10, marginBottom: 10, minWidth: 0 }}
-              >
-                <option value="">Select a practice plan</option>
-                {savedPlans.map((plan) => (
-                  <option key={plan.id} value={plan.id}>
-                    {plan.title}
-                    {plan.assignedWrestlerIds?.length ? " (Assigned)" : ""}
-                  </option>
-                ))}
-              </select>
+        {!isCoach ? (
+          <StatusBanner
+            message={{
+              tone: "info",
+              text: "Calendar scheduling is coach-managed. Athletes can review the team schedule here, but only coaches can assign or remove plans.",
+            }}
+          />
+        ) : null}
 
-              <textarea
-                placeholder="Optional notes for this day..."
-                value={notesByDate[dateKey] || ""}
-                onChange={(e) =>
-                  setNotesByDate((prev) => ({ ...prev, [dateKey]: e.target.value }))
-                }
-                disabled={!isCoach}
-                rows={3}
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            marginBottom: 24,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <button onClick={() => setWeekOffset((prev) => prev - 1)} style={{ padding: "10px 14px" }}>
+            Previous Week
+          </button>
+
+          <div style={{ fontWeight: 600 }}>
+            {formatPrettyDate(weekDates[0])} - {formatPrettyDate(weekDates[6])}
+          </div>
+
+          <button onClick={() => setWeekOffset((prev) => prev + 1)} style={{ padding: "10px 14px" }}>
+            Next Week
+          </button>
+
+          <button onClick={() => setWeekOffset(0)} style={{ padding: "10px 14px" }}>
+            This Week
+          </button>
+        </div>
+
+        {loadingPlans ? <p>Loading practice plans...</p> : null}
+        {loadingEvents ? <p>Loading calendar...</p> : null}
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: `repeat(${calendarColumns}, minmax(0, 1fr))`,
+            gap: isDenseLayout ? 12 : 16,
+            alignItems: "start",
+            width: "100%",
+          }}
+        >
+          {weekDates.map((date) => {
+            const dateKey = formatDateKey(date);
+            const dayEvents = getEventsForDate(dateKey);
+            const dayTournaments = getTournamentsForDate(dateKey);
+            const dayCompletedPractices = getCompletedPracticesForDate(dateKey);
+
+            return (
+              <section
+                key={dateKey}
                 style={{
-                  width: "100%",
-                  padding: isDenseLayout ? 8 : 10,
-                  resize: "vertical",
-                  marginBottom: 10,
-                  boxSizing: "border-box",
+                  border: "1px solid #ddd",
+                  borderRadius: 12,
+                  padding: isDenseLayout ? 12 : 16,
+                  background: "#fff",
+                  minHeight: isDenseLayout ? 420 : 500,
+                  minWidth: 0,
                 }}
-              />
-
-              <button
-                onClick={() => assignPlanToDate(dateKey)}
-                disabled={assigningDate === dateKey || !isCoach}
-                style={{ width: "100%", padding: isDenseLayout ? "8px 12px" : "10px 14px", marginBottom: 16 }}
               >
-                {assigningDate === dateKey ? "Assigning..." : "Assign Plan"}
-              </button>
+                <h2 style={{ marginTop: 0, marginBottom: 6, fontSize: isDenseLayout ? 16 : 18 }}>
+                  {formatPrettyDate(date)}
+                </h2>
 
-              <div style={{ display: "grid", gap: 12 }}>
-                {dayEvents.length === 0 && dayTournaments.length === 0 ? (
-                  <p style={{ fontSize: 14, color: "#666" }}>No practice or tournament scheduled.</p>
-                ) : null}
+                <div style={{ fontSize: 12, color: "#666", marginBottom: 12 }}>{dateKey}</div>
 
-                {dayTournaments.map((tournament) => (
-                  <div
-                    key={`tournament-${tournament.id}`}
-                    style={{
-                      border: "1px solid rgba(191, 16, 41, 0.18)",
-                      borderRadius: 10,
-                      padding: isDenseLayout ? 10 : 12,
-                      background: "rgba(191, 16, 41, 0.08)",
-                      minWidth: 0,
-                    }}
-                  >
+                <select
+                  value={selectedPlanByDate[dateKey] || ""}
+                  onChange={(e) =>
+                    setSelectedPlanByDate((prev) => ({ ...prev, [dateKey]: e.target.value }))
+                  }
+                  disabled={!isCoach}
+                  style={{
+                    width: "100%",
+                    padding: isDenseLayout ? 8 : 10,
+                    marginBottom: 10,
+                    minWidth: 0,
+                  }}
+                >
+                  <option value="">Select a practice plan</option>
+                  {savedPlans.map((plan) => (
+                    <option key={plan.id} value={plan.id}>
+                      {plan.title}
+                      {plan.assignedWrestlerIds?.length ? " (Assigned)" : ""}
+                    </option>
+                  ))}
+                </select>
+
+                <textarea
+                  placeholder="Optional notes for this day..."
+                  value={notesByDate[dateKey] || ""}
+                  onChange={(e) =>
+                    setNotesByDate((prev) => ({ ...prev, [dateKey]: e.target.value }))
+                  }
+                  disabled={!isCoach}
+                  rows={3}
+                  style={{
+                    width: "100%",
+                    padding: isDenseLayout ? 8 : 10,
+                    resize: "vertical",
+                    marginBottom: 10,
+                    boxSizing: "border-box",
+                  }}
+                />
+
+                <button
+                  onClick={() => assignPlanToDate(dateKey)}
+                  disabled={assigningDate === dateKey || !isCoach}
+                  style={{
+                    width: "100%",
+                    padding: isDenseLayout ? "8px 12px" : "10px 14px",
+                    marginBottom: 16,
+                  }}
+                >
+                  {assigningDate === dateKey ? "Assigning..." : "Assign Plan"}
+                </button>
+
+                <div style={{ display: "grid", gap: 12 }}>
+                  {dayEvents.length === 0 &&
+                  dayTournaments.length === 0 &&
+                  dayCompletedPractices.length === 0 ? (
+                    <p style={{ fontSize: 14, color: "#666" }}>
+                      No practice, completed session, or tournament scheduled.
+                    </p>
+                  ) : null}
+
+                  {dayCompletedPractices.map((session) => (
                     <div
+                      key={`completed-${session.id}`}
                       style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        padding: "4px 8px",
-                        borderRadius: 999,
-                        background: "#bf1029",
-                        color: "#fff",
-                        fontSize: 11,
-                        fontWeight: 800,
-                        letterSpacing: "0.06em",
-                        textTransform: "uppercase",
-                        marginBottom: 8,
+                        border: "1px solid rgba(22, 101, 52, 0.28)",
+                        borderRadius: 10,
+                        padding: isDenseLayout ? 10 : 12,
+                        background: "rgba(22, 101, 52, 0.08)",
+                        minWidth: 0,
                       }}
                     >
-                      Tournament
+                      <div
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          padding: "4px 8px",
+                          borderRadius: 999,
+                          background: "#166534",
+                          color: "#fff",
+                          fontSize: 11,
+                          fontWeight: 800,
+                          letterSpacing: "0.06em",
+                          textTransform: "uppercase",
+                          marginBottom: 8,
+                        }}
+                      >
+                        Completed Practice
+                      </div>
+
+                      <strong>{session.practicePlanTitle || "Completed practice"}</strong>
+
+                      <div style={{ fontSize: isDenseLayout ? 13 : 14, marginTop: 6, color: "#555" }}>
+                        {session.practicePlanStyle || "Mixed"} ·{" "}
+                        {formatDurationLabel(session.totalSeconds || 0)} ·{" "}
+                        {session.blockCount || 0} blocks
+                      </div>
+
+                      <div style={{ fontSize: 12, color: "#666", marginTop: 6 }}>
+                        {formatCompletedAt(session.completedAt || session.createdAt)}
+                        {session.completedByRole ? ` · ${session.completedByRole}` : ""}
+                      </div>
+
+                      {session.notes ? (
+                        <div
+                          style={{
+                            marginTop: 10,
+                            padding: 10,
+                            borderRadius: 8,
+                            background: "#fff",
+                            border: "1px solid rgba(22, 101, 52, 0.16)",
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 800,
+                              color: "#166534",
+                              textTransform: "uppercase",
+                              marginBottom: 6,
+                              letterSpacing: "0.06em",
+                            }}
+                          >
+                            Post-practice notes
+                          </div>
+
+                          <p
+                            style={{
+                              fontSize: isDenseLayout ? 13 : 14,
+                              margin: 0,
+                              whiteSpace: "pre-wrap",
+                              lineHeight: 1.5,
+                            }}
+                          >
+                            {session.notes}
+                          </p>
+                        </div>
+                      ) : (
+                        <p style={{ fontSize: isDenseLayout ? 13 : 14, marginTop: 8, color: "#666" }}>
+                          No post-practice notes were added.
+                        </p>
+                      )}
+
+                      {session.practicePlanId ? (
+                        <Link
+                          href={`/practice-plans?open=${session.practicePlanId}`}
+                          style={{ display: "inline-block", marginTop: 10 }}
+                        >
+                          Open Plan
+                        </Link>
+                      ) : null}
                     </div>
+                  ))}
 
-                    <strong>{tournament.name}</strong>
+                  {dayTournaments.map((tournament) => (
+                    <div
+                      key={`tournament-${tournament.id}`}
+                      style={{
+                        border: "1px solid rgba(191, 16, 41, 0.18)",
+                        borderRadius: 10,
+                        padding: isDenseLayout ? 10 : 12,
+                        background: "rgba(191, 16, 41, 0.08)",
+                        minWidth: 0,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          padding: "4px 8px",
+                          borderRadius: 999,
+                          background: "#bf1029",
+                          color: "#fff",
+                          fontSize: 11,
+                          fontWeight: 800,
+                          letterSpacing: "0.06em",
+                          textTransform: "uppercase",
+                          marginBottom: 8,
+                        }}
+                      >
+                        Tournament
+                      </div>
 
-                    <div style={{ fontSize: isDenseLayout ? 13 : 14, marginTop: 6, color: "#555" }}>
-                      {tournament.rosterCount} attending · {tournament.submittedCount} submitted · {tournament.verifiedCount} verified
+                      <strong>{tournament.name}</strong>
+
+                      <div style={{ fontSize: isDenseLayout ? 13 : 14, marginTop: 6, color: "#555" }}>
+                        {tournament.rosterCount} attending · {tournament.submittedCount} submitted ·{" "}
+                        {tournament.verifiedCount} verified
+                      </div>
+
+                      {tournament.notes ? (
+                        <p style={{ fontSize: isDenseLayout ? 13 : 14, marginTop: 8, marginBottom: 8 }}>
+                          {tournament.notes}
+                        </p>
+                      ) : null}
+
+                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8 }}>
+                        <Link href={`/tournaments?open=${tournament.id}`} style={{ display: "inline-block" }}>
+                          Open Tournament
+                        </Link>
+
+                        <a href={tournament.registrationUrl} target="_blank" rel="noreferrer">
+                          Registration
+                        </a>
+                      </div>
                     </div>
+                  ))}
 
-                    {tournament.notes ? (
-                      <p style={{ fontSize: isDenseLayout ? 13 : 14, marginTop: 8, marginBottom: 8 }}>
-                        {tournament.notes}
-                      </p>
-                    ) : null}
-
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8 }}>
-                      <Link href={`/tournaments?open=${tournament.id}`} style={{ display: "inline-block" }}>
-                        Open Tournament
-                      </Link>
-                      <a href={tournament.registrationUrl} target="_blank" rel="noreferrer">
-                        Registration
-                      </a>
-                    </div>
-                  </div>
-                ))}
-
-                {dayEvents.map((event) => (
+                  {dayEvents.map((event) => (
                     <div
                       key={event.id}
                       style={{
@@ -577,14 +794,35 @@ export default function CalendarPage() {
                         minWidth: 0,
                       }}
                     >
+                      <div
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          padding: "4px 8px",
+                          borderRadius: 999,
+                          background: "#0f3d68",
+                          color: "#fff",
+                          fontSize: 11,
+                          fontWeight: 800,
+                          letterSpacing: "0.06em",
+                          textTransform: "uppercase",
+                          marginBottom: 8,
+                        }}
+                      >
+                        Scheduled Practice
+                      </div>
+
                       <strong>{event.practicePlanTitle}</strong>
 
                       <div style={{ fontSize: isDenseLayout ? 13 : 14, marginTop: 6 }}>
                         {event.practicePlanStyle || "Mixed"} ·{" "}
                         {formatDurationLabel(event.totalSeconds || event.totalMinutes * 60 || 0)}
                       </div>
+
                       <div style={{ fontSize: 12, color: "#666", marginTop: 6 }}>
-                        {(event.assignedWrestlerIds || []).length === 0 ? "Team-wide practice" : "Assigned practice"}
+                        {(event.assignedWrestlerIds || []).length === 0
+                          ? "Team-wide practice"
+                          : "Assigned practice"}
                       </div>
 
                       {event.notes ? (
@@ -593,29 +831,26 @@ export default function CalendarPage() {
                         </p>
                       ) : null}
 
-                      <a
+                      <Link
                         href={`/practice-plans?open=${event.practicePlanId}`}
                         style={{ display: "inline-block", marginRight: 10, marginBottom: 8 }}
                       >
                         Open Plan
-                      </a>
+                      </Link>
 
                       {isCoach ? (
-                        <button
-                          onClick={() => removeEvent(event.id)}
-                          style={{ padding: "6px 10px" }}
-                        >
+                        <button onClick={() => removeEvent(event.id)} style={{ padding: "6px 10px" }}>
                           Remove
                         </button>
                       ) : null}
                     </div>
                   ))}
-              </div>
-            </section>
-          );
-        })}
-      </div>
-    </main>
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      </main>
     </RequireAuth>
   );
 }

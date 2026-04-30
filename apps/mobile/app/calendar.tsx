@@ -25,16 +25,33 @@ function formatPracticeDate(value: string) {
 }
 
 function formatDurationLabel(totalSeconds: number) {
-  const safeSeconds = Math.max(0, totalSeconds);
+  const safeSeconds = Math.max(0, totalSeconds || 0);
   const minutes = Math.floor(safeSeconds / 60);
   const seconds = safeSeconds % 60;
 
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+function getEventSeconds(event: CalendarEventRecord) {
+  return Math.max(0, event.totalSeconds || (event.totalMinutes || 0) * 60);
+}
+
+function openPracticePlan(event: CalendarEventRecord) {
+  if (!event.practicePlanId) {
+    router.push("/practice-plans" as any);
+    return;
+  }
+
+  router.push({
+    pathname: "/practice-plans",
+    params: { planId: event.practicePlanId },
+  } as any);
+}
+
 export default function CalendarScreen() {
   const { firebaseUser, appUser, currentTeam, loading: authLoading } =
     useMobileAuthState();
+
   const [events, setEvents] = useState<CalendarEventRecord[]>([]);
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -103,7 +120,14 @@ export default function CalendarScreen() {
 
     const todayKey = today.toISOString().split("T")[0];
 
-    return events.filter((event) => event.date >= todayKey);
+    return events
+      .filter((event) => event.date >= todayKey)
+      .sort((a, b) => {
+        const dateCompare = a.date.localeCompare(b.date);
+        if (dateCompare !== 0) return dateCompare;
+
+        return (a.startTime || "").localeCompare(b.startTime || "");
+      });
   }, [events]);
 
   if (!authLoading && (!firebaseUser || !appUser)) {
@@ -201,15 +225,16 @@ export default function CalendarScreen() {
 
       <View style={{ gap: 14 }}>
         {upcomingEvents.map((event) => (
-          <View
+          <Pressable
             key={event.id}
-            style={{
+            onPress={() => openPracticePlan(event)}
+            style={({ pressed }) => ({
               borderWidth: 1,
-              borderColor: "#21486e",
+              borderColor: pressed ? "#ffffff" : "#21486e",
               borderRadius: 24,
               padding: 18,
-              backgroundColor: "#0b2542",
-            }}
+              backgroundColor: pressed ? "#173b67" : "#0b2542",
+            })}
           >
             <View
               style={{
@@ -232,6 +257,19 @@ export default function CalendarScreen() {
               {formatPracticeDate(event.date)}
             </Text>
 
+            {event.startTime || event.endTime ? (
+              <Text
+                style={{
+                  fontSize: 14,
+                  color: "#b7c9df",
+                  marginTop: 5,
+                  fontWeight: "800",
+                }}
+              >
+                {[event.startTime, event.endTime].filter(Boolean).join(" - ")}
+              </Text>
+            ) : null}
+
             <Text
               style={{
                 fontSize: 17,
@@ -245,13 +283,15 @@ export default function CalendarScreen() {
 
             <Text style={{ fontSize: 14, color: "#b7c9df", marginTop: 8, lineHeight: 20 }}>
               {event.practicePlanStyle || "Mixed"} •{" "}
-              {formatDurationLabel(event.totalSeconds || event.totalMinutes || 0)}
+              {formatDurationLabel(getEventSeconds(event))}
             </Text>
 
             <Text style={{ fontSize: 13, color: "#dbeafe", marginTop: 8, fontWeight: "800" }}>
               {(event.assignedWrestlerIds || []).length === 0
                 ? "Team-wide"
-                : "Assigned practice"}
+                : `Assigned practice • ${(event.assignedWrestlerIds || []).length} wrestler${
+                    (event.assignedWrestlerIds || []).length === 1 ? "" : "s"
+                  }`}
             </Text>
 
             {event.notes ? (
@@ -260,13 +300,7 @@ export default function CalendarScreen() {
               </Text>
             ) : null}
 
-            <Pressable
-              onPress={() =>
-                router.push({
-                  pathname: "/practice-plans",
-                  params: { planId: event.practicePlanId },
-                } as any)
-              }
+            <View
               style={{
                 marginTop: 14,
                 alignSelf: "flex-start",
@@ -279,8 +313,8 @@ export default function CalendarScreen() {
               <Text style={{ color: "#fff", fontWeight: "900" }}>
                 Open Practice Plan
               </Text>
-            </Pressable>
-          </View>
+            </View>
+          </Pressable>
         ))}
       </View>
     </MobileScreenShell>

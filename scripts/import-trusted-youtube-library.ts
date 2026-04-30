@@ -56,6 +56,11 @@ const SOURCES: SourceConfig[] = [
     channelUrl: "https://www.youtube.com/@KOLATCOM/videos",
     filePath: "data/youtube-library/kolat-videos.jsonl",
   },
+  {
+    channelName: "USA Wrestling",
+    channelUrl: "https://www.youtube.com/@usawrestling/videos",
+    filePath: "data/youtube-library/usa-wrestling-curated.jsonl",
+  },
 ];
 
 const TECHNIQUE_INCLUDE_KEYWORDS = [

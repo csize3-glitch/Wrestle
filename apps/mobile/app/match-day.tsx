@@ -57,6 +57,11 @@ type MatchFormState = {
   notes: string;
 };
 
+type StyleRecord = {
+  wins: number;
+  losses: number;
+};
+
 function createEmptyMatchForm(): MatchFormState {
   return {
     boutNumber: "",
@@ -111,6 +116,23 @@ function getMatchTitle(match: TournamentMatch) {
   ]
     .filter(Boolean)
     .join(" • ");
+}
+
+function getEntryStyle(entry?: TournamentEntry | null, wrestler?: WrestlerProfile | null): WrestlingStyle {
+  if (entry?.style && STYLE_OPTIONS.includes(entry.style)) {
+    return entry.style;
+  }
+
+  const firstStyle = wrestler?.styles?.[0];
+  if (firstStyle && STYLE_OPTIONS.includes(firstStyle)) {
+    return firstStyle;
+  }
+
+  return "Folkstyle";
+}
+
+function formatRecord(record: StyleRecord) {
+  return `${record.wins}-${record.losses}`;
 }
 
 function SummarySection({ title, items }: { title: string; items: string[] }) {
@@ -204,6 +226,102 @@ function Field({
   );
 }
 
+function StyleRecordCard({
+  style,
+  record,
+  active,
+  onPress,
+}: {
+  style: WrestlingStyle;
+  record: StyleRecord;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        minWidth: 132,
+        flex: 1,
+        borderWidth: 1,
+        borderColor: active ? "#bf1029" : "#315c86",
+        backgroundColor: active ? "#431407" : pressed ? "#173b67" : "#102f52",
+        borderRadius: 18,
+        padding: 12,
+      })}
+    >
+      <Text style={{ color: "#93c5fd", fontSize: 12, fontWeight: "900" }}>{style}</Text>
+      <Text style={{ color: "#ffffff", fontSize: 24, fontWeight: "900", marginTop: 4 }}>
+        {formatRecord(record)}
+      </Text>
+      <Text style={{ color: "#b7c9df", fontSize: 12, marginTop: 2 }}>W-L</Text>
+    </Pressable>
+  );
+}
+
+function CurrentMatchCard({
+  match,
+  wrestlerName,
+  entryLabel,
+  onOpenWrestler,
+  onComplete,
+  onNext,
+}: {
+  match: TournamentMatch | null;
+  wrestlerName: string;
+  entryLabel: string;
+  onOpenWrestler: () => void;
+  onComplete: () => void;
+  onNext: () => void;
+}) {
+  if (!match) {
+    return (
+      <View style={cardStyle}>
+        <Text style={sectionTitleStyle}>Current Match</Text>
+        <Text style={mutedTextStyle}>
+          No active match yet. Add matches manually or import a bracket to build the match queue.
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View
+      style={{
+        ...cardStyle,
+        borderWidth: 2,
+        borderColor: match.status === "onDeck" ? "#bf1029" : "#315c86",
+        backgroundColor: match.status === "onDeck" ? "#431407" : "#0b2542",
+      }}
+    >
+      <Text style={{ color: "#93c5fd", fontSize: 12, fontWeight: "900", letterSpacing: 1 }}>
+        {match.status === "onDeck" ? "ON DECK" : "NEXT UP"}
+      </Text>
+
+      <Text style={{ color: "#ffffff", fontSize: 25, fontWeight: "900", marginTop: 8 }}>
+        {wrestlerName || "Unknown Wrestler"} vs {match.opponentName || "TBD"}
+      </Text>
+
+      <Text style={{ color: "#b7c9df", fontSize: 15, lineHeight: 22, marginTop: 8 }}>
+        {[getMatchTitle(match), entryLabel, match.roundName].filter(Boolean).join(" • ") ||
+          "Match details needed"}
+      </Text>
+
+      {match.notes ? (
+        <Text style={{ color: "#dbeafe", fontSize: 14, lineHeight: 20, marginTop: 8 }}>
+          {match.notes}
+        </Text>
+      ) : null}
+
+      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
+        <Pill label="Open Wrestler" onPress={onOpenWrestler} />
+        <Pill label="Complete Match" active onPress={onComplete} />
+        <Pill label="Next Match" onPress={onNext} />
+      </View>
+    </View>
+  );
+}
+
 export default function MatchDayScreen() {
   const { firebaseUser, appUser, currentTeam, loading: authLoading } = useMobileAuthState();
   const params = useLocalSearchParams<{ tournamentId?: string; wrestlerId?: string }>();
@@ -233,6 +351,10 @@ export default function MatchDayScreen() {
   const [parsedMatches, setParsedMatches] = useState<ParsedBracketMatch[]>([]);
   const [selectedParsedIds, setSelectedParsedIds] = useState<string[]>([]);
   const [savingParsedMatches, setSavingParsedMatches] = useState(false);
+
+  const [boutSearch, setBoutSearch] = useState("");
+  const [matFilter, setMatFilter] = useState("");
+  const [showCompletedMatches, setShowCompletedMatches] = useState(false);
 
   const isCoach = appUser?.role === "coach";
 
@@ -306,20 +428,118 @@ export default function MatchDayScreen() {
     return matches.filter((match) => match.wrestlerId === selectedWrestlerId);
   }, [matches, selectedWrestlerId]);
 
+  const selectedWrestlerStyleRecords = useMemo(() => {
+    const records: Record<WrestlingStyle, StyleRecord> = {
+      Folkstyle: { wins: 0, losses: 0 },
+      Freestyle: { wins: 0, losses: 0 },
+      "Greco-Roman": { wins: 0, losses: 0 },
+    };
+
+    selectedWrestlerMatches.forEach((match) => {
+      if (match.status !== "completed") return;
+      if (match.result !== "win" && match.result !== "loss") return;
+
+      const entry = entries.find((row) => row.id === match.tournamentEntryId);
+      const wrestler =
+        matchDayRoster.find((row) => row.id === match.wrestlerId) ||
+        teamRoster.find((row) => row.id === match.wrestlerId) ||
+        selectedWrestler;
+
+      const style = getEntryStyle(entry, wrestler);
+
+      if (match.result === "win") {
+        records[style].wins += 1;
+      } else {
+        records[style].losses += 1;
+      }
+    });
+
+    return records;
+  }, [entries, matchDayRoster, selectedWrestler, selectedWrestlerMatches, teamRoster]);
+
+  const selectedWrestlerActiveStyleRecord = selectedWrestlerStyleRecords[activeStyle];
+
+  const availableMatNumbers = useMemo(() => {
+    return Array.from(
+      new Set(
+        matches
+          .map((match) => match.matNumber)
+          .filter((matNumber): matNumber is string => Boolean(matNumber))
+      )
+    ).sort((a, b) => {
+      const aNumber = Number(a);
+      const bNumber = Number(b);
+
+      if (Number.isFinite(aNumber) && Number.isFinite(bNumber)) {
+        return aNumber - bNumber;
+      }
+
+      return a.localeCompare(b);
+    });
+  }, [matches]);
+
+  const filteredMatches = useMemo(() => {
+    const boutNeedle = boutSearch.trim().toLowerCase();
+    const selectedMat = matFilter.trim();
+
+    return matches.filter((match) => {
+      const matchesBout =
+        !boutNeedle ||
+        String(match.boutNumber || "").toLowerCase().includes(boutNeedle) ||
+        String(match.opponentName || "").toLowerCase().includes(boutNeedle);
+
+      const matchesMat = !selectedMat || match.matNumber === selectedMat;
+
+      return matchesBout && matchesMat;
+    });
+  }, [boutSearch, matFilter, matches]);
+
   const onDeckMatches = useMemo(
-    () => matches.filter((match) => match.status === "onDeck"),
-    [matches]
+    () => filteredMatches.filter((match) => match.status === "onDeck"),
+    [filteredMatches]
   );
 
   const upcomingMatches = useMemo(
-    () => matches.filter((match) => match.status === "upcoming"),
-    [matches]
+    () => filteredMatches.filter((match) => match.status === "upcoming"),
+    [filteredMatches]
   );
 
   const completedMatches = useMemo(
-    () => matches.filter((match) => match.status === "completed"),
-    [matches]
+    () => filteredMatches.filter((match) => match.status === "completed"),
+    [filteredMatches]
   );
+
+  const currentMatch = useMemo(() => {
+    return onDeckMatches[0] || upcomingMatches[0] || null;
+  }, [onDeckMatches, upcomingMatches]);
+
+  const currentMatchWrestler = useMemo(() => {
+    if (!currentMatch) return null;
+
+    return (
+      matchDayRoster.find((row) => row.id === currentMatch.wrestlerId) ||
+      teamRoster.find((row) => row.id === currentMatch.wrestlerId) ||
+      null
+    );
+  }, [currentMatch, matchDayRoster, teamRoster]);
+
+  const currentMatchEntry = useMemo(() => {
+    if (!currentMatch) return null;
+    return entries.find((row) => row.id === currentMatch.tournamentEntryId) || null;
+  }, [currentMatch, entries]);
+
+  const currentMatchEntryLabel = useMemo(() => {
+    if (!currentMatch) return "";
+
+    const style = getEntryStyle(currentMatchEntry, currentMatchWrestler);
+    return [currentMatchEntry?.weightClass, style].filter(Boolean).join(" • ");
+  }, [currentMatch, currentMatchEntry, currentMatchWrestler]);
+
+  const visibleQueueMatches = useMemo(() => {
+    return showCompletedMatches
+      ? [...onDeckMatches, ...upcomingMatches, ...completedMatches]
+      : [...onDeckMatches, ...upcomingMatches];
+  }, [completedMatches, onDeckMatches, showCompletedMatches, upcomingMatches]);
 
   const resolvedSummary = useMemo(() => {
     if (!selectedWrestler) return null;
@@ -416,6 +636,9 @@ export default function MatchDayScreen() {
     try {
       setLoading(true);
       setSelectedTournamentId(tournamentId);
+      setBoutSearch("");
+      setMatFilter("");
+      setShowCompletedMatches(false);
 
       const entryRows = await listTournamentEntries(db, {
         teamId: currentTeam.id,
@@ -527,18 +750,79 @@ export default function MatchDayScreen() {
 
   function openEditMatch(match: TournamentMatch) {
     if (!isCoach) return;
+    setSelectedWrestlerId(match.wrestlerId);
     setEditingMatchId(match.id);
     setMatchForm(createFormFromMatch(match));
     setMatchModalVisible(true);
   }
 
+  function openCompleteMatch(match: TournamentMatch) {
+    if (!isCoach) return;
+
+    setSelectedWrestlerId(match.wrestlerId);
+    setEditingMatchId(match.id);
+    setMatchForm({
+      ...createFormFromMatch(match),
+      status: "completed",
+    });
+    setMatchModalVisible(true);
+  }
+
+  async function moveToNextMatch() {
+    if (!currentMatch) return;
+
+    const activeQueue = [...onDeckMatches, ...upcomingMatches];
+    const currentIndex = activeQueue.findIndex((match) => match.id === currentMatch.id);
+    const nextMatch = activeQueue[currentIndex + 1];
+
+    if (!nextMatch) {
+      Alert.alert("No next match", "There are no more upcoming matches in the queue.");
+      return;
+    }
+
+    try {
+      await updateTournamentMatch(db, currentMatch.id, { status: "upcoming" });
+      await updateTournamentMatch(db, nextMatch.id, { status: "onDeck" });
+      setSelectedWrestlerId(nextMatch.wrestlerId);
+      await refreshMatches(selectedTournamentId);
+    } catch (error) {
+      console.error("Failed to move to next match:", error);
+      Alert.alert("Update failed", "Could not move to the next match.");
+    }
+  }
+
   async function saveMatchForm() {
-    if (!isCoach || !currentTeam?.id || !selectedTournamentId || !selectedWrestler || !selectedEntry) {
+    if (!isCoach || !currentTeam?.id || !selectedTournamentId) {
+      return;
+    }
+
+    const formWrestler =
+      matchDayRoster.find((wrestler) => wrestler.id === selectedWrestlerId) ||
+      teamRoster.find((wrestler) => wrestler.id === selectedWrestlerId) ||
+      selectedWrestler;
+
+    const formEntry =
+      formWrestler && "tournamentEntry" in formWrestler && formWrestler.tournamentEntry
+        ? formWrestler.tournamentEntry
+        : confirmedEntries.find((entry) => entry.wrestlerId === selectedWrestlerId) || selectedEntry;
+
+    if (!formWrestler || !formEntry) {
+      Alert.alert("Confirmed entry needed", "Select a confirmed wrestler before saving this match.");
       return;
     }
 
     if (!matchForm.opponentName.trim() && !matchForm.boutNumber.trim()) {
       Alert.alert("Match details needed", "Add at least an opponent name or bout number.");
+      return;
+    }
+
+    if (matchForm.status === "completed" && matchForm.result !== "win" && matchForm.result !== "loss") {
+      Alert.alert("Result needed", "Choose Win or Loss before completing this match.");
+      return;
+    }
+
+    if (matchForm.status === "completed" && !matchForm.opponentName.trim()) {
+      Alert.alert("Opponent needed", "Add an opponent name before completing this match.");
       return;
     }
 
@@ -548,8 +832,8 @@ export default function MatchDayScreen() {
       const payload = {
         teamId: currentTeam.id,
         tournamentId: selectedTournamentId,
-        tournamentEntryId: selectedEntry.id,
-        wrestlerId: selectedWrestler.id,
+        tournamentEntryId: formEntry.id,
+        wrestlerId: formWrestler.id,
         boutNumber: matchForm.boutNumber,
         matNumber: matchForm.matNumber,
         roundName: matchForm.roundName,
@@ -562,19 +846,46 @@ export default function MatchDayScreen() {
         notes: matchForm.notes,
       };
 
+      let savedMatchId = editingMatchId;
+
       if (editingMatchId) {
         await updateTournamentMatch(db, editingMatchId, payload);
       } else {
-        await createTournamentMatch(db, payload);
+        savedMatchId = await createTournamentMatch(db, payload);
       }
 
-      await refreshMatches(selectedTournamentId);
+      const updatedMatches = await listTournamentMatches(db, {
+        teamId: currentTeam.id,
+        tournamentId: selectedTournamentId,
+      });
+
+      setMatches(updatedMatches);
+
+      if (matchForm.status === "completed" && savedMatchId) {
+        const completedMatch = updatedMatches.find((match) => match.id === savedMatchId);
+
+        if (completedMatch && !(completedMatch as any).historySaved) {
+          await saveTournamentMatchToWrestlerHistory(db, completedMatch);
+
+          const refreshedMatches = await listTournamentMatches(db, {
+            teamId: currentTeam.id,
+            tournamentId: selectedTournamentId,
+          });
+
+          setMatches(refreshedMatches);
+        }
+      }
+
       setMatchModalVisible(false);
       setEditingMatchId(null);
       setMatchForm(createEmptyMatchForm());
-    } catch (error) {
+
+      if (matchForm.status === "completed") {
+        Alert.alert("Match completed", "Result saved to the wrestler history.");
+      }
+    } catch (error: any) {
       console.error("Failed to save tournament match:", error);
-      Alert.alert("Save failed", "Could not save this match.");
+      Alert.alert("Save failed", error?.message || "Could not save this match.");
     } finally {
       setSavingMatch(false);
     }
@@ -589,34 +900,6 @@ export default function MatchDayScreen() {
     } catch (error) {
       console.error("Failed to update match status:", error);
       Alert.alert("Update failed", "Could not update match status.");
-    }
-  }
-
-  async function saveMatchToHistory(match: TournamentMatch) {
-    if (!isCoach) return;
-
-    if (match.status !== "completed") {
-      Alert.alert("Complete match first", "Mark this match completed before saving it to wrestler history.");
-      return;
-    }
-
-    if (match.result !== "win" && match.result !== "loss") {
-      Alert.alert("Result needed", "Edit the match and choose Win or Loss before saving to history.");
-      return;
-    }
-
-    if (!match.opponentName) {
-      Alert.alert("Opponent needed", "Edit the match and add an opponent name before saving to history.");
-      return;
-    }
-
-    try {
-      await saveTournamentMatchToWrestlerHistory(db, match);
-      await refreshMatches(selectedTournamentId);
-      Alert.alert("Saved", "This match was saved to the wrestler history.");
-    } catch (error: any) {
-      console.error("Failed to save match to wrestler history:", error);
-      Alert.alert("Save failed", error?.message || "Could not save this match to wrestler history.");
     }
   }
 
@@ -751,12 +1034,17 @@ export default function MatchDayScreen() {
       <Modal visible={matchModalVisible} animationType="slide" onRequestClose={() => setMatchModalVisible(false)}>
         <ScrollView style={{ flex: 1, backgroundColor: "#061a33" }} contentContainerStyle={{ padding: 18, gap: 14 }}>
           <Text style={{ color: "#ffffff", fontSize: 28, fontWeight: "900" }}>
-            {editingMatchId ? "Edit Match" : "Add Match"}
+            {matchForm.status === "completed"
+              ? "Complete Match"
+              : editingMatchId
+                ? "Edit Match"
+                : "Add Match"}
           </Text>
 
           {selectedWrestler ? (
             <Text style={{ color: "#b7c9df", fontSize: 15, lineHeight: 22 }}>
-              {getFullName(selectedWrestler)} • {selectedEntry?.weightClass || selectedWrestler.weightClass || "Weight not set"} •{" "}
+              {getFullName(selectedWrestler)} •{" "}
+              {selectedEntry?.weightClass || selectedWrestler.weightClass || "Weight not set"} •{" "}
               {selectedEntry?.style || selectedWrestler.styles[0] || "Style not set"}
             </Text>
           ) : null}
@@ -800,7 +1088,18 @@ export default function MatchDayScreen() {
           <Field label="Notes" value={matchForm.notes} onChangeText={(value) => updateMatchForm("notes", value)} multiline />
 
           <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-            <Pill label={savingMatch ? "Saving..." : "Save Match"} active onPress={saveMatchForm} disabled={savingMatch} />
+            <Pill
+              label={
+                savingMatch
+                  ? "Saving..."
+                  : matchForm.status === "completed"
+                    ? "Save Completed Match"
+                    : "Save Match"
+              }
+              active
+              onPress={saveMatchForm}
+              disabled={savingMatch}
+            />
             <Pill label="Cancel" onPress={() => setMatchModalVisible(false)} />
           </View>
         </ScrollView>
@@ -887,6 +1186,22 @@ export default function MatchDayScreen() {
           {isCoach ? <Pill label="Import Bracket" onPress={() => setBracketModalVisible(true)} /> : null}
         </View>
 
+        <CurrentMatchCard
+          match={currentMatch}
+          wrestlerName={getFullName(currentMatchWrestler)}
+          entryLabel={currentMatchEntryLabel}
+          onOpenWrestler={() => {
+            if (!currentMatch) return;
+            setSelectedWrestlerId(currentMatch.wrestlerId);
+          }}
+          onComplete={() => {
+            if (!currentMatch) return;
+            setSelectedWrestlerId(currentMatch.wrestlerId);
+            openCompleteMatch(currentMatch);
+          }}
+          onNext={moveToNextMatch}
+        />
+
         {!isCoach ? (
           <View style={cardStyle}>
             <Text style={{ color: "#b7c9df", fontSize: 15, lineHeight: 22 }}>
@@ -943,35 +1258,137 @@ export default function MatchDayScreen() {
               : "Select a tournament to view the queue."}
           </Text>
 
+          <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+            <TextInput
+              value={boutSearch}
+              onChangeText={setBoutSearch}
+              placeholder="Search bout or opponent..."
+              placeholderTextColor="#7c8da3"
+              style={{
+                flex: 1,
+                minWidth: 180,
+                minHeight: 46,
+                borderWidth: 1,
+                borderColor: "#315c86",
+                borderRadius: 999,
+                paddingHorizontal: 14,
+                backgroundColor: "#102f52",
+                color: "#ffffff",
+              }}
+            />
+
+            <Pill
+              label={matFilter ? `Mat ${matFilter}` : "All Mats"}
+              active={Boolean(matFilter)}
+              onPress={() => {
+                if (availableMatNumbers.length === 0) {
+                  Alert.alert("No mats yet", "Add mat numbers to matches first.");
+                  return;
+                }
+
+                const currentIndex = availableMatNumbers.indexOf(matFilter);
+                const nextIndex = currentIndex + 1;
+
+                if (!matFilter) {
+                  setMatFilter(availableMatNumbers[0]);
+                  return;
+                }
+
+                if (nextIndex >= availableMatNumbers.length) {
+                  setMatFilter("");
+                  return;
+                }
+
+                setMatFilter(availableMatNumbers[nextIndex]);
+              }}
+            />
+
+            <Pill
+              label={showCompletedMatches ? "Hide Completed" : `Show Completed (${completedMatches.length})`}
+              active={showCompletedMatches}
+              onPress={() => setShowCompletedMatches((prev) => !prev)}
+            />
+
+            {boutSearch || matFilter ? (
+              <Pill
+                label="Clear Filters"
+                onPress={() => {
+                  setBoutSearch("");
+                  setMatFilter("");
+                }}
+              />
+            ) : null}
+          </View>
+
+          {onDeckMatches.length > 0 ? (
+            <View
+              style={{
+                marginTop: 12,
+                borderWidth: 2,
+                borderColor: "#bf1029",
+                backgroundColor: "#431407",
+                borderRadius: 20,
+                padding: 13,
+              }}
+            >
+              <Text style={{ color: "#fecaca", fontSize: 12, fontWeight: "900", letterSpacing: 1 }}>
+                ON DECK NOW
+              </Text>
+
+              <Text style={{ color: "#ffffff", fontSize: 18, fontWeight: "900", marginTop: 5 }}>
+                {onDeckMatches.length} match{onDeckMatches.length === 1 ? "" : "es"} ready
+              </Text>
+
+              <Text style={{ color: "#fed7d7", fontSize: 14, lineHeight: 20, marginTop: 5 }}>
+                These are pinned first so coaches can quickly jump to the right wrestler.
+              </Text>
+            </View>
+          ) : null}
+
           {loadingMatches ? <Text style={mutedTextStyle}>Loading matches...</Text> : null}
 
           {matches.length === 0 ? (
             <Text style={[mutedTextStyle, { marginTop: 10 }]}>
               No matches added yet. Use Add Match for the selected wrestler or Import Bracket.
             </Text>
+          ) : visibleQueueMatches.length === 0 ? (
+            <Text style={[mutedTextStyle, { marginTop: 10 }]}>
+              No matches match the current filters.
+            </Text>
           ) : (
             <View style={{ gap: 10, marginTop: 12 }}>
-              {[...onDeckMatches, ...upcomingMatches, ...completedMatches].map((match) => {
+              {visibleQueueMatches.map((match) => {
                 const wrestler =
                   matchDayRoster.find((row) => row.id === match.wrestlerId) ||
                   teamRoster.find((row) => row.id === match.wrestlerId);
                 const entry = entries.find((row) => row.id === match.tournamentEntryId);
                 const active = match.wrestlerId === selectedWrestlerId;
+                const matchStyle = getEntryStyle(entry, wrestler);
+                const historySaved = (match as any).historySaved === true;
+                const isOnDeck = match.status === "onDeck";
+                const isCompleted = match.status === "completed";
 
                 return (
                   <Pressable
                     key={match.id}
                     onPress={() => setSelectedWrestlerId(match.wrestlerId)}
                     style={{
-                      borderWidth: 1,
-                      borderColor: active ? "#bf1029" : "#315c86",
+                      borderWidth: isOnDeck ? 2 : 1,
+                      borderColor: isOnDeck ? "#bf1029" : active ? "#bf1029" : "#315c86",
                       borderRadius: 18,
                       padding: 13,
-                      backgroundColor: active ? "#431407" : "#102f52",
+                      backgroundColor: isOnDeck
+                        ? "#431407"
+                        : active
+                          ? "#431407"
+                          : isCompleted
+                            ? "#071d36"
+                            : "#102f52",
                     }}
                   >
-                    <Text style={{ color: "#93c5fd", fontSize: 12, fontWeight: "900" }}>
+                    <Text style={{ color: isOnDeck ? "#fecaca" : "#93c5fd", fontSize: 12, fontWeight: "900" }}>
                       {match.status.toUpperCase()}
+                      {historySaved ? " • HISTORY SAVED" : ""}
                     </Text>
 
                     <Text style={{ color: "#ffffff", fontSize: 17, fontWeight: "900", marginTop: 4 }}>
@@ -979,7 +1396,7 @@ export default function MatchDayScreen() {
                     </Text>
 
                     <Text style={{ color: "#b7c9df", fontSize: 14, marginTop: 5, lineHeight: 20 }}>
-                      {[getMatchTitle(match), entry?.weightClass, entry?.style, match.score, match.method]
+                      {[getMatchTitle(match), entry?.weightClass, matchStyle, match.score, match.method]
                         .filter(Boolean)
                         .join(" • ") || "Match details needed"}
                     </Text>
@@ -998,19 +1415,14 @@ export default function MatchDayScreen() {
                           label="On Deck"
                           active={match.status === "onDeck"}
                           onPress={() => quickUpdateMatch(match, "onDeck")}
+                          disabled={historySaved}
                         />
 
                         <Pill
-                          label="Complete"
+                          label={historySaved ? "History Saved" : "Complete"}
                           active={match.status === "completed"}
-                          onPress={() => quickUpdateMatch(match, "completed")}
-                        />
-
-                        <Pill
-                          label={(match as any).historySaved ? "History Saved" : "Save to History"}
-                          active={(match as any).historySaved === true}
-                          onPress={() => saveMatchToHistory(match)}
-                          disabled={(match as any).historySaved === true}
+                          onPress={() => openCompleteMatch(match)}
+                          disabled={historySaved}
                         />
 
                         <Pill
@@ -1121,29 +1533,55 @@ export default function MatchDayScreen() {
               />
             </View>
 
+            <View style={{ marginTop: 16 }}>
+              <Text style={sectionTitleStyle}>Tournament Record by Style</Text>
+              <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+                {STYLE_OPTIONS.map((style) => (
+                  <StyleRecordCard
+                    key={style}
+                    style={style}
+                    record={selectedWrestlerStyleRecords[style]}
+                    active={activeStyle === style}
+                    onPress={() => setActiveStyle(style)}
+                  />
+                ))}
+              </View>
+
+              <Text style={{ color: "#b7c9df", fontSize: 14, lineHeight: 20, marginTop: 10 }}>
+                Active style: {activeStyle} • Record {formatRecord(selectedWrestlerActiveStyleRecord)}
+              </Text>
+            </View>
+
             {selectedWrestlerMatches.length > 0 ? (
               <View style={{ marginTop: 16, gap: 10 }}>
                 <Text style={sectionTitleStyle}>This Wrestler’s Matches</Text>
-                {selectedWrestlerMatches.map((match) => (
-                  <Pressable
-                    key={match.id}
-                    onPress={() => openEditMatch(match)}
-                    style={{
-                      borderWidth: 1,
-                      borderColor: "#315c86",
-                      borderRadius: 16,
-                      padding: 12,
-                      backgroundColor: "#102f52",
-                    }}
-                  >
-                    <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>
-                      {match.opponentName ? `vs ${match.opponentName}` : "Opponent TBD"}
-                    </Text>
-                    <Text style={{ color: "#b7c9df", marginTop: 5 }}>
-                      {[match.status, getMatchTitle(match), match.score, match.method].filter(Boolean).join(" • ")}
-                    </Text>
-                  </Pressable>
-                ))}
+                {selectedWrestlerMatches.map((match) => {
+                  const entry = entries.find((row) => row.id === match.tournamentEntryId);
+                  const matchStyle = getEntryStyle(entry, selectedWrestler);
+
+                  return (
+                    <Pressable
+                      key={match.id}
+                      onPress={() => openEditMatch(match)}
+                      style={{
+                        borderWidth: 1,
+                        borderColor: "#315c86",
+                        borderRadius: 16,
+                        padding: 12,
+                        backgroundColor: "#102f52",
+                      }}
+                    >
+                      <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>
+                        {match.opponentName ? `vs ${match.opponentName}` : "Opponent TBD"}
+                      </Text>
+                      <Text style={{ color: "#b7c9df", marginTop: 5 }}>
+                        {[match.status, matchStyle, getMatchTitle(match), match.result, match.score, match.method]
+                          .filter(Boolean)
+                          .join(" • ")}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
             ) : null}
 
