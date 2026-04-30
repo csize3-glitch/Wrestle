@@ -153,6 +153,15 @@ export interface WrestlerMatch {
   score?: string;
   method?: string;
   notes?: string;
+
+  tournamentId?: string;
+  tournamentEntryId?: string;
+  tournamentMatchId?: string;
+  boutNumber?: string;
+  matNumber?: string;
+  roundName?: string;
+  opponentTeam?: string;
+
   createdAt: string;
   updatedAt: string;
 }

@@ -3,9 +3,11 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
   type Firestore,
@@ -16,6 +18,7 @@ import {
   type TournamentMatch,
   type TournamentMatchMethod,
   type TournamentMatchStatus,
+  type WrestlingStyle,
 } from "@wrestlewell/types/index";
 
 export type TournamentMatchInput = {
@@ -95,6 +98,14 @@ function normalizeMethod(value: unknown): TournamentMatchMethod | undefined {
   }
 
   return undefined;
+}
+
+function normalizeStyle(value: unknown): WrestlingStyle {
+  if (value === "Freestyle" || value === "Folkstyle" || value === "Greco-Roman") {
+    return value;
+  }
+
+  return "Folkstyle";
 }
 
 function normalizeTournamentMatch(id: string, value: Record<string, unknown>): TournamentMatch {
@@ -455,6 +466,9 @@ export async function createTournamentMatch(
     method: input.method || "",
     notes: input.notes?.trim() || "",
 
+    historySaved: false,
+    wrestlerMatchId: "",
+
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -515,4 +529,77 @@ export function buildTournamentMatchInputFromParsedMatch(args: {
     method: resultToMethod(args.parsedMatch.resultText),
     notes: args.parsedMatch.resultText ? `Imported result: ${args.parsedMatch.resultText}` : "",
   };
+}
+
+export async function saveTournamentMatchToWrestlerHistory(
+  db: Firestore,
+  match: TournamentMatch
+): Promise<string> {
+  if (match.status !== "completed") {
+    throw new Error("Only completed tournament matches can be saved to wrestler history.");
+  }
+
+  if (match.result !== "win" && match.result !== "loss") {
+    throw new Error("Add a win or loss before saving this match to wrestler history.");
+  }
+
+  if (!match.opponentName?.trim()) {
+    throw new Error("Add an opponent name before saving this match to wrestler history.");
+  }
+
+  const tournamentSnapshot = await getDoc(doc(db, COLLECTIONS.TOURNAMENTS, match.tournamentId));
+  const entrySnapshot = await getDoc(doc(db, COLLECTIONS.TOURNAMENT_ENTRIES, match.tournamentEntryId));
+
+  const tournamentData = tournamentSnapshot.exists()
+    ? (tournamentSnapshot.data() as Record<string, unknown>)
+    : {};
+
+  const entryData = entrySnapshot.exists()
+    ? (entrySnapshot.data() as Record<string, unknown>)
+    : {};
+
+  const eventName = normalizeText(tournamentData.name) || "Tournament";
+  const eventDate = normalizeText(tournamentData.eventDate) || new Date().toISOString().split("T")[0];
+  const style = normalizeStyle(entryData.style);
+  const weightClass = normalizeText(entryData.weightClass);
+
+  const historyId = `tm_${match.id}`;
+  const historyRef = doc(db, COLLECTIONS.WRESTLER_MATCHES, historyId);
+
+  await setDoc(
+    historyRef,
+    {
+      teamId: match.teamId,
+      wrestlerId: match.wrestlerId,
+      eventName,
+      opponentName: match.opponentName.trim(),
+      result: match.result,
+      style,
+      weightClass,
+      matchDate: eventDate,
+      score: match.score || "",
+      method: match.method || "",
+      notes: match.notes || "",
+
+      tournamentId: match.tournamentId,
+      tournamentEntryId: match.tournamentEntryId,
+      tournamentMatchId: match.id,
+      boutNumber: match.boutNumber || "",
+      matNumber: match.matNumber || "",
+      roundName: match.roundName || "",
+      opponentTeam: match.opponentTeam || "",
+
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  await updateDoc(doc(db, COLLECTIONS.TOURNAMENT_MATCHES, match.id), {
+    historySaved: true,
+    wrestlerMatchId: historyId,
+    updatedAt: serverTimestamp(),
+  });
+
+  return historyId;
 }
