@@ -16,3 +16,4 @@ export * from "./team-management";
 export * from "./match-history";
 export * from "./settings";
 export * from "./vark-question-bank";
+export * from "./tournament-matches";

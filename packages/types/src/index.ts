@@ -230,6 +230,42 @@ export interface TournamentEntry {
   updatedAt: string;
 }
 
+export type TournamentMatchStatus = "upcoming" | "onDeck" | "completed";
+
+export type TournamentMatchMethod =
+  | "decision"
+  | "major"
+  | "tech"
+  | "fall"
+  | "forfeit"
+  | "medical"
+  | "other";
+
+export interface TournamentMatch {
+  id: string;
+  teamId: string;
+  tournamentId: string;
+  tournamentEntryId: string;
+  wrestlerId: string;
+
+  boutNumber?: string;
+  matNumber?: string;
+  roundName?: string;
+
+  opponentName?: string;
+  opponentTeam?: string;
+
+  status: TournamentMatchStatus;
+
+  result?: "win" | "loss";
+  score?: string;
+  method?: TournamentMatchMethod;
+  notes?: string;
+
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface TeamAnnouncement {
   id: string;
   teamId: string;
@@ -282,6 +318,7 @@ export const COLLECTIONS = {
   TEAM_MEMBERS: "team_members",
   TOURNAMENTS: "tournaments",
   TOURNAMENT_ENTRIES: "tournament_entries",
+  TOURNAMENT_MATCHES: "tournament_matches",
   WRESTLER_MATCHES: "wrestler_matches",
   TEAM_ANNOUNCEMENTS: "team_announcements",
   TEAM_NOTIFICATIONS: "team_notifications",
