@@ -16,3 +16,6 @@ apps/mobile/.expo
 apps/mobile/.expo-shared
 firebase-debug.log
 service-account.json
+
+# Large local YouTube scrape files
+/data/youtube-library/usa-wrestling-videos.jsonl
