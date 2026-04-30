@@ -7,7 +7,11 @@ import {
   where,
   type Firestore,
 } from "firebase/firestore";
-import { COLLECTIONS, type PracticePlan } from "@wrestlewell/types/index";
+import {
+  COLLECTIONS,
+  type PracticePlan,
+  type WrestlerProfile,
+} from "@wrestlewell/types/index";
 
 export type PracticePlanBlockRecord = {
   id: string;
@@ -31,10 +35,36 @@ export type PracticePlanDetail = {
   blocks: PracticePlanBlockRecord[];
 };
 
-export function practicePlanMatchesAssignment(
-  plan: Pick<PracticePlan, "assignedWrestlerIds">,
-  wrestlerId?: string | null
+type PracticeAssignmentViewer =
+  | string
+  | Pick<WrestlerProfile, "id" | "trainingGroupIds" | "primaryTrainingGroupId">
+  | null
+  | undefined;
+
+function wrestlerMatchesGroup(
+  wrestler: Pick<WrestlerProfile, "trainingGroupIds" | "primaryTrainingGroupId">,
+  groupId?: string
 ) {
+  if (!groupId) return false;
+  return (
+    wrestler.primaryTrainingGroupId === groupId ||
+    Boolean(wrestler.trainingGroupIds?.includes(groupId))
+  );
+}
+
+export function practicePlanMatchesAssignment(
+  plan: Pick<PracticePlan, "assignmentType" | "assignedWrestlerIds" | "groupId">,
+  wrestler?: PracticeAssignmentViewer
+) {
+  if (plan.assignmentType === "group") {
+    if (!wrestler || typeof wrestler === "string") {
+      return false;
+    }
+
+    return wrestlerMatchesGroup(wrestler, plan.groupId);
+  }
+
+  const wrestlerId = typeof wrestler === "string" ? wrestler : wrestler?.id;
   const assignedIds = plan.assignedWrestlerIds || [];
   if (assignedIds.length === 0) {
     return true;
@@ -112,7 +142,7 @@ function normalizePracticeBlock(
 export async function listPracticePlans(
   db: Firestore,
   teamId: string,
-  wrestlerId?: string | null
+  wrestler?: PracticeAssignmentViewer
 ): Promise<PracticePlan[]> {
   const snapshot = await getDocs(
     query(collection(db, COLLECTIONS.PRACTICE_PLANS), where("teamId", "==", teamId))
@@ -122,7 +152,7 @@ export async function listPracticePlans(
     .map((planDoc) =>
       normalizePracticePlan(planDoc.id, planDoc.data() as Record<string, unknown>)
     )
-    .filter((plan) => practicePlanMatchesAssignment(plan, wrestlerId))
+    .filter((plan) => practicePlanMatchesAssignment(plan, wrestler))
     .sort((a, b) => a.title.localeCompare(b.title));
 }
 
@@ -130,7 +160,7 @@ export async function getPracticePlanDetail(
   db: Firestore,
   teamId: string,
   planId: string,
-  wrestlerId?: string | null
+  wrestler?: PracticeAssignmentViewer
 ): Promise<PracticePlanDetail | null> {
   const planSnapshot = await getDoc(doc(db, COLLECTIONS.PRACTICE_PLANS, planId));
   if (!planSnapshot.exists()) {
@@ -142,7 +172,7 @@ export async function getPracticePlanDetail(
     return null;
   }
 
-  if (!practicePlanMatchesAssignment(plan, wrestlerId)) {
+  if (!practicePlanMatchesAssignment(plan, wrestler)) {
     return null;
   }
 

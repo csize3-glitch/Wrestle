@@ -186,6 +186,32 @@ function parseList(value: string) {
     .filter(Boolean);
 }
 
+function normalizeTrainingGroupIds(
+  primaryTrainingGroupId?: string,
+  trainingGroupIds?: string[]
+) {
+  const primaryId = primaryTrainingGroupId?.trim() || "";
+  const seen = new Set<string>();
+  const orderedIds: string[] = [];
+
+  function includeGroupId(groupId?: string) {
+    const safeGroupId = groupId?.trim() || "";
+    if (!safeGroupId || seen.has(safeGroupId)) {
+      return;
+    }
+
+    seen.add(safeGroupId);
+    orderedIds.push(safeGroupId);
+  }
+
+  includeGroupId(primaryId);
+  for (const groupId of trainingGroupIds || []) {
+    includeGroupId(groupId);
+  }
+
+  return orderedIds;
+}
+
 function buildFormFromWrestler(wrestler: WrestlerProfile): WrestlerFormState {
   const styleProfiles = createEmptyStyleProfilesForm();
   for (const style of WRESTLING_STYLES) {
@@ -209,8 +235,11 @@ function buildFormFromWrestler(wrestler: WrestlerProfile): WrestlerFormState {
     schoolOrClub: wrestler.schoolOrClub || "",
     photoUrl: wrestler.photoUrl || "",
     styles: wrestler.styles,
-    trainingGroupIds: wrestler.trainingGroupIds || [],
-    primaryTrainingGroupId: wrestler.primaryTrainingGroupId || "",
+    trainingGroupIds: normalizeTrainingGroupIds(
+      wrestler.primaryTrainingGroupId,
+      wrestler.trainingGroupIds
+    ),
+    primaryTrainingGroupId: wrestler.primaryTrainingGroupId?.trim() || "",
     strengths: toTextareaValue(wrestler.strengths),
     weaknesses: toTextareaValue(wrestler.weaknesses),
     warmupRoutine: toTextareaValue(wrestler.warmupRoutine),
@@ -249,6 +278,11 @@ function buildMatSideForm(summary: MatSideSummary | null): MatSideFormState {
 
 function buildPayload(form: WrestlerFormState, teamId: string, ownerUserId?: string): WrestlerInput {
   const ageValue = Number(form.age);
+  const primaryTrainingGroupId = form.primaryTrainingGroupId.trim();
+  const trainingGroupIds = normalizeTrainingGroupIds(
+    primaryTrainingGroupId,
+    form.trainingGroupIds
+  );
   const styleProfiles = Object.fromEntries(
     WRESTLING_STYLES.map((style) => [
       style,
@@ -274,8 +308,8 @@ function buildPayload(form: WrestlerFormState, teamId: string, ownerUserId?: str
     schoolOrClub: form.schoolOrClub,
     photoUrl: form.photoUrl,
     styles: form.styles,
-    trainingGroupIds: form.trainingGroupIds,
-    primaryTrainingGroupId: form.primaryTrainingGroupId || undefined,
+    trainingGroupIds,
+    primaryTrainingGroupId: primaryTrainingGroupId || undefined,
     strengths: parseList(form.strengths),
     weaknesses: parseList(form.weaknesses),
     warmupRoutine: parseList(form.warmupRoutine),
@@ -321,7 +355,10 @@ function snapshotForm(form: WrestlerFormState) {
     schoolOrClub: form.schoolOrClub.trim(),
     photoUrl: form.photoUrl.trim(),
     coachNotes: form.coachNotes.trim(),
-    trainingGroupIds: [...form.trainingGroupIds].sort(),
+    trainingGroupIds: normalizeTrainingGroupIds(
+      form.primaryTrainingGroupId,
+      form.trainingGroupIds
+    ),
     primaryTrainingGroupId: form.primaryTrainingGroupId.trim(),
     styleProfiles: WRESTLING_STYLES.reduce<Record<string, unknown>>((acc, style) => {
       acc[style] = {
@@ -648,10 +685,14 @@ export default function WrestlersPage() {
 
   function toggleTrainingGroup(groupId: string) {
     setForm((prev) => {
-      const alreadySelected = prev.trainingGroupIds.includes(groupId);
+      const normalizedIds = normalizeTrainingGroupIds(
+        prev.primaryTrainingGroupId,
+        prev.trainingGroupIds
+      );
+      const alreadySelected = normalizedIds.includes(groupId);
       const nextTrainingGroupIds = alreadySelected
-        ? prev.trainingGroupIds.filter((entry) => entry !== groupId)
-        : [...prev.trainingGroupIds, groupId];
+        ? normalizedIds.filter((entry) => entry !== groupId)
+        : normalizeTrainingGroupIds(prev.primaryTrainingGroupId, [...normalizedIds, groupId]);
 
       return {
         ...prev,
@@ -1069,11 +1110,9 @@ export default function WrestlersPage() {
 
                       {(wrestler.trainingGroupIds?.length || wrestler.primaryTrainingGroupId) ? (
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-                          {Array.from(
-                            new Set([
-                              ...(wrestler.primaryTrainingGroupId ? [wrestler.primaryTrainingGroupId] : []),
-                              ...(wrestler.trainingGroupIds || []),
-                            ])
+                          {normalizeTrainingGroupIds(
+                            wrestler.primaryTrainingGroupId,
+                            wrestler.trainingGroupIds
                           ).map((groupId) => (
                             <span
                               key={groupId}
@@ -1273,7 +1312,17 @@ export default function WrestlersPage() {
                         <span>Primary training group</span>
                         <select
                           value={form.primaryTrainingGroupId}
-                          onChange={(e) => updateField("primaryTrainingGroupId", e.target.value)}
+                          onChange={(e) => {
+                            const nextPrimaryTrainingGroupId = e.target.value;
+                            setForm((prev) => ({
+                              ...prev,
+                              primaryTrainingGroupId: nextPrimaryTrainingGroupId,
+                              trainingGroupIds: normalizeTrainingGroupIds(
+                                nextPrimaryTrainingGroupId,
+                                prev.trainingGroupIds
+                              ),
+                            }));
+                          }}
                           disabled={!isCoach}
                           style={{ padding: 10 }}
                         >

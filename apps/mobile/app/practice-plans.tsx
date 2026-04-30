@@ -205,7 +205,7 @@ export default function PracticePlansScreen() {
     const rows = await listPracticePlans(
       db,
       currentTeam.id,
-      appUser?.role === "athlete" ? ownWrestler?.id : undefined
+      appUser?.role === "athlete" ? ownWrestler : undefined
     );
 
     setPlans(rows);
@@ -233,7 +233,7 @@ export default function PracticePlansScreen() {
         db,
         currentTeam.id,
         planId,
-        appUser?.role === "athlete" ? ownWrestler?.id : undefined
+        appUser?.role === "athlete" ? ownWrestler : undefined
       );
 
       const nextBlocks = detail?.blocks || [];
