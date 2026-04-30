@@ -592,7 +592,7 @@ export default function MatchDayScreen() {
     }
   }
 
-    async function saveMatchToHistory(match: TournamentMatch) {
+  async function saveMatchToHistory(match: TournamentMatch) {
     if (!isCoach) return;
 
     if (match.status !== "completed") {
@@ -1019,6 +1019,7 @@ export default function MatchDayScreen() {
                           disabled={deletingMatchId === match.id}
                         />
                       </View>
+                    ) : null}
                   </Pressable>
                 );
               })}
