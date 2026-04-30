@@ -20,6 +20,7 @@ import {
   type WrestlerProfile,
 } from "@wrestlewell/types/index";
 import {
+  calendarEventMatchesWrestler,
   listCalendarEvents,
   listPracticeSessions,
   practicePlanMatchesAssignment,
@@ -398,7 +399,7 @@ export default function CalendarPage() {
 
     const eventRows =
       appUser?.role === "coach"
-        ? await listCalendarEvents(db, currentTeam.id, visibleAthletePreview || undefined)
+        ? await listCalendarEvents(db, currentTeam.id)
         : await listCalendarEvents(db, currentTeam.id, athleteOwnedWrestler);
 
     setEvents(
@@ -443,12 +444,10 @@ export default function CalendarPage() {
           });
 
           if (
-            ((appUser?.role === "athlete" && athleteOwnedWrestler) || visibleAthletePreview) &&
+            appUser?.role === "athlete" &&
+            athleteOwnedWrestler &&
             entries.length > 0 &&
-            !entries.some(
-              (entry) =>
-                entry.wrestlerId === (visibleAthletePreview?.id || athleteOwnedWrestler?.id)
-            )
+            !entries.some((entry) => entry.wrestlerId === athleteOwnedWrestler.id)
           ) {
             return null;
           }
@@ -502,7 +501,6 @@ export default function CalendarPage() {
     firebaseUser?.uid,
     weekStartKey,
     weekEndKey,
-    visibleAthletePreview?.id,
     wrestlersLoaded,
   ]);
 
@@ -560,13 +558,31 @@ export default function CalendarPage() {
     });
   }
 
+  const visibleScheduleEvents = useMemo(() => {
+    if (isCoach && visibleAthletePreview) {
+      return events.filter((event) => calendarEventMatchesWrestler(event, visibleAthletePreview));
+    }
+
+    return events;
+  }, [events, isCoach, visibleAthletePreview]);
+
+  const visibleCompletedPractices = useMemo(() => {
+    if (isCoach && visibleAthletePreview) {
+      return completedPractices.filter((session) =>
+        calendarEventMatchesWrestler(session, visibleAthletePreview)
+      );
+    }
+
+    return completedPractices;
+  }, [completedPractices, isCoach, visibleAthletePreview]);
+
   const filteredEvents = useMemo(() => {
     if (!isCoach || coachCalendarFilter === "all") {
-      return events;
+      return visibleScheduleEvents;
     }
 
     if (coachCalendarFilter === "team") {
-      return events.filter(
+      return visibleScheduleEvents.filter(
         (event) =>
           (event.assignmentType || "team") === "team" ||
           (!event.assignmentType && !event.groupId && !(event.assignedWrestlerIds || []).length)
@@ -574,24 +590,24 @@ export default function CalendarPage() {
     }
 
     if (coachCalendarFilter === "custom") {
-      return events.filter((event) => event.assignmentType === "custom");
+      return visibleScheduleEvents.filter((event) => event.assignmentType === "custom");
     }
 
     if (coachCalendarFilter.startsWith("group:")) {
       const groupId = coachCalendarFilter.slice("group:".length);
-      return events.filter((event) => event.groupId === groupId);
+      return visibleScheduleEvents.filter((event) => event.groupId === groupId);
     }
 
-    return events;
-  }, [coachCalendarFilter, events, isCoach]);
+    return visibleScheduleEvents;
+  }, [coachCalendarFilter, isCoach, visibleScheduleEvents]);
 
   const filteredCompletedPractices = useMemo(() => {
     if (!isCoach || coachCalendarFilter === "all") {
-      return completedPractices;
+      return visibleCompletedPractices;
     }
 
     if (coachCalendarFilter === "team") {
-      return completedPractices.filter(
+      return visibleCompletedPractices.filter(
         (session) =>
           (session.assignmentType || "team") === "team" ||
           (!session.assignmentType && !session.groupId && !(session.assignedWrestlerIds || []).length)
@@ -599,16 +615,16 @@ export default function CalendarPage() {
     }
 
     if (coachCalendarFilter === "custom") {
-      return completedPractices.filter((session) => session.assignmentType === "custom");
+      return visibleCompletedPractices.filter((session) => session.assignmentType === "custom");
     }
 
     if (coachCalendarFilter.startsWith("group:")) {
       const groupId = coachCalendarFilter.slice("group:".length);
-      return completedPractices.filter((session) => session.groupId === groupId);
+      return visibleCompletedPractices.filter((session) => session.groupId === groupId);
     }
 
-    return completedPractices;
-  }, [coachCalendarFilter, completedPractices, isCoach]);
+    return visibleCompletedPractices;
+  }, [coachCalendarFilter, isCoach, visibleCompletedPractices]);
 
   function getResolvedAssignmentPreview(dateKey: string) {
     const selectedPlan = savedPlans.find((plan) => plan.id === selectedPlanByDate[dateKey]);
