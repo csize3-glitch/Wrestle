@@ -60,6 +60,7 @@ export default function CalendarScreen() {
 
   const [events, setEvents] = useState<CalendarEventRecord[]>([]);
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
+  const [wrestlersLoaded, setWrestlersLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const ownWrestler =
@@ -74,10 +75,15 @@ export default function CalendarScreen() {
       return;
     }
 
+    if (appUser?.role === "athlete" && !ownWrestler) {
+      setEvents([]);
+      return;
+    }
+
     const rows = await listCalendarEvents(
       db,
       currentTeam.id,
-      appUser?.role === "athlete" ? ownWrestler?.id : undefined
+      appUser?.role === "athlete" ? ownWrestler : undefined
     );
 
     setEvents(rows);
@@ -87,13 +93,17 @@ export default function CalendarScreen() {
     async function loadWrestlers() {
       if (!currentTeam?.id) {
         setWrestlers([]);
+        setWrestlersLoaded(true);
         return;
       }
 
       try {
+        setWrestlersLoaded(false);
         setWrestlers(await listWrestlers(db, currentTeam.id));
       } catch (error) {
         console.error("Failed to load wrestlers for calendar assignments:", error);
+      } finally {
+        setWrestlersLoaded(true);
       }
     }
 
@@ -103,6 +113,16 @@ export default function CalendarScreen() {
   useEffect(() => {
     async function load() {
       if (!firebaseUser || !appUser) {
+        setEvents([]);
+        setLoading(false);
+        return;
+      }
+
+      if (appUser.role === "athlete" && !wrestlersLoaded) {
+        return;
+      }
+
+      if (appUser.role === "athlete" && !ownWrestler) {
         setEvents([]);
         setLoading(false);
         return;
@@ -118,7 +138,7 @@ export default function CalendarScreen() {
     }
 
     load();
-  }, [appUser, currentTeam?.id, firebaseUser, ownWrestler?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [appUser, currentTeam?.id, firebaseUser, ownWrestler, wrestlersLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const upcomingEvents = useMemo(() => {
     const today = new Date();
@@ -224,7 +244,9 @@ export default function CalendarScreen() {
           <Text style={{ fontSize: 16, lineHeight: 22, color: "#b7c9df" }}>
             {appUser?.role === "coach"
               ? "No upcoming practices are scheduled yet. Assign them on the website and they will appear here."
-              : "No upcoming practices are assigned to you yet. Team-wide and wrestler-specific practices will appear here."}
+              : ownWrestler
+                ? "No upcoming practices are assigned to you yet. Team-wide and wrestler-specific practices will appear here."
+                : "Create your wrestler profile to see assigned practices."}
           </Text>
         </View>
       ) : null}

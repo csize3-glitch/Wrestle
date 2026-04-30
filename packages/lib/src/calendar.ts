@@ -5,7 +5,11 @@ import {
   where,
   type Firestore,
 } from "firebase/firestore";
-import { COLLECTIONS, type CalendarEvent } from "@wrestlewell/types/index";
+import {
+  COLLECTIONS,
+  type CalendarEvent,
+  type WrestlerProfile,
+} from "@wrestlewell/types/index";
 
 export type CalendarEventRecord = CalendarEvent & {
   practicePlanTitle?: string;
@@ -53,10 +57,59 @@ function normalizeCalendarEvent(
   };
 }
 
+type CalendarEventViewer =
+  | string
+  | Pick<WrestlerProfile, "id" | "trainingGroupIds" | "primaryTrainingGroupId">
+  | null
+  | undefined;
+
+export function calendarEventMatchesWrestler(
+  event: Pick<CalendarEventRecord, "assignmentType" | "assignedWrestlerIds" | "groupId">,
+  wrestler?: CalendarEventViewer
+) {
+  const assignedIds = event.assignedWrestlerIds || [];
+  const assignmentType = event.assignmentType || "";
+
+  if (assignmentType === "team") {
+    return true;
+  }
+
+  if (!assignmentType && assignedIds.length === 0 && !event.groupId) {
+    return true;
+  }
+
+  if (!wrestler) {
+    return false;
+  }
+
+  const wrestlerId = typeof wrestler === "string" ? wrestler : wrestler.id;
+
+  if (assignmentType === "custom") {
+    return assignedIds.includes(wrestlerId);
+  }
+
+  if (assignmentType === "group") {
+    if (assignedIds.includes(wrestlerId)) {
+      return true;
+    }
+
+    if (typeof wrestler === "string") {
+      return false;
+    }
+
+    return (
+      event.groupId === wrestler.primaryTrainingGroupId ||
+      Boolean(wrestler.trainingGroupIds?.includes(event.groupId || ""))
+    );
+  }
+
+  return assignedIds.includes(wrestlerId);
+}
+
 export async function listCalendarEvents(
   db: Firestore,
   teamId: string,
-  wrestlerId?: string | null
+  wrestler?: CalendarEventViewer
 ): Promise<CalendarEventRecord[]> {
   const snapshot = await getDocs(
     query(collection(db, COLLECTIONS.CALENDAR_EVENTS), where("teamId", "==", teamId))
@@ -66,12 +119,6 @@ export async function listCalendarEvents(
     .map((eventDoc) =>
       normalizeCalendarEvent(eventDoc.id, eventDoc.data() as Record<string, unknown>)
     )
-    .filter((event) => {
-      const assignedIds = event.assignedWrestlerIds || [];
-      if (assignedIds.length === 0) {
-        return true;
-      }
-      return Boolean(wrestlerId && assignedIds.includes(wrestlerId));
-    })
+    .filter((event) => calendarEventMatchesWrestler(event, wrestler))
     .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
 }
