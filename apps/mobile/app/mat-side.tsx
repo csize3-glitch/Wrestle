@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@wrestlewell/firebase/client";
 import {
   getAppUser,
@@ -8,14 +9,22 @@ import {
   listWrestlers,
   mergeMatSideSummaryWithProfile,
 } from "@wrestlewell/lib/index";
-import type {
-  AppUser,
-  MatSideSummary,
-  VarkStyle,
-  WrestlerProfile,
+import {
+  COLLECTIONS,
+  type AppUser,
+  type MatSideSummary,
+  type VarkStyle,
+  type WrestlerMatch,
+  type WrestlerProfile,
+  type WrestlingStyle,
 } from "@wrestlewell/types/index";
 import { useMobileAuthState } from "../components/auth-provider";
 import { MobileScreenShell } from "../components/mobile-screen-shell";
+
+type StyleRecord = {
+  wins: number;
+  losses: number;
+};
 
 function getVarkStyleLabel(style?: VarkStyle | "") {
   switch (style) {
@@ -73,6 +82,114 @@ function getWrestleWellIQSummary(user?: AppUser | null) {
   };
 }
 
+function sortValue(value: unknown) {
+  if (!value) return "";
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "toDate" in value &&
+    typeof (value as { toDate?: unknown }).toDate === "function"
+  ) {
+    return (value as { toDate: () => Date }).toDate().toISOString();
+  }
+
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "seconds" in value &&
+    typeof (value as { seconds?: unknown }).seconds === "number"
+  ) {
+    return new Date((value as { seconds: number }).seconds * 1000).toISOString();
+  }
+
+  return String(value);
+}
+
+function createEmptyStyleRecord(): StyleRecord {
+  return {
+    wins: 0,
+    losses: 0,
+  };
+}
+
+function formatRecord(record: StyleRecord) {
+  return `${record.wins}-${record.losses}`;
+}
+
+function getOverallRecord(matches: WrestlerMatch[]) {
+  return matches.reduce((record, match) => {
+    if (match.result === "win") {
+      record.wins += 1;
+    }
+
+    if (match.result === "loss") {
+      record.losses += 1;
+    }
+
+    return record;
+  }, createEmptyStyleRecord());
+}
+
+function getStyleRecord(matches: WrestlerMatch[], style: WrestlingStyle) {
+  return matches
+    .filter((match) => match.style === style)
+    .reduce((record, match) => {
+      if (match.result === "win") {
+        record.wins += 1;
+      }
+
+      if (match.result === "loss") {
+        record.losses += 1;
+      }
+
+      return record;
+    }, createEmptyStyleRecord());
+}
+
+function formatMatchDate(value?: string) {
+  if (!value) return "Date not set";
+
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+async function listWrestlerMatchHistory(teamId: string, wrestlerId: string) {
+  const snapshot = await getDocs(
+    query(
+      collection(db, COLLECTIONS.WRESTLER_MATCHES),
+      where("teamId", "==", teamId),
+      where("wrestlerId", "==", wrestlerId)
+    )
+  );
+
+  return snapshot.docs
+    .map((matchDoc) => ({
+      id: matchDoc.id,
+      ...(matchDoc.data() as Omit<WrestlerMatch, "id">),
+    }))
+    .sort((a, b) => {
+      const aDate = sortValue(a.matchDate);
+      const bDate = sortValue(b.matchDate);
+
+      if (aDate !== bDate) {
+        return bDate.localeCompare(aDate);
+      }
+
+      return sortValue(b.createdAt).localeCompare(sortValue(a.createdAt));
+    });
+}
+
 function WrestleWellIQMatSideCard({
   summary,
 }: {
@@ -108,6 +225,149 @@ function WrestleWellIQMatSideCard({
       <Text style={{ color: "#dbeafe", fontSize: 14, lineHeight: 21, marginTop: 8 }}>
         {summary.cue}
       </Text>
+    </View>
+  );
+}
+
+function RecentMatchHistoryCard({
+  matches,
+  activeStyle,
+  loading,
+}: {
+  matches: WrestlerMatch[];
+  activeStyle: WrestlingStyle;
+  loading: boolean;
+}) {
+  const overallRecord = getOverallRecord(matches);
+  const activeStyleRecord = getStyleRecord(matches, activeStyle);
+  const recentMatches = matches.slice(0, 3);
+
+  return (
+    <View
+      style={{
+        marginTop: 14,
+        padding: 14,
+        borderRadius: 18,
+        backgroundColor: "#102f52",
+        borderWidth: 1,
+        borderColor: "#315c86",
+      }}
+    >
+      <Text
+        style={{
+          color: "#93c5fd",
+          fontSize: 12,
+          fontWeight: "900",
+          letterSpacing: 1,
+          marginBottom: 6,
+        }}
+      >
+        RECENT MATCH HISTORY
+      </Text>
+
+      {loading ? (
+        <Text style={{ color: "#b7c9df", fontSize: 14, lineHeight: 21 }}>
+          Loading recent matches...
+        </Text>
+      ) : matches.length === 0 ? (
+        <Text style={{ color: "#b7c9df", fontSize: 14, lineHeight: 21 }}>
+          No match history saved yet. Completed Match-Day results will appear here.
+        </Text>
+      ) : (
+        <>
+          <View
+            style={{
+              flexDirection: "row",
+              gap: 10,
+              flexWrap: "wrap",
+              marginBottom: 12,
+            }}
+          >
+            <View
+              style={{
+                flex: 1,
+                minWidth: 120,
+                borderRadius: 16,
+                padding: 12,
+                backgroundColor: "#061a33",
+                borderWidth: 1,
+                borderColor: "#21486e",
+              }}
+            >
+              <Text style={{ color: "#93c5fd", fontSize: 12, fontWeight: "900" }}>
+                OVERALL
+              </Text>
+
+              <Text style={{ color: "#ffffff", fontSize: 24, fontWeight: "900", marginTop: 3 }}>
+                {formatRecord(overallRecord)}
+              </Text>
+            </View>
+
+            <View
+              style={{
+                flex: 1,
+                minWidth: 120,
+                borderRadius: 16,
+                padding: 12,
+                backgroundColor: "#061a33",
+                borderWidth: 1,
+                borderColor: "#21486e",
+              }}
+            >
+              <Text style={{ color: "#93c5fd", fontSize: 12, fontWeight: "900" }}>
+                {activeStyle.toUpperCase()}
+              </Text>
+
+              <Text style={{ color: "#ffffff", fontSize: 24, fontWeight: "900", marginTop: 3 }}>
+                {formatRecord(activeStyleRecord)}
+              </Text>
+            </View>
+          </View>
+
+          <View style={{ gap: 10 }}>
+            {recentMatches.map((match) => (
+              <View
+                key={match.id}
+                style={{
+                  borderWidth: 1,
+                  borderColor: "#315c86",
+                  borderRadius: 16,
+                  padding: 12,
+                  backgroundColor: "#0b2542",
+                }}
+              >
+                <Text style={{ color: "#ffffff", fontSize: 16, fontWeight: "900" }}>
+                  {match.result === "win" ? "Win" : "Loss"} vs{" "}
+                  {match.opponentName || "Unknown opponent"}
+                </Text>
+
+                <Text style={{ color: "#b7c9df", fontSize: 14, lineHeight: 20, marginTop: 5 }}>
+                  {[
+                    match.style,
+                    match.weightClass,
+                    match.score,
+                    match.method,
+                    match.roundName,
+                    match.boutNumber ? `Bout ${match.boutNumber}` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" • ")}
+                </Text>
+
+                <Text style={{ color: "#93c5fd", fontSize: 13, marginTop: 5 }}>
+                  {match.eventName || "Tournament"} • {formatMatchDate(match.matchDate)}
+                </Text>
+
+                {match.notes ? (
+                  <Text style={{ color: "#dbeafe", fontSize: 14, lineHeight: 20, marginTop: 7 }}>
+                    {match.notes}
+                  </Text>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        </>
+      )}
     </View>
   );
 }
@@ -151,11 +411,11 @@ export default function MatSideScreen() {
 
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
   const [wrestlerUsers, setWrestlerUsers] = useState<Record<string, AppUser>>({});
+  const [wrestlerMatches, setWrestlerMatches] = useState<WrestlerMatch[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMatches, setLoadingMatches] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [activeStyle, setActiveStyle] = useState<
-    "Folkstyle" | "Freestyle" | "Greco-Roman"
-  >("Folkstyle");
+  const [activeStyle, setActiveStyle] = useState<WrestlingStyle>("Folkstyle");
   const [summary, setSummary] = useState<MatSideSummary | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
 
@@ -165,6 +425,7 @@ export default function MatSideScreen() {
     if (!currentTeam?.id) {
       setWrestlers([]);
       setWrestlerUsers({});
+      setWrestlerMatches([]);
       setSelectedId(null);
       return;
     }
@@ -255,6 +516,27 @@ export default function MatSideScreen() {
     loadSummary();
   }, [selectedId]);
 
+  useEffect(() => {
+    async function loadMatchHistory() {
+      if (!currentTeam?.id || !selectedId) {
+        setWrestlerMatches([]);
+        return;
+      }
+
+      try {
+        setLoadingMatches(true);
+        setWrestlerMatches(await listWrestlerMatchHistory(currentTeam.id, selectedId));
+      } catch (error) {
+        console.error("Failed to load mat-side match history:", error);
+        setWrestlerMatches([]);
+      } finally {
+        setLoadingMatches(false);
+      }
+    }
+
+    loadMatchHistory();
+  }, [currentTeam?.id, selectedId]);
+
   const selectedWrestler = useMemo(
     () =>
       wrestlers.find((wrestler: WrestlerProfile) => wrestler.id === selectedId) ||
@@ -296,8 +578,8 @@ export default function MatSideScreen() {
       title="Mat-Side"
       subtitle={
         isCoach
-          ? "Quick coaching view for reminders, warm-up, strengths, weaknesses, and match plan."
-          : "Your match-prep view for reminders, warm-up, strengths, weaknesses, and game plan."
+          ? "Quick coaching view for reminders, warm-up, strengths, weaknesses, match history, and match plan."
+          : "Your match-prep view for reminders, warm-up, strengths, weaknesses, history, and game plan."
       }
     >
       {!authLoading && (!firebaseUser || !appUser) ? (
@@ -542,6 +824,12 @@ export default function MatSideScreen() {
                   ))}
                 </View>
               ) : null}
+
+              <RecentMatchHistoryCard
+                matches={wrestlerMatches}
+                activeStyle={activeStyle}
+                loading={loadingMatches}
+              />
 
               <Pressable
                 onPress={() =>
