@@ -29,6 +29,8 @@ export type WrestlerInput = {
   schoolOrClub?: string;
   photoUrl?: string;
   styles: WrestlingStyle[];
+  trainingGroupIds?: string[];
+  primaryTrainingGroupId?: string;
   strengths: string[];
   weaknesses: string[];
   warmupRoutine: string[];
@@ -108,6 +110,9 @@ function normalizeWrestlerRecord(id: string, value: Record<string, unknown>): Wr
     weightClass: typeof value.weightClass === "string" ? value.weightClass : undefined,
     schoolOrClub: typeof value.schoolOrClub === "string" ? value.schoolOrClub : undefined,
     styles: ensureStyles(value.styles),
+    trainingGroupIds: ensureStringArray(value.trainingGroupIds),
+    primaryTrainingGroupId:
+      typeof value.primaryTrainingGroupId === "string" ? value.primaryTrainingGroupId : undefined,
     strengths: ensureStringArray(value.strengths),
     weaknesses: ensureStringArray(value.weaknesses),
     warmupRoutine: ensureStringArray(value.warmupRoutine),
@@ -133,6 +138,8 @@ function buildWrestlerPayload(input: WrestlerInput) {
     weightClass: input.weightClass?.trim() || "",
     schoolOrClub: input.schoolOrClub?.trim() || "",
     styles: input.styles,
+    trainingGroupIds: ensureStringArray(input.trainingGroupIds),
+    primaryTrainingGroupId: input.primaryTrainingGroupId?.trim() || "",
     strengths: input.strengths,
     weaknesses: input.weaknesses,
     warmupRoutine: input.warmupRoutine,

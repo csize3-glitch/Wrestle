@@ -44,7 +44,13 @@ function openPracticePlan(event: CalendarEventRecord) {
 
   router.push({
     pathname: "/practice-plans",
-    params: { planId: event.practicePlanId },
+    params: {
+      planId: event.practicePlanId,
+      assignmentType: event.assignmentType || "team",
+      groupId: event.groupId || "",
+      groupName: event.groupName || "",
+      assignedWrestlerIds: (event.assignedWrestlerIds || []).join(","),
+    },
   } as any);
 }
 
@@ -287,11 +293,13 @@ export default function CalendarScreen() {
             </Text>
 
             <Text style={{ fontSize: 13, color: "#dbeafe", marginTop: 8, fontWeight: "800" }}>
-              {(event.assignedWrestlerIds || []).length === 0
-                ? "Team-wide"
-                : `Assigned practice • ${(event.assignedWrestlerIds || []).length} wrestler${
-                    (event.assignedWrestlerIds || []).length === 1 ? "" : "s"
-                  }`}
+              {event.assignmentType === "group" && event.groupName
+                ? `Training group • ${event.groupName}`
+                : event.assignmentType === "custom"
+                  ? `Custom wrestlers • ${(event.assignedWrestlerIds || []).length} wrestler${
+                      (event.assignedWrestlerIds || []).length === 1 ? "" : "s"
+                    }`
+                  : "Team-wide"}
             </Text>
 
             {event.notes ? (

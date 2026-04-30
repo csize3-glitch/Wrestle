@@ -28,6 +28,12 @@ function normalizeCalendarEvent(
     id,
     teamId: typeof value.teamId === "string" ? value.teamId : "",
     practicePlanId: typeof value.practicePlanId === "string" ? value.practicePlanId : "",
+    assignmentType:
+      value.assignmentType === "group" || value.assignmentType === "custom"
+        ? value.assignmentType
+        : "team",
+    groupId: typeof value.groupId === "string" ? value.groupId : undefined,
+    groupName: typeof value.groupName === "string" ? value.groupName : undefined,
     assignedWrestlerIds: Array.isArray(value.assignedWrestlerIds)
       ? value.assignedWrestlerIds.filter((entry): entry is string => typeof entry === "string")
       : [],

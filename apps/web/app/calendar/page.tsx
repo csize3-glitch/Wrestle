@@ -13,12 +13,22 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "@wrestlewell/firebase/client";
-import { COLLECTIONS, type WrestlerProfile } from "@wrestlewell/types/index";
 import {
+  COLLECTIONS,
+  type PracticeSession,
+  type TrainingGroup,
+  type WrestlerProfile,
+} from "@wrestlewell/types/index";
+import {
+  createTrainingGroup,
+  deleteTrainingGroup,
+  listPracticeSessions,
+  listTrainingGroups,
   listTournamentEntries,
   listTournaments,
   listWrestlers,
   sendTeamPushDelivery,
+  updateTrainingGroup,
 } from "@wrestlewell/lib/index";
 import { RequireAuth } from "../require-auth";
 import { useAuthState } from "../auth-provider";
@@ -30,6 +40,9 @@ type SavedPracticePlan = {
   style: string;
   totalMinutes: number;
   totalSeconds?: number;
+  assignmentType?: "team" | "group" | "custom";
+  groupId?: string;
+  groupName?: string;
   assignedWrestlerIds?: string[];
 };
 
@@ -37,6 +50,9 @@ type CalendarEventItem = {
   id: string;
   date: string;
   practicePlanId: string;
+  assignmentType?: "team" | "group" | "custom";
+  groupId?: string;
+  groupName?: string;
   assignedWrestlerIds?: string[];
   practicePlanTitle: string;
   practicePlanStyle: string;
@@ -56,20 +72,14 @@ type TournamentCalendarItem = {
   verifiedCount: number;
 };
 
-type CompletedPracticeSessionItem = {
-  id: string;
+type CompletedPracticeSessionItem = PracticeSession & {
   date: string;
-  teamId: string;
-  practicePlanId: string;
-  practicePlanTitle: string;
-  practicePlanStyle?: string;
-  totalSeconds?: number;
-  blockCount?: number;
-  notes?: string;
-  completedBy?: string;
-  completedByRole?: string;
-  completedAt?: unknown;
-  createdAt?: unknown;
+};
+
+type AssignmentType = "team" | "group" | "custom";
+type TrainingGroupDraft = {
+  name: string;
+  description: string;
 };
 
 function getStartOfWeek(date = new Date()) {
@@ -104,6 +114,17 @@ function matchesAssignment(assignedIds: string[] | undefined, wrestlerId?: strin
   const safeIds = assignedIds || [];
   if (safeIds.length === 0) return true;
   return Boolean(wrestlerId && safeIds.includes(wrestlerId));
+}
+
+function wrestlerMatchesTrainingGroup(wrestler: WrestlerProfile, groupId: string) {
+  return (
+    wrestler.primaryTrainingGroupId === groupId ||
+    Boolean(wrestler.trainingGroupIds?.includes(groupId))
+  );
+}
+
+function uniqueIds(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
 }
 
 function normalizeDateValue(value: unknown): string {
@@ -174,6 +195,7 @@ export default function CalendarPage() {
 
   const [savedPlans, setSavedPlans] = useState<SavedPracticePlan[]>([]);
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
+  const [trainingGroups, setTrainingGroups] = useState<TrainingGroup[]>([]);
   const [events, setEvents] = useState<CalendarEventItem[]>([]);
   const [tournaments, setTournaments] = useState<TournamentCalendarItem[]>([]);
   const [completedPractices, setCompletedPractices] = useState<CompletedPracticeSessionItem[]>([]);
@@ -182,7 +204,17 @@ export default function CalendarPage() {
   const [loadingEvents, setLoadingEvents] = useState(true);
   const [assigningDate, setAssigningDate] = useState<string | null>(null);
   const [selectedPlanByDate, setSelectedPlanByDate] = useState<Record<string, string>>({});
+  const [assignmentTypeByDate, setAssignmentTypeByDate] = useState<Record<string, AssignmentType>>(
+    {}
+  );
+  const [selectedGroupByDate, setSelectedGroupByDate] = useState<Record<string, string>>({});
+  const [customWrestlersByDate, setCustomWrestlersByDate] = useState<Record<string, string[]>>({});
   const [notesByDate, setNotesByDate] = useState<Record<string, string>>({});
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupDescription, setNewGroupDescription] = useState("");
+  const [groupDrafts, setGroupDrafts] = useState<Record<string, TrainingGroupDraft>>({});
+  const [savingGroupId, setSavingGroupId] = useState<string | null>(null);
+  const [creatingGroup, setCreatingGroup] = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(1440);
 
@@ -207,6 +239,18 @@ export default function CalendarPage() {
     viewportWidth <= 640 ? 1 : viewportWidth <= 960 ? 2 : viewportWidth <= 1280 ? 4 : 7;
 
   const isDenseLayout = calendarColumns === 7;
+  const activeTrainingGroups = useMemo(
+    () => trainingGroups.filter((group) => group.active),
+    [trainingGroups]
+  );
+  const trainingGroupNameById = useMemo(
+    () =>
+      Object.fromEntries(trainingGroups.map((group) => [group.id, group.name])) as Record<
+        string,
+        string
+      >,
+    [trainingGroups]
+  );
 
   const weekDates = useMemo(() => {
     const start = getStartOfWeek();
@@ -237,6 +281,36 @@ export default function CalendarPage() {
     }
 
     loadWrestlers();
+  }, [currentTeam?.id]);
+
+  useEffect(() => {
+    async function loadTrainingGroupsForTeam() {
+      if (!currentTeam?.id) {
+        setTrainingGroups([]);
+        setGroupDrafts({});
+        return;
+      }
+
+      try {
+        const groups = await listTrainingGroups(db, currentTeam.id);
+        setTrainingGroups(groups);
+        setGroupDrafts(
+          Object.fromEntries(
+            groups.map((group) => [
+              group.id,
+              {
+                name: group.name,
+                description: group.description || "",
+              },
+            ])
+          )
+        );
+      } catch (error) {
+        console.error("Failed to load training groups:", error);
+      }
+    }
+
+    loadTrainingGroupsForTeam();
   }, [currentTeam?.id]);
 
   useEffect(() => {
@@ -300,28 +374,16 @@ export default function CalendarPage() {
       .filter((event) => event.date >= weekStartKey && event.date <= weekEndKey);
 
     setEvents(eventRows);
-
-    const sessionsQuery = query(
-      collection(db, "practice_sessions"),
-      where("teamId", "==", currentTeam.id)
-    );
-
-    const sessionsSnapshot = await getDocs(sessionsQuery);
-
-    const sessionRows = sessionsSnapshot.docs
-      .map((d) => {
-        const data = d.data() as Omit<CompletedPracticeSessionItem, "id" | "date">;
-        const row = {
-          id: d.id,
-          ...data,
-          date:
-            toDateKeyFromTimestamp(data.completedAt) ||
-            toDateKeyFromTimestamp(data.createdAt) ||
-            "",
-        };
-
-        return row;
-      })
+    const sessionRows = (
+      await listPracticeSessions(db, currentTeam.id, weekStartKey, weekEndKey)
+    )
+      .map((session) => ({
+        ...session,
+        date:
+          toDateKeyFromTimestamp(session.completedAt) ||
+          toDateKeyFromTimestamp(session.createdAt) ||
+          "",
+      }))
       .filter((session) => session.date >= weekStartKey && session.date <= weekEndKey)
       .sort((a, b) => {
         const aDate = normalizeDateValue(a.completedAt) || normalizeDateValue(a.createdAt);
@@ -395,6 +457,232 @@ export default function CalendarPage() {
     loadEvents();
   }, [athleteOwnedWrestler?.id, currentTeam?.id, weekStartKey, weekEndKey]);
 
+  async function refreshTrainingGroupsForTeam() {
+    if (!currentTeam?.id) {
+      setTrainingGroups([]);
+      setGroupDrafts({});
+      return;
+    }
+
+    const groups = await listTrainingGroups(db, currentTeam.id);
+    setTrainingGroups(groups);
+    setGroupDrafts(
+      Object.fromEntries(
+        groups.map((group) => [
+          group.id,
+          {
+            name: group.name,
+            description: group.description || "",
+          },
+        ])
+      )
+    );
+  }
+
+  function getResolvedAssignedWrestlerIds(
+    assignmentType: AssignmentType,
+    groupId: string,
+    customIds: string[]
+  ) {
+    if (assignmentType === "team") {
+      return [];
+    }
+
+    if (assignmentType === "group") {
+      return uniqueIds(
+        wrestlers
+          .filter((wrestler) => wrestlerMatchesTrainingGroup(wrestler, groupId))
+          .map((wrestler) => wrestler.id)
+      );
+    }
+
+    return uniqueIds(customIds);
+  }
+
+  function handlePlanSelection(dateKey: string, planId: string) {
+    setSelectedPlanByDate((prev) => ({ ...prev, [dateKey]: planId }));
+
+    const selectedPlan = savedPlans.find((plan) => plan.id === planId);
+    if (!selectedPlan) {
+      return;
+    }
+
+    const nextAssignmentType: AssignmentType =
+      selectedPlan.assignmentType ||
+      (selectedPlan.groupId ? "group" : selectedPlan.assignedWrestlerIds?.length ? "custom" : "team");
+
+    setAssignmentTypeByDate((prev) => ({ ...prev, [dateKey]: nextAssignmentType }));
+    setSelectedGroupByDate((prev) => ({ ...prev, [dateKey]: selectedPlan.groupId || "" }));
+    setCustomWrestlersByDate((prev) => ({
+      ...prev,
+      [dateKey]: selectedPlan.assignedWrestlerIds || [],
+    }));
+  }
+
+  function toggleCustomWrestler(dateKey: string, wrestlerId: string) {
+    setCustomWrestlersByDate((prev) => {
+      const currentIds = prev[dateKey] || [];
+      const nextIds = currentIds.includes(wrestlerId)
+        ? currentIds.filter((entry) => entry !== wrestlerId)
+        : [...currentIds, wrestlerId];
+
+      return {
+        ...prev,
+        [dateKey]: nextIds,
+      };
+    });
+  }
+
+  async function handleCreateGroup() {
+    if (!currentTeam?.id) {
+      alert("You need an active team before creating training groups.");
+      return;
+    }
+
+    if (!newGroupName.trim()) {
+      alert("Enter a training group name first.");
+      return;
+    }
+
+    try {
+      setCreatingGroup(true);
+      await createTrainingGroup(db, {
+        teamId: currentTeam.id,
+        name: newGroupName,
+        description: newGroupDescription,
+        sortOrder: trainingGroups.length,
+        active: true,
+      });
+      setNewGroupName("");
+      setNewGroupDescription("");
+      await refreshTrainingGroupsForTeam();
+    } catch (error) {
+      console.error("Failed to create training group:", error);
+      alert("Failed to create training group.");
+    } finally {
+      setCreatingGroup(false);
+    }
+  }
+
+  async function handleSaveGroup(groupId: string) {
+    const draft = groupDrafts[groupId];
+    if (!draft?.name.trim()) {
+      alert("Training group name cannot be empty.");
+      return;
+    }
+
+    try {
+      setSavingGroupId(groupId);
+      await updateTrainingGroup(db, groupId, {
+        name: draft.name,
+        description: draft.description,
+      });
+      await refreshTrainingGroupsForTeam();
+    } catch (error) {
+      console.error("Failed to update training group:", error);
+      alert("Failed to update training group.");
+    } finally {
+      setSavingGroupId(null);
+    }
+  }
+
+  async function handleToggleGroupActive(group: TrainingGroup) {
+    try {
+      setSavingGroupId(group.id);
+      await updateTrainingGroup(db, group.id, { active: !group.active });
+      await refreshTrainingGroupsForTeam();
+    } catch (error) {
+      console.error("Failed to update training group status:", error);
+      alert("Failed to update training group.");
+    } finally {
+      setSavingGroupId(null);
+    }
+  }
+
+  async function handleDeleteGroup(group: TrainingGroup) {
+    if (!window.confirm(`Delete ${group.name}?`)) {
+      return;
+    }
+
+    try {
+      setSavingGroupId(group.id);
+
+      const [planRefs, eventRefs, sessionRefs] = await Promise.all([
+        getDocs(
+          query(
+            collection(db, COLLECTIONS.PRACTICE_PLANS),
+            where("teamId", "==", currentTeam?.id || ""),
+            where("groupId", "==", group.id)
+          )
+        ),
+        getDocs(
+          query(
+            collection(db, COLLECTIONS.CALENDAR_EVENTS),
+            where("teamId", "==", currentTeam?.id || ""),
+            where("groupId", "==", group.id)
+          )
+        ),
+        getDocs(
+          query(
+            collection(db, COLLECTIONS.PRACTICE_SESSIONS),
+            where("teamId", "==", currentTeam?.id || ""),
+            where("groupId", "==", group.id)
+          )
+        ),
+      ]);
+
+      const isReferenced =
+        wrestlers.some((wrestler) => wrestlerMatchesTrainingGroup(wrestler, group.id)) ||
+        !planRefs.empty ||
+        !eventRefs.empty ||
+        !sessionRefs.empty;
+
+      if (isReferenced) {
+        alert(
+          "This training group is still referenced by wrestlers or practice work. Rename or deactivate it instead."
+        );
+        return;
+      }
+
+      await deleteTrainingGroup(db, group.id);
+      await refreshTrainingGroupsForTeam();
+    } catch (error) {
+      console.error("Failed to delete training group:", error);
+      alert("Failed to delete training group.");
+    } finally {
+      setSavingGroupId(null);
+    }
+  }
+
+  const weeklyReviewBlocks = useMemo(() => {
+    const blocks = [];
+
+    const teamScheduled = events.filter((event) => (event.assignmentType || "team") === "team");
+    const teamCompleted = completedPractices.filter(
+      (session) => (session.assignmentType || "team") === "team"
+    );
+
+    if (teamScheduled.length || teamCompleted.length) {
+      blocks.push({
+        key: "team",
+        title: "Team-wide",
+        scheduled: teamScheduled,
+        completed: teamCompleted,
+      });
+    }
+
+    for (const group of activeTrainingGroups) {
+      blocks.push({
+        key: group.id,
+        title: group.name,
+        scheduled: events.filter((event) => event.groupId === group.id),
+        completed: completedPractices.filter((session) => session.groupId === group.id),
+      });
+    }
+
+    return blocks;
+  }, [activeTrainingGroups, completedPractices, events]);
+
   async function assignPlanToDate(dateKey: string) {
     if (!currentTeam?.id) {
       alert("You need an active team before scheduling practices.");
@@ -415,6 +703,26 @@ export default function CalendarPage() {
       return;
     }
 
+    const assignmentType = assignmentTypeByDate[dateKey] || "team";
+    const groupId = selectedGroupByDate[dateKey] || "";
+    const groupName = groupId ? trainingGroupNameById[groupId] : "";
+    const customIds = customWrestlersByDate[dateKey] || [];
+    const assignedWrestlerIds = getResolvedAssignedWrestlerIds(
+      assignmentType,
+      groupId,
+      customIds
+    );
+
+    if (assignmentType === "group" && !groupId) {
+      alert("Choose a training group before assigning this practice.");
+      return;
+    }
+
+    if (assignmentType === "custom" && assignedWrestlerIds.length === 0) {
+      alert("Choose at least one wrestler for a custom assignment.");
+      return;
+    }
+
     try {
       setAssigningDate(dateKey);
 
@@ -422,7 +730,10 @@ export default function CalendarPage() {
         teamId: currentTeam.id,
         date: dateKey,
         practicePlanId: selectedPlan.id,
-        assignedWrestlerIds: selectedPlan.assignedWrestlerIds || [],
+        assignmentType,
+        groupId: assignmentType === "group" ? groupId : "",
+        groupName: assignmentType === "group" ? groupName : "",
+        assignedWrestlerIds,
         practicePlanTitle: selectedPlan.title,
         practicePlanStyle: selectedPlan.style || "Mixed",
         totalMinutes: selectedPlan.totalMinutes || 0,
@@ -434,9 +745,9 @@ export default function CalendarPage() {
 
       try {
         const targetUserIds =
-          (selectedPlan.assignedWrestlerIds || []).length > 0
+          assignedWrestlerIds.length > 0
             ? wrestlers
-                .filter((wrestler) => selectedPlan.assignedWrestlerIds?.includes(wrestler.id))
+                .filter((wrestler) => assignedWrestlerIds.includes(wrestler.id))
                 .map((wrestler) => wrestler.ownerUserId)
                 .filter((value): value is string => Boolean(value))
             : undefined;
@@ -454,6 +765,9 @@ export default function CalendarPage() {
       }
 
       setSelectedPlanByDate((prev) => ({ ...prev, [dateKey]: "" }));
+      setAssignmentTypeByDate((prev) => ({ ...prev, [dateKey]: "team" }));
+      setSelectedGroupByDate((prev) => ({ ...prev, [dateKey]: "" }));
+      setCustomWrestlersByDate((prev) => ({ ...prev, [dateKey]: [] }));
       setNotesByDate((prev) => ({ ...prev, [dateKey]: "" }));
 
       await refreshEvents();
@@ -512,6 +826,135 @@ export default function CalendarPage() {
               text: "Calendar scheduling is coach-managed. Athletes can review the team schedule here, but only coaches can assign or remove plans.",
             }}
           />
+        ) : null}
+
+        {isCoach ? (
+          <section
+            style={{
+              border: "1px solid #ddd",
+              borderRadius: 12,
+              padding: 16,
+              background: "#fff",
+              marginBottom: 24,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div>
+                <h2 style={{ marginTop: 0, marginBottom: 6 }}>Training Groups</h2>
+                <p style={{ marginTop: 0, color: "#666", fontSize: 14 }}>
+                  Build your own live group names here so calendar assignments and weekly review stay coach-specific.
+                </p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(220px, 1fr) minmax(260px, 1.4fr) auto",
+                gap: 10,
+                alignItems: "end",
+                marginBottom: 16,
+              }}
+            >
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Group name</span>
+                <input
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                  placeholder="White Group"
+                  style={{ padding: 10 }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Description</span>
+                <input
+                  value={newGroupDescription}
+                  onChange={(e) => setNewGroupDescription(e.target.value)}
+                  placeholder="Optional notes about who this group is for"
+                  style={{ padding: 10 }}
+                />
+              </label>
+
+              <button onClick={handleCreateGroup} disabled={creatingGroup} style={{ padding: "10px 14px" }}>
+                {creatingGroup ? "Creating..." : "Create Group"}
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gap: 10 }}>
+              {trainingGroups.length === 0 ? (
+                <div style={{ fontSize: 14, color: "#666" }}>
+                  No custom groups yet. Add the first one above and it will immediately become available for wrestler profiles and calendar assignments.
+                </div>
+              ) : (
+                trainingGroups.map((group) => (
+                  <div
+                    key={group.id}
+                    style={{
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 12,
+                      padding: 12,
+                      display: "grid",
+                      gridTemplateColumns: "minmax(200px, 1fr) minmax(260px, 1.4fr) auto auto auto",
+                      gap: 10,
+                      alignItems: "end",
+                      background: group.active ? "#fff" : "#f8fafc",
+                    }}
+                  >
+                    <label style={{ display: "grid", gap: 6 }}>
+                      <span>Name</span>
+                      <input
+                        value={groupDrafts[group.id]?.name || ""}
+                        onChange={(e) =>
+                          setGroupDrafts((prev) => ({
+                            ...prev,
+                            [group.id]: {
+                              ...(prev[group.id] || { name: "", description: "" }),
+                              name: e.target.value,
+                            },
+                          }))
+                        }
+                        style={{ padding: 10 }}
+                      />
+                    </label>
+
+                    <label style={{ display: "grid", gap: 6 }}>
+                      <span>Description</span>
+                      <input
+                        value={groupDrafts[group.id]?.description || ""}
+                        onChange={(e) =>
+                          setGroupDrafts((prev) => ({
+                            ...prev,
+                            [group.id]: {
+                              ...(prev[group.id] || { name: "", description: "" }),
+                              description: e.target.value,
+                            },
+                          }))
+                        }
+                        style={{ padding: 10 }}
+                      />
+                    </label>
+
+                    <button onClick={() => handleSaveGroup(group.id)} disabled={savingGroupId === group.id}>
+                      {savingGroupId === group.id ? "Saving..." : "Save"}
+                    </button>
+
+                    <button onClick={() => handleToggleGroupActive(group)} disabled={savingGroupId === group.id}>
+                      {group.active ? "Deactivate" : "Activate"}
+                    </button>
+
+                    <button
+                      onClick={() => handleDeleteGroup(group)}
+                      disabled={savingGroupId === group.id}
+                      style={{ color: "#8a1c1c" }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
         ) : null}
 
         <div
@@ -578,9 +1021,7 @@ export default function CalendarPage() {
 
                 <select
                   value={selectedPlanByDate[dateKey] || ""}
-                  onChange={(e) =>
-                    setSelectedPlanByDate((prev) => ({ ...prev, [dateKey]: e.target.value }))
-                  }
+                  onChange={(e) => handlePlanSelection(dateKey, e.target.value)}
                   disabled={!isCoach}
                   style={{
                     width: "100%",
@@ -593,10 +1034,103 @@ export default function CalendarPage() {
                   {savedPlans.map((plan) => (
                     <option key={plan.id} value={plan.id}>
                       {plan.title}
-                      {plan.assignedWrestlerIds?.length ? " (Assigned)" : ""}
+                      {plan.assignmentType === "group" && plan.groupName
+                        ? ` (${plan.groupName})`
+                        : plan.assignedWrestlerIds?.length
+                          ? " (Custom)"
+                          : ""}
                     </option>
                   ))}
                 </select>
+
+                {isCoach ? (
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: 10,
+                      padding: 12,
+                      borderRadius: 10,
+                      border: "1px solid #e5e7eb",
+                      background: "#f8fafc",
+                      marginBottom: 10,
+                    }}
+                  >
+                    <label style={{ display: "grid", gap: 6 }}>
+                      <span>Assignment</span>
+                      <select
+                        value={assignmentTypeByDate[dateKey] || "team"}
+                        onChange={(e) =>
+                          setAssignmentTypeByDate((prev) => ({
+                            ...prev,
+                            [dateKey]: e.target.value as AssignmentType,
+                          }))
+                        }
+                        style={{ padding: 10 }}
+                      >
+                        <option value="team">Team-wide</option>
+                        <option value="group">Training Group</option>
+                        <option value="custom">Custom Wrestlers</option>
+                      </select>
+                    </label>
+
+                    {(assignmentTypeByDate[dateKey] || "team") === "group" ? (
+                      <label style={{ display: "grid", gap: 6 }}>
+                        <span>Training group</span>
+                        <select
+                          value={selectedGroupByDate[dateKey] || ""}
+                          onChange={(e) =>
+                            setSelectedGroupByDate((prev) => ({
+                              ...prev,
+                              [dateKey]: e.target.value,
+                            }))
+                          }
+                          style={{ padding: 10 }}
+                        >
+                          <option value="">Select a group</option>
+                          {activeTrainingGroups.map((group) => (
+                            <option key={group.id} value={group.id}>
+                              {group.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+
+                    {(assignmentTypeByDate[dateKey] || "team") === "custom" ? (
+                      <div>
+                        <div style={{ fontWeight: 600, marginBottom: 6 }}>Custom wrestlers</div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {wrestlers.map((wrestler) => {
+                            const fullName = `${wrestler.firstName} ${wrestler.lastName}`.trim();
+                            const checked = (customWrestlersByDate[dateKey] || []).includes(wrestler.id);
+
+                            return (
+                              <label
+                                key={wrestler.id}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 6,
+                                  borderRadius: 999,
+                                  border: "1px solid #d1d5db",
+                                  padding: "6px 10px",
+                                  background: checked ? "#e0f2fe" : "#fff",
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => toggleCustomWrestler(dateKey, wrestler.id)}
+                                />
+                                <span>{fullName || "Unnamed Wrestler"}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 <textarea
                   placeholder="Optional notes for this day..."
@@ -674,6 +1208,11 @@ export default function CalendarPage() {
                       </div>
 
                       <div style={{ fontSize: 12, color: "#666", marginTop: 6 }}>
+                        {(session.assignmentType || "team") === "group" && session.groupName
+                          ? `Training group · ${session.groupName} · `
+                          : (session.assignmentType || "team") === "custom"
+                            ? "Custom wrestler assignment · "
+                            : "Team-wide · "}
                         {formatCompletedAt(session.completedAt || session.createdAt)}
                         {session.completedByRole ? ` · ${session.completedByRole}` : ""}
                       </div>
@@ -820,9 +1359,11 @@ export default function CalendarPage() {
                       </div>
 
                       <div style={{ fontSize: 12, color: "#666", marginTop: 6 }}>
-                        {(event.assignedWrestlerIds || []).length === 0
-                          ? "Team-wide practice"
-                          : "Assigned practice"}
+                        {event.assignmentType === "group" && event.groupName
+                          ? `Training group · ${event.groupName}`
+                          : event.assignmentType === "custom"
+                            ? `Custom wrestlers · ${(event.assignedWrestlerIds || []).length}`
+                            : "Team-wide practice"}
                       </div>
 
                       {event.notes ? (
@@ -850,6 +1391,165 @@ export default function CalendarPage() {
             );
           })}
         </div>
+
+        {isCoach ? (
+          <section style={{ marginTop: 28 }}>
+            <h2 style={{ marginBottom: 8 }}>Coach Weekly Review</h2>
+            <p style={{ color: "#666", marginTop: 0, marginBottom: 18 }}>
+              Review live group names, scheduled work, and post-practice notes for the selected week.
+            </p>
+
+            <div style={{ display: "grid", gap: 14 }}>
+              {weeklyReviewBlocks.length === 0 ? (
+                <div
+                  style={{
+                    border: "1px solid #ddd",
+                    borderRadius: 12,
+                    padding: 16,
+                    background: "#fff",
+                    color: "#666",
+                  }}
+                >
+                  No team-wide or group-assigned practices landed in this week yet.
+                </div>
+              ) : (
+                weeklyReviewBlocks.map((block) => {
+                  const noteSessions = block.completed.filter((session) => session.notes?.trim());
+
+                  return (
+                    <section
+                      key={block.key}
+                      style={{
+                        border: "1px solid #ddd",
+                        borderRadius: 12,
+                        padding: 16,
+                        background: "#fff",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 12,
+                          flexWrap: "wrap",
+                          marginBottom: 12,
+                        }}
+                      >
+                        <div>
+                          <h3 style={{ marginTop: 0, marginBottom: 6 }}>{block.title}</h3>
+                          <div style={{ color: "#666", fontSize: 14 }}>
+                            {block.completed.length} completed · {block.scheduled.length} upcoming
+                          </div>
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                          gap: 12,
+                          marginBottom: 14,
+                        }}
+                      >
+                        <div
+                          style={{
+                            borderRadius: 10,
+                            padding: 12,
+                            background: "#f8fafc",
+                            border: "1px solid #e5e7eb",
+                          }}
+                        >
+                          <div style={{ fontSize: 12, color: "#666", textTransform: "uppercase", marginBottom: 6 }}>
+                            Upcoming / Scheduled
+                          </div>
+                          {block.scheduled.length === 0 ? (
+                            <div style={{ color: "#666", fontSize: 14 }}>Nothing scheduled yet this week.</div>
+                          ) : (
+                            <ul style={{ margin: 0, paddingLeft: 18 }}>
+                              {block.scheduled.map((event) => (
+                                <li key={event.id} style={{ marginBottom: 6 }}>
+                                  {event.date}: {event.practicePlanTitle}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+
+                        <div
+                          style={{
+                            borderRadius: 10,
+                            padding: 12,
+                            background: "#f8fafc",
+                            border: "1px solid #e5e7eb",
+                          }}
+                        >
+                          <div style={{ fontSize: 12, color: "#666", textTransform: "uppercase", marginBottom: 6 }}>
+                            Completed This Week
+                          </div>
+                          {block.completed.length === 0 ? (
+                            <div style={{ color: "#666", fontSize: 14 }}>No completed practices recorded yet.</div>
+                          ) : (
+                            <ul style={{ margin: 0, paddingLeft: 18 }}>
+                              {block.completed.map((session) => (
+                                <li key={session.id} style={{ marginBottom: 6 }}>
+                                  {session.practicePlanTitle || "Completed practice"} ·{" "}
+                                  {formatCompletedAt(session.completedAt || session.createdAt)}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          borderRadius: 10,
+                          padding: 12,
+                          background: "#fffdf5",
+                          border: "1px solid #f3e8a8",
+                        }}
+                      >
+                        <div style={{ fontSize: 12, color: "#8a6d00", textTransform: "uppercase", marginBottom: 8 }}>
+                          Post-practice notes
+                        </div>
+
+                        {noteSessions.length === 0 ? (
+                          <div style={{ color: "#666", fontSize: 14 }}>
+                            No post-practice notes for this group yet. When coaches mark practices complete, their notes will land here automatically.
+                          </div>
+                        ) : (
+                          <div style={{ display: "grid", gap: 10 }}>
+                            {noteSessions.map((session) => (
+                              <div
+                                key={session.id}
+                                style={{
+                                  borderRadius: 8,
+                                  border: "1px solid #eadf9a",
+                                  padding: 10,
+                                  background: "#ffffff",
+                                }}
+                              >
+                                <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                                  {session.practicePlanTitle || "Completed practice"}
+                                </div>
+                                <div style={{ color: "#666", fontSize: 13, marginBottom: 6 }}>
+                                  {formatCompletedAt(session.completedAt || session.createdAt)}
+                                </div>
+                                <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                                  {session.notes}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </section>
+                  );
+                })
+              )}
+            </div>
+          </section>
+        ) : null}
       </main>
     </RequireAuth>
   );

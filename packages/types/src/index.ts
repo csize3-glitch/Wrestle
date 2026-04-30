@@ -68,6 +68,9 @@ export interface PracticePlan {
   title: string;
   teamId: string;
   style: WrestlingStyle | "Mixed";
+  assignmentType?: "team" | "group" | "custom";
+  groupId?: string;
+  groupName?: string;
   assignedWrestlerIds?: string[];
   level?: string;
   description?: string;
@@ -94,6 +97,9 @@ export interface CalendarEvent {
   id: string;
   teamId: string;
   practicePlanId: string;
+  assignmentType?: "team" | "group" | "custom";
+  groupId?: string;
+  groupName?: string;
   assignedWrestlerIds?: string[];
   date: string;
   startTime?: string;
@@ -116,6 +122,8 @@ export interface WrestlerProfile {
   weightClass?: string;
   schoolOrClub?: string;
   styles: WrestlingStyle[];
+  trainingGroupIds?: string[];
+  primaryTrainingGroupId?: string;
   strengths: string[];
   weaknesses: string[];
   warmupRoutine: string[];
@@ -126,6 +134,37 @@ export interface WrestlerProfile {
   styleProfiles?: StyleProfiles;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TrainingGroup {
+  id: string;
+  teamId: string;
+  name: string;
+  description?: string;
+  sortOrder: number;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PracticeSession {
+  id: string;
+  teamId: string;
+  practicePlanId: string;
+  practicePlanTitle?: string;
+  practicePlanStyle?: string;
+  totalSeconds?: number;
+  blockCount?: number;
+  notes?: string;
+  completedBy?: string;
+  completedByRole?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  assignmentType?: "team" | "group" | "custom";
+  groupId?: string;
+  groupName?: string;
+  assignedWrestlerIds?: string[];
 }
 
 export interface MatSideSummary {
@@ -319,7 +358,9 @@ export const COLLECTIONS = {
   LIBRARY_ITEMS: "library_items",
   PRACTICE_PLANS: "practice_plans",
   PRACTICE_BLOCKS: "practice_blocks",
+  PRACTICE_SESSIONS: "practice_sessions",
   CALENDAR_EVENTS: "calendar_events",
+  TRAINING_GROUPS: "training_groups",
   WRESTLERS: "wrestlers",
   MAT_SIDE_SUMMARIES: "mat_side_summaries",
   TEAMS: "teams",

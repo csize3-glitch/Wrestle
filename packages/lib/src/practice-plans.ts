@@ -31,7 +31,10 @@ export type PracticePlanDetail = {
   blocks: PracticePlanBlockRecord[];
 };
 
-export function practicePlanMatchesAssignment(plan: Pick<PracticePlan, "assignedWrestlerIds">, wrestlerId?: string | null) {
+export function practicePlanMatchesAssignment(
+  plan: Pick<PracticePlan, "assignedWrestlerIds">,
+  wrestlerId?: string | null
+) {
   const assignedIds = plan.assignedWrestlerIds || [];
   if (assignedIds.length === 0) {
     return true;
@@ -51,6 +54,12 @@ function normalizePracticePlan(id: string, value: Record<string, unknown>): Prac
     id,
     teamId: typeof value.teamId === "string" ? value.teamId : "",
     title: typeof value.title === "string" ? value.title : "",
+    assignmentType:
+      value.assignmentType === "group" || value.assignmentType === "custom"
+        ? value.assignmentType
+        : "team",
+    groupId: typeof value.groupId === "string" ? value.groupId : undefined,
+    groupName: typeof value.groupName === "string" ? value.groupName : undefined,
     assignedWrestlerIds: Array.isArray(value.assignedWrestlerIds)
       ? value.assignedWrestlerIds.filter((entry): entry is string => typeof entry === "string")
       : [],

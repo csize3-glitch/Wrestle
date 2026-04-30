@@ -124,7 +124,9 @@ service cloud.firestore {
             resource.data.currentTeamId == currentTeamId()
           )
         );
+
       allow create: if signedIn() && request.auth.uid == userId;
+
       allow update: if signedIn() &&
         (
           request.auth.uid == userId ||
@@ -135,6 +137,7 @@ service cloud.firestore {
             validManagedUserUpdate()
           )
         );
+
       allow delete: if false;
     }
 
@@ -148,12 +151,15 @@ service cloud.firestore {
     match /team_members/{memberId} {
       allow read: if signedIn() &&
         (resource.data.userId == request.auth.uid || sameTeam(resource.data.teamId));
+
       allow create: if signedIn() &&
         request.resource.data.userId == request.auth.uid &&
         (request.resource.data.role == "athlete" || request.resource.data.role == "coach");
+
       allow update: if signedIn() &&
         canManageTeamMember(resource.data.teamId, resource.data.userId) &&
         validManagedTeamMemberUpdate();
+
       allow delete: if signedIn() &&
         canManageTeamMember(resource.data.teamId, resource.data.userId);
     }
@@ -165,10 +171,12 @@ service cloud.firestore {
 
     match /practice_plans/{planId} {
       allow read: if signedIn() && sameTeam(resource.data.teamId);
+
       allow create: if signedIn() &&
         isCoach() &&
         request.resource.data.teamId == currentTeamId() &&
         request.resource.data.createdBy == request.auth.uid;
+
       allow update, delete: if signedIn() && isCoach() && sameTeam(resource.data.teamId);
     }
 
@@ -178,26 +186,56 @@ service cloud.firestore {
       allow update, delete: if signedIn() && canWritePracticePlan(resource.data.practicePlanId);
     }
 
-    match /calendar_events/{eventId} {
+    match /practice_sessions/{sessionId} {
       allow read: if signedIn() && sameTeam(resource.data.teamId);
+
+      allow create: if signedIn() &&
+        isCoach() &&
+        request.resource.data.teamId == currentTeamId() &&
+        request.resource.data.completedBy == request.auth.uid;
+
+      allow update, delete: if signedIn() &&
+        isCoach() &&
+        sameTeam(resource.data.teamId);
+    }
+
+    match /training_groups/{groupId} {
+      allow read: if signedIn() && sameTeam(resource.data.teamId);
+
       allow create: if signedIn() &&
         isCoach() &&
         request.resource.data.teamId == currentTeamId();
+
+      allow update, delete: if signedIn() &&
+        isCoach() &&
+        sameTeam(resource.data.teamId);
+    }
+
+    match /calendar_events/{eventId} {
+      allow read: if signedIn() && sameTeam(resource.data.teamId);
+
+      allow create: if signedIn() &&
+        isCoach() &&
+        request.resource.data.teamId == currentTeamId();
+
       allow update, delete: if signedIn() && isCoach() && sameTeam(resource.data.teamId);
     }
 
     match /wrestlers/{wrestlerId} {
       allow read: if signedIn() && sameTeam(resource.data.teamId);
+
       allow create: if signedIn() &&
         (
           (isCoach() && request.resource.data.teamId == currentTeamId()) ||
           (currentRole() == "athlete" && isOwnWrestlerRecord())
         );
+
       allow update: if signedIn() &&
         (
           (isCoach() && sameTeam(resource.data.teamId)) ||
           (currentRole() == "athlete" && isOwnedWrestler(wrestlerId) && isOwnWrestlerRecord())
         );
+
       allow delete: if signedIn() && isCoach() && sameTeam(resource.data.teamId);
     }
 
@@ -208,10 +246,12 @@ service cloud.firestore {
 
     match /wrestler_matches/{matchId} {
       allow read: if signedIn() && sameTeam(resource.data.teamId);
+
       allow create: if signedIn() &&
         isCoach() &&
         request.resource.data.teamId == currentTeamId() &&
         canReadWrestler(request.resource.data.wrestlerId);
+
       allow update, delete: if signedIn() &&
         isCoach() &&
         sameTeam(resource.data.teamId) &&
@@ -224,9 +264,11 @@ service cloud.firestore {
           resource.data.source == "excel_import" ||
           sameTeam(resource.data.teamId)
         );
+
       allow create: if signedIn() &&
         isCoach() &&
         request.resource.data.teamId == currentTeamId();
+
       allow update, delete: if signedIn() &&
         isCoach() &&
         sameTeam(resource.data.teamId);
@@ -234,20 +276,23 @@ service cloud.firestore {
 
     match /tournament_entries/{entryId} {
       allow read: if signedIn() && sameTeam(resource.data.teamId);
+
       allow create: if signedIn() &&
         (
           (isCoach() && request.resource.data.teamId == currentTeamId()) ||
           isAthletePlannedTournamentCreate()
         );
+
       allow update: if signedIn() &&
         (
           (isCoach() && sameTeam(resource.data.teamId)) ||
           isAthleteSubmittedTournamentUpdate()
         );
+
       allow delete: if signedIn() && isCoach() && sameTeam(resource.data.teamId);
     }
 
-        match /tournament_matches/{matchId} {
+    match /tournament_matches/{matchId} {
       allow read: if signedIn() && sameTeam(resource.data.teamId);
 
       allow create: if signedIn() &&
@@ -259,22 +304,26 @@ service cloud.firestore {
         isCoach() &&
         sameTeam(resource.data.teamId) &&
         canReadWrestler(resource.data.wrestlerId);
-    }	
+    }
 
     match /team_announcements/{announcementId} {
       allow read: if signedIn() && sameTeam(resource.data.teamId);
+
       allow create: if signedIn() &&
         isCoach() &&
         request.resource.data.teamId == currentTeamId() &&
         request.resource.data.createdBy == request.auth.uid;
+
       allow update, delete: if false;
     }
 
     match /team_notifications/{notificationId} {
       allow read: if signedIn() && sameTeam(resource.data.teamId);
+
       allow create: if signedIn() &&
         request.resource.data.teamId == currentTeamId() &&
         request.resource.data.createdBy == request.auth.uid;
+
       allow update, delete: if false;
     }
 
@@ -284,13 +333,16 @@ service cloud.firestore {
           resource.data.userId == request.auth.uid ||
           sameTeam(resource.data.teamId)
         );
+
       allow create: if signedIn() &&
         request.resource.data.userId == request.auth.uid &&
         request.resource.data.teamId == currentTeamId();
+
       allow update: if signedIn() &&
         resource.data.userId == request.auth.uid &&
         request.resource.data.userId == request.auth.uid &&
         request.resource.data.teamId == currentTeamId();
+
       allow delete: if signedIn() && resource.data.userId == request.auth.uid;
     }
   }

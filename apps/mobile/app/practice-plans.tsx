@@ -98,7 +98,13 @@ async function openVideo(url?: string) {
 
 export default function PracticePlansScreen() {
   const { firebaseUser, appUser, currentTeam, loading: authLoading } = useMobileAuthState();
-  const params = useLocalSearchParams<{ planId?: string }>();
+  const params = useLocalSearchParams<{
+    planId?: string;
+    assignmentType?: "team" | "group" | "custom";
+    groupId?: string;
+    groupName?: string;
+    assignedWrestlerIds?: string;
+  }>();
   const { width, height } = useWindowDimensions();
 
   const [plans, setPlans] = useState<PracticePlan[]>([]);
@@ -152,6 +158,37 @@ export default function PracticePlansScreen() {
   );
 
   const directVideoUrl = inlineVideoUrl && !youtubeEmbedUrl ? inlineVideoUrl : null;
+  const routeAssignedWrestlerIds = useMemo(
+    () =>
+      typeof params.assignedWrestlerIds === "string" && params.assignedWrestlerIds.length > 0
+        ? params.assignedWrestlerIds.split(",").filter(Boolean)
+        : [],
+    [params.assignedWrestlerIds]
+  );
+  const usingRouteAssignment =
+    selectedPlan?.id &&
+    typeof params.planId === "string" &&
+    selectedPlan.id === params.planId &&
+    typeof params.assignmentType === "string";
+  const selectedPlanAssignmentType = usingRouteAssignment
+    ? (params.assignmentType as "team" | "group" | "custom")
+    : selectedPlan?.assignmentType || "team";
+  const selectedPlanGroupId = usingRouteAssignment
+    ? typeof params.groupId === "string"
+      ? params.groupId
+      : ""
+    : selectedPlan?.groupId || "";
+  const selectedPlanGroupName = usingRouteAssignment
+    ? typeof params.groupName === "string"
+      ? params.groupName
+      : ""
+    : selectedPlan?.groupName || "";
+  const selectedPlanAssignedWrestlerIds =
+    usingRouteAssignment
+      ? routeAssignedWrestlerIds
+      : selectedPlan?.assignedWrestlerIds?.length
+      ? selectedPlan.assignedWrestlerIds
+      : routeAssignedWrestlerIds;
 
   const directVideoPlayer = useVideoPlayer(directVideoUrl, (player) => {
     player.pause();
@@ -546,6 +583,10 @@ export default function PracticePlansScreen() {
         practicePlanId: selectedPlan.id,
         practicePlanTitle: selectedPlan.title || "Untitled Practice Plan",
         practicePlanStyle: selectedPlan.style || "Mixed",
+        assignmentType: selectedPlanAssignmentType,
+        groupId: selectedPlanGroupId,
+        groupName: selectedPlanGroupName,
+        assignedWrestlerIds: selectedPlanAssignedWrestlerIds,
         totalSeconds: getPlanSeconds(selectedPlan),
         blockCount: blocks.length,
         notes: postPracticeNotes.trim(),
@@ -885,6 +926,14 @@ export default function PracticePlansScreen() {
                     <Text style={styles.planMeta}>
                       {plan.style || "Mixed"} • {formatDurationLabel(getPlanSeconds(plan))}
                     </Text>
+
+                    <Text style={[styles.planMeta, { marginTop: 6 }]}>
+                      {plan.assignmentType === "group" && plan.groupName
+                        ? `Training group • ${plan.groupName}`
+                        : plan.assignmentType === "custom"
+                          ? `Custom wrestlers • ${(plan.assignedWrestlerIds || []).length} assigned`
+                          : "Team-wide"}
+                    </Text>
                   </Pressable>
                 );
               })}
@@ -898,6 +947,14 @@ export default function PracticePlansScreen() {
               <Text style={styles.detailMeta}>
                 {selectedPlan.style || "Mixed"} • {formatDurationLabel(getPlanSeconds(selectedPlan))} •{" "}
                 {blocks.length} blocks
+              </Text>
+
+              <Text style={[styles.detailMeta, { marginTop: 8 }]}>
+                {selectedPlanAssignmentType === "group" && selectedPlanGroupName
+                  ? `Training group • ${selectedPlanGroupName}`
+                  : selectedPlanAssignmentType === "custom"
+                    ? `Custom wrestlers • ${selectedPlanAssignedWrestlerIds.length} assigned`
+                    : "Team-wide practice"}
               </Text>
 
               {isCoach && activeBlock ? (

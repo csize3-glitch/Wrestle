@@ -11,6 +11,7 @@ import {
   emptyMatSideSummary,
   getAppUser,
   getMatSideSummary,
+  listTrainingGroups,
   listWrestlerMatches,
   listWrestlers,
   removeMatSideSummary,
@@ -24,6 +25,7 @@ import type {
   MatSideSummary,
   StyleMatSidePlans,
   StyleProfiles,
+  TrainingGroup,
   VarkStyle,
   WrestlerMatch,
   WrestlerProfile,
@@ -42,6 +44,8 @@ type WrestlerFormState = {
   schoolOrClub: string;
   photoUrl: string;
   styles: WrestlingStyle[];
+  trainingGroupIds: string[];
+  primaryTrainingGroupId: string;
   strengths: string;
   weaknesses: string;
   warmupRoutine: string;
@@ -146,6 +150,8 @@ function createEmptyForm(): WrestlerFormState {
     schoolOrClub: "",
     photoUrl: "",
     styles: [],
+    trainingGroupIds: [],
+    primaryTrainingGroupId: "",
     strengths: "",
     weaknesses: "",
     warmupRoutine: "",
@@ -203,6 +209,8 @@ function buildFormFromWrestler(wrestler: WrestlerProfile): WrestlerFormState {
     schoolOrClub: wrestler.schoolOrClub || "",
     photoUrl: wrestler.photoUrl || "",
     styles: wrestler.styles,
+    trainingGroupIds: wrestler.trainingGroupIds || [],
+    primaryTrainingGroupId: wrestler.primaryTrainingGroupId || "",
     strengths: toTextareaValue(wrestler.strengths),
     weaknesses: toTextareaValue(wrestler.weaknesses),
     warmupRoutine: toTextareaValue(wrestler.warmupRoutine),
@@ -266,6 +274,8 @@ function buildPayload(form: WrestlerFormState, teamId: string, ownerUserId?: str
     schoolOrClub: form.schoolOrClub,
     photoUrl: form.photoUrl,
     styles: form.styles,
+    trainingGroupIds: form.trainingGroupIds,
+    primaryTrainingGroupId: form.primaryTrainingGroupId || undefined,
     strengths: parseList(form.strengths),
     weaknesses: parseList(form.weaknesses),
     warmupRoutine: parseList(form.warmupRoutine),
@@ -311,6 +321,8 @@ function snapshotForm(form: WrestlerFormState) {
     schoolOrClub: form.schoolOrClub.trim(),
     photoUrl: form.photoUrl.trim(),
     coachNotes: form.coachNotes.trim(),
+    trainingGroupIds: [...form.trainingGroupIds].sort(),
+    primaryTrainingGroupId: form.primaryTrainingGroupId.trim(),
     styleProfiles: WRESTLING_STYLES.reduce<Record<string, unknown>>((acc, style) => {
       acc[style] = {
         strengths: parseList(form.styleProfiles[style].strengths),
@@ -404,6 +416,7 @@ function getWrestleWellIQSummary(user?: AppUser | null) {
 export default function WrestlersPage() {
   const { appUser, currentTeam, firebaseUser } = useAuthState();
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
+  const [trainingGroups, setTrainingGroups] = useState<TrainingGroup[]>([]);
   const [wrestlerUsers, setWrestlerUsers] = useState<Record<string, AppUser>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -490,6 +503,23 @@ export default function WrestlersPage() {
   }
 
   useEffect(() => {
+    async function loadTrainingGroups() {
+      if (!currentTeam?.id) {
+        setTrainingGroups([]);
+        return;
+      }
+
+      try {
+        setTrainingGroups(await listTrainingGroups(db, currentTeam.id));
+      } catch (error) {
+        console.error("Failed to load training groups:", error);
+      }
+    }
+
+    loadTrainingGroups();
+  }, [currentTeam?.id]);
+
+  useEffect(() => {
     async function load() {
       try {
         await refreshWrestlers(null);
@@ -538,6 +568,14 @@ export default function WrestlersPage() {
   const activeWrestlerUser = activeWrestler?.ownerUserId
     ? wrestlerUsers[activeWrestler.ownerUserId] || null
     : null;
+  const trainingGroupNameById = useMemo(
+    () =>
+      Object.fromEntries(trainingGroups.map((group) => [group.id, group.name])) as Record<
+        string,
+        string
+      >,
+    [trainingGroups]
+  );
 
   const activeWrestleWellIQ = getWrestleWellIQSummary(activeWrestlerUser);
 
@@ -606,6 +644,24 @@ export default function WrestlersPage() {
         ? prev.styles.filter((item) => item !== style)
         : [...prev.styles, style],
     }));
+  }
+
+  function toggleTrainingGroup(groupId: string) {
+    setForm((prev) => {
+      const alreadySelected = prev.trainingGroupIds.includes(groupId);
+      const nextTrainingGroupIds = alreadySelected
+        ? prev.trainingGroupIds.filter((entry) => entry !== groupId)
+        : [...prev.trainingGroupIds, groupId];
+
+      return {
+        ...prev,
+        trainingGroupIds: nextTrainingGroupIds,
+        primaryTrainingGroupId:
+          prev.primaryTrainingGroupId === groupId && alreadySelected
+            ? ""
+            : prev.primaryTrainingGroupId,
+      };
+    });
   }
 
   function resetMatchForm() {
@@ -1011,6 +1067,37 @@ export default function WrestlersPage() {
                         {(wrestler.styles.length ? wrestler.styles : ["No styles selected"]).join(", ")}
                       </div>
 
+                      {(wrestler.trainingGroupIds?.length || wrestler.primaryTrainingGroupId) ? (
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                          {Array.from(
+                            new Set([
+                              ...(wrestler.primaryTrainingGroupId ? [wrestler.primaryTrainingGroupId] : []),
+                              ...(wrestler.trainingGroupIds || []),
+                            ])
+                          ).map((groupId) => (
+                            <span
+                              key={groupId}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                borderRadius: 999,
+                                padding: "4px 10px",
+                                fontSize: 12,
+                                fontWeight: 700,
+                                background:
+                                  wrestler.primaryTrainingGroupId === groupId ? "#111827" : "#eef2ff",
+                                color:
+                                  wrestler.primaryTrainingGroupId === groupId ? "#ffffff" : "#312e81",
+                              }}
+                            >
+                              {trainingGroupNameById[groupId] || "Training group"}
+                              {wrestler.primaryTrainingGroupId === groupId ? " • Primary" : ""}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+
                       {wrestler.ownerUserId ? (
                         <div style={{ fontSize: 13, color: "#0f766e", marginTop: 6, fontWeight: 700 }}>
                           {getWrestleWellIQSummary(wrestlerUsers[wrestler.ownerUserId]).label}
@@ -1160,6 +1247,77 @@ export default function WrestlersPage() {
                       </label>
                     ))}
                   </div>
+                </div>
+
+                <div
+                  style={{
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 14,
+                    padding: 16,
+                    background: "#f8fafc",
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: 8 }}>Training groups</div>
+                  <p style={{ color: "#666", fontSize: 14, marginTop: 0, marginBottom: 12 }}>
+                    Assign this wrestler to any number of coach-defined training groups. Primary group
+                    is used as the main roster label and group-assignment fallback.
+                  </p>
+
+                  {trainingGroups.length === 0 ? (
+                    <div style={{ fontSize: 14, color: "#666" }}>
+                      No training groups created yet. Coaches can add them from the Calendar page.
+                    </div>
+                  ) : (
+                    <>
+                      <label style={{ display: "grid", gap: 6, marginBottom: 12 }}>
+                        <span>Primary training group</span>
+                        <select
+                          value={form.primaryTrainingGroupId}
+                          onChange={(e) => updateField("primaryTrainingGroupId", e.target.value)}
+                          disabled={!isCoach}
+                          style={{ padding: 10 }}
+                        >
+                          <option value="">No primary group</option>
+                          {trainingGroups
+                            .filter((group) => group.active)
+                            .map((group) => (
+                              <option key={group.id} value={group.id}>
+                                {group.name}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+
+                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                        {trainingGroups
+                          .filter((group) => group.active)
+                          .map((group) => (
+                            <label
+                              key={group.id}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                                border: "1px solid #d1d5db",
+                                borderRadius: 999,
+                                padding: "8px 12px",
+                                background: form.trainingGroupIds.includes(group.id)
+                                  ? "#e0f2fe"
+                                  : "#fff",
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={form.trainingGroupIds.includes(group.id)}
+                                onChange={() => toggleTrainingGroup(group.id)}
+                                disabled={!isCoach}
+                              />
+                              <span>{group.name}</span>
+                            </label>
+                          ))}
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 <div
