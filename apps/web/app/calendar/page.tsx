@@ -347,17 +347,27 @@ export default function CalendarPage() {
       return;
     }
 
-    const eventRows = (
-      await listCalendarEvents(
-        db,
-        currentTeam.id,
-        appUser?.role === "athlete" ? athleteOwnedWrestler : undefined
-      )
-    )
-      .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
-      .filter((event) => event.date >= weekStartKey && event.date <= weekEndKey);
+    const eventRows =
+      appUser?.role === "coach"
+        ? (
+            await getDocs(
+              query(
+                collection(db, COLLECTIONS.CALENDAR_EVENTS),
+                where("teamId", "==", currentTeam.id)
+              )
+            )
+          ).docs.map((eventDoc) => ({
+            id: eventDoc.id,
+            ...(eventDoc.data() as Omit<CalendarEventItem, "id">),
+          }))
+        : await listCalendarEvents(db, currentTeam.id, athleteOwnedWrestler);
 
-    setEvents(eventRows);
+    setEvents(
+      eventRows
+        .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
+        .filter((event) => event.date >= weekStartKey && event.date <= weekEndKey)
+    );
+
     const sessionRows = (
       await listPracticeSessions(db, currentTeam.id, weekStartKey, weekEndKey)
     )
@@ -417,33 +427,6 @@ export default function CalendarPage() {
 
     setTournaments(calendarTournaments.filter(Boolean) as TournamentCalendarItem[]);
   }
-
-  useEffect(() => {
-    async function loadEvents() {
-      try {
-        setLoadingEvents(true);
-
-        if (!currentTeam?.id) {
-          setEvents([]);
-          setTournaments([]);
-          setCompletedPractices([]);
-          return;
-        }
-
-        if (appUser?.role === "athlete" && !wrestlersLoaded) {
-          return;
-        }
-
-        await refreshEvents();
-      } catch (error) {
-        console.error("Failed to load calendar events:", error);
-      } finally {
-        setLoadingEvents(false);
-      }
-    }
-
-    loadEvents();
-  }, [appUser?.role, athleteOwnedWrestler, currentTeam?.id, weekStartKey, weekEndKey, wrestlersLoaded]);
 
   function getResolvedAssignedWrestlerIds(
     assignmentType: AssignmentType,
