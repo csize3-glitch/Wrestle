@@ -26,7 +26,13 @@ import {
   listWrestlers,
   type PracticePlanBlockRecord,
 } from "@wrestlewell/lib/index";
-import type { PracticePlan, WrestlerProfile } from "@wrestlewell/types/index";
+import type {
+  PracticeAttendanceStatus,
+  PracticePlan,
+  PracticeSessionAttendanceCounts,
+  PracticeSessionAttendanceEntry,
+  WrestlerProfile,
+} from "@wrestlewell/types/index";
 import { useMobileAuthState } from "../components/auth-provider";
 import { MobileScreenShell } from "../components/mobile-screen-shell";
 
@@ -54,6 +60,29 @@ function formatDurationLabel(totalSeconds: number) {
 
 function getPlanSeconds(plan?: PracticePlan | null) {
   return Math.max(0, (plan?.totalSeconds || 0) || (plan?.totalMinutes || 0) * 60);
+}
+
+const ATTENDANCE_STATUSES: Array<{
+  value: PracticeAttendanceStatus;
+  label: string;
+}> = [
+  { value: "present", label: "Present" },
+  { value: "absent", label: "Absent" },
+  { value: "late", label: "Late" },
+  { value: "injured", label: "Injured" },
+  { value: "excused", label: "Excused" },
+];
+
+function buildAttendanceCounts(
+  attendance: PracticeSessionAttendanceEntry[]
+): PracticeSessionAttendanceCounts {
+  return attendance.reduce<PracticeSessionAttendanceCounts>(
+    (totals, entry) => {
+      totals[entry.status] += 1;
+      return totals;
+    },
+    { present: 0, absent: 0, late: 0, injured: 0, excused: 0 }
+  );
 }
 
 function getBlockDisplayTitle(block: PracticePlanBlockRecord | null, index?: number) {
@@ -130,6 +159,9 @@ export default function PracticePlansScreen() {
   const [completionModalVisible, setCompletionModalVisible] = useState(false);
   const [postPracticeNotes, setPostPracticeNotes] = useState("");
   const [savingCompletion, setSavingCompletion] = useState(false);
+  const [attendanceByWrestlerId, setAttendanceByWrestlerId] = useState<
+    Record<string, { wrestlerName: string; status: PracticeAttendanceStatus; notes: string }>
+  >({});
 
   const announcedBlockRef = useRef<string | null>(null);
   const announcedCountdownRef = useRef<string | null>(null);
@@ -189,6 +221,27 @@ export default function PracticePlansScreen() {
       : selectedPlan?.assignedWrestlerIds?.length
       ? selectedPlan.assignedWrestlerIds
       : routeAssignedWrestlerIds;
+
+  const resolvedAttendanceWrestlers = useMemo(() => {
+    if (selectedPlanAssignmentType === "group" && selectedPlanGroupId) {
+      return wrestlers.filter(
+        (wrestler) =>
+          wrestler.primaryTrainingGroupId === selectedPlanGroupId ||
+          Boolean(wrestler.trainingGroupIds?.includes(selectedPlanGroupId))
+      );
+    }
+
+    if (selectedPlanAssignmentType === "custom") {
+      return wrestlers.filter((wrestler) => selectedPlanAssignedWrestlerIds.includes(wrestler.id));
+    }
+
+    return wrestlers;
+  }, [
+    selectedPlanAssignedWrestlerIds,
+    selectedPlanAssignmentType,
+    selectedPlanGroupId,
+    wrestlers,
+  ]);
 
   const directVideoPlayer = useVideoPlayer(directVideoUrl, (player) => {
     player.pause();
@@ -567,7 +620,45 @@ export default function PracticePlansScreen() {
       console.warn("Could not unlock orientation before completion modal:", error);
     }
 
+    setAttendanceByWrestlerId(
+      Object.fromEntries(
+        resolvedAttendanceWrestlers.map((wrestler) => {
+          const fullName = `${wrestler.firstName} ${wrestler.lastName}`.trim() || "Unnamed Wrestler";
+          return [
+            wrestler.id,
+            {
+              wrestlerName: fullName,
+              status: "present" as PracticeAttendanceStatus,
+              notes: "",
+            },
+          ];
+        })
+      )
+    );
     setCompletionModalVisible(true);
+  }
+
+  function setAttendanceStatusForWrestler(
+    wrestlerId: string,
+    status: PracticeAttendanceStatus
+  ) {
+    setAttendanceByWrestlerId((prev) => ({
+      ...prev,
+      [wrestlerId]: {
+        ...(prev[wrestlerId] || { wrestlerName: "Unnamed Wrestler", notes: "" }),
+        status,
+      },
+    }));
+  }
+
+  function setAttendanceNotesForWrestler(wrestlerId: string, notes: string) {
+    setAttendanceByWrestlerId((prev) => ({
+      ...prev,
+      [wrestlerId]: {
+        ...(prev[wrestlerId] || { wrestlerName: "Unnamed Wrestler", status: "present" as PracticeAttendanceStatus }),
+        notes,
+      },
+    }));
   }
 
   async function savePracticeCompletion() {
@@ -577,6 +668,15 @@ export default function PracticePlansScreen() {
 
     try {
       setSavingCompletion(true);
+      const attendance = Object.entries(attendanceByWrestlerId).map(
+        ([wrestlerId, value]): PracticeSessionAttendanceEntry => ({
+          wrestlerId,
+          wrestlerName: value.wrestlerName,
+          status: value.status,
+          notes: value.notes.trim() || undefined,
+        })
+      );
+      const attendanceCounts = buildAttendanceCounts(attendance);
 
       await addDoc(collection(db, "practice_sessions"), {
         teamId: currentTeam.id,
@@ -595,10 +695,13 @@ export default function PracticePlansScreen() {
         completedAt: serverTimestamp(),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
+        attendance,
+        attendanceCounts,
       });
 
       setCompletionModalVisible(false);
       setPostPracticeNotes("");
+      setAttendanceByWrestlerId({});
 
       Alert.alert("Practice complete", "Post-practice notes were saved.", [
         { text: "Stay Here" },
@@ -672,6 +775,81 @@ export default function PracticePlansScreen() {
               or what you want to remember before building the next plan.
             </Text>
           </View>
+
+          <View style={styles.completionSummaryCard}>
+            <Text style={styles.completionSummaryTitle}>Attendance</Text>
+            <Text style={styles.completionSummaryCopy}>
+              Everyone defaults to present so you can move quickly. Update absences, late arrivals,
+              injuries, or excused wrestlers before saving the session.
+            </Text>
+          </View>
+
+          {resolvedAttendanceWrestlers.length === 0 ? (
+            <View style={styles.emptyAttendanceCard}>
+              <Text style={styles.emptyAttendanceTitle}>No wrestlers resolved</Text>
+              <Text style={styles.emptyAttendanceCopy}>
+                This practice does not currently resolve any rostered wrestlers. Save will still
+                work, but attendance will not be attached to the session.
+              </Text>
+            </View>
+          ) : (
+            <View style={{ gap: 12 }}>
+              {resolvedAttendanceWrestlers.map((wrestler) => {
+                const fullName = `${wrestler.firstName} ${wrestler.lastName}`.trim() || "Unnamed Wrestler";
+                const attendanceEntry = attendanceByWrestlerId[wrestler.id];
+                const currentStatus = attendanceEntry?.status || "present";
+                return (
+                  <View key={wrestler.id} style={styles.attendanceCard}>
+                    <View style={{ marginBottom: 10 }}>
+                      <Text style={styles.attendanceName}>{fullName}</Text>
+                      {wrestler.primaryTrainingGroupId || wrestler.trainingGroupIds?.length ? (
+                        <Text style={styles.attendanceMeta}>
+                          {selectedPlanAssignmentType === "group" && selectedPlanGroupName
+                            ? selectedPlanGroupName
+                            : selectedPlanAssignmentType === "custom"
+                              ? "Custom assignment"
+                              : "Team-wide assignment"}
+                        </Text>
+                      ) : null}
+                    </View>
+
+                    <View style={styles.attendanceStatusRow}>
+                      {ATTENDANCE_STATUSES.map((statusOption) => {
+                        const active = currentStatus === statusOption.value;
+                        return (
+                          <Pressable
+                            key={statusOption.value}
+                            onPress={() => setAttendanceStatusForWrestler(wrestler.id, statusOption.value)}
+                            style={[
+                              styles.attendanceStatusPill,
+                              active ? styles.attendanceStatusPillActive : null,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.attendanceStatusPillText,
+                                active ? styles.attendanceStatusPillTextActive : null,
+                              ]}
+                            >
+                              {statusOption.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+
+                    <TextInput
+                      value={attendanceEntry?.notes || ""}
+                      onChangeText={(value) => setAttendanceNotesForWrestler(wrestler.id, value)}
+                      placeholder="Optional attendance note"
+                      placeholderTextColor="#7c8da3"
+                      style={styles.attendanceNotesInput}
+                    />
+                  </View>
+                );
+              })}
+            </View>
+          )}
 
           <TextInput
             value={postPracticeNotes}
@@ -1690,6 +1868,77 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginTop: 6,
+  },
+  emptyAttendanceCard: {
+    borderWidth: 1,
+    borderColor: "#7f1d1d",
+    backgroundColor: "#3b0a0a",
+    borderRadius: 18,
+    padding: 14,
+  },
+  emptyAttendanceTitle: {
+    color: "#fecaca",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  emptyAttendanceCopy: {
+    color: "#fecaca",
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 6,
+  },
+  attendanceCard: {
+    borderWidth: 1,
+    borderColor: "#315c86",
+    backgroundColor: "#102f52",
+    borderRadius: 18,
+    padding: 14,
+    gap: 10,
+  },
+  attendanceName: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  attendanceMeta: {
+    color: "#b7c9df",
+    fontSize: 13,
+    marginTop: 4,
+  },
+  attendanceStatusRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  attendanceStatusPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#0b2542",
+    borderWidth: 1,
+    borderColor: "#315c86",
+  },
+  attendanceStatusPillActive: {
+    backgroundColor: "#bf1029",
+    borderColor: "#fca5a5",
+  },
+  attendanceStatusPillText: {
+    color: "#dbeafe",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  attendanceStatusPillTextActive: {
+    color: "#ffffff",
+  },
+  attendanceNotesInput: {
+    borderWidth: 1,
+    borderColor: "#315c86",
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: "#0b2542",
+    color: "#ffffff",
+    fontSize: 14,
   },
   postPracticeInput: {
     minHeight: 180,

@@ -165,6 +165,30 @@ export interface PracticeSession {
   groupId?: string;
   groupName?: string;
   assignedWrestlerIds?: string[];
+  attendance?: PracticeSessionAttendanceEntry[];
+  attendanceCounts?: PracticeSessionAttendanceCounts;
+}
+
+export type PracticeAttendanceStatus =
+  | "present"
+  | "absent"
+  | "late"
+  | "injured"
+  | "excused";
+
+export interface PracticeSessionAttendanceEntry {
+  wrestlerId: string;
+  wrestlerName: string;
+  status: PracticeAttendanceStatus;
+  notes?: string;
+}
+
+export interface PracticeSessionAttendanceCounts {
+  present: number;
+  absent: number;
+  late: number;
+  injured: number;
+  excused: number;
 }
 
 export interface MatSideSummary {

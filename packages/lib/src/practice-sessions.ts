@@ -6,7 +6,13 @@ import {
   where,
   type Firestore,
 } from "firebase/firestore";
-import { COLLECTIONS, type PracticeSession } from "@wrestlewell/types/index";
+import {
+  COLLECTIONS,
+  type PracticeAttendanceStatus,
+  type PracticeSession,
+  type PracticeSessionAttendanceCounts,
+  type PracticeSessionAttendanceEntry,
+} from "@wrestlewell/types/index";
 
 function normalizeDateValue(value: unknown): string {
   if (!value) return "";
@@ -45,7 +51,79 @@ function ensureStringArray(value: unknown): string[] {
   return value.filter((entry): entry is string => typeof entry === "string");
 }
 
+function normalizeAttendanceStatus(value: unknown): PracticeAttendanceStatus {
+  switch (value) {
+    case "absent":
+    case "late":
+    case "injured":
+    case "excused":
+      return value;
+    default:
+      return "present";
+  }
+}
+
+function normalizeAttendanceEntry(value: unknown): PracticeSessionAttendanceEntry | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const entry = value as Record<string, unknown>;
+  const wrestlerId = typeof entry.wrestlerId === "string" ? entry.wrestlerId : "";
+  const wrestlerName = typeof entry.wrestlerName === "string" ? entry.wrestlerName : "";
+
+  if (!wrestlerId || !wrestlerName) {
+    return null;
+  }
+
+  return {
+    wrestlerId,
+    wrestlerName,
+    status: normalizeAttendanceStatus(entry.status),
+    notes: typeof entry.notes === "string" ? entry.notes : undefined,
+  };
+}
+
+function normalizeAttendance(value: unknown): PracticeSessionAttendanceEntry[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => normalizeAttendanceEntry(entry))
+    .filter((entry): entry is PracticeSessionAttendanceEntry => Boolean(entry));
+}
+
+function normalizeAttendanceCounts(
+  value: unknown,
+  attendance: PracticeSessionAttendanceEntry[]
+): PracticeSessionAttendanceCounts | undefined {
+  if (value && typeof value === "object") {
+    const counts = value as Record<string, unknown>;
+    return {
+      present: typeof counts.present === "number" ? counts.present : 0,
+      absent: typeof counts.absent === "number" ? counts.absent : 0,
+      late: typeof counts.late === "number" ? counts.late : 0,
+      injured: typeof counts.injured === "number" ? counts.injured : 0,
+      excused: typeof counts.excused === "number" ? counts.excused : 0,
+    };
+  }
+
+  if (!attendance.length) {
+    return undefined;
+  }
+
+  return attendance.reduce<PracticeSessionAttendanceCounts>(
+    (totals, entry) => {
+      totals[entry.status] += 1;
+      return totals;
+    },
+    { present: 0, absent: 0, late: 0, injured: 0, excused: 0 }
+  );
+}
+
 function normalizePracticeSession(id: string, value: Record<string, unknown>): PracticeSession {
+  const attendance = normalizeAttendance(value.attendance);
   return {
     id,
     teamId: typeof value.teamId === "string" ? value.teamId : "",
@@ -70,6 +148,8 @@ function normalizePracticeSession(id: string, value: Record<string, unknown>): P
     groupId: typeof value.groupId === "string" ? value.groupId : undefined,
     groupName: typeof value.groupName === "string" ? value.groupName : undefined,
     assignedWrestlerIds: ensureStringArray(value.assignedWrestlerIds),
+    attendance,
+    attendanceCounts: normalizeAttendanceCounts(value.attendanceCounts, attendance),
   };
 }
 

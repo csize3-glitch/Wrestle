@@ -57,6 +57,8 @@ type CalendarEventItem = {
   practicePlanStyle?: string;
   totalMinutes?: number;
   totalSeconds?: number;
+  startTime?: string;
+  endTime?: string;
   notes?: string;
 };
 
@@ -76,6 +78,7 @@ type CompletedPracticeSessionItem = PracticeSession & {
 };
 
 type AssignmentType = "team" | "group" | "custom";
+type CoachCalendarFilter = "all" | "team" | "custom" | `group:${string}`;
 
 function getStartOfWeek(date = new Date()) {
   const d = new Date(date);
@@ -114,6 +117,20 @@ function wrestlerMatchesTrainingGroup(wrestler: WrestlerProfile, groupId: string
 
 function uniqueIds(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
+}
+
+function buildEventAssignmentKey(event: {
+  practicePlanId?: string;
+  assignmentType?: string;
+  groupId?: string;
+  assignedWrestlerIds?: string[];
+}) {
+  return [
+    event.practicePlanId || "",
+    event.assignmentType || "team",
+    event.groupId || "",
+    uniqueIds(event.assignedWrestlerIds || []).sort().join(","),
+  ].join("::");
 }
 
 function normalizeDateValue(value: unknown): string {
@@ -171,6 +188,16 @@ function formatCompletedAt(value: unknown) {
   });
 }
 
+function formatAttendanceSummary(
+  counts?: PracticeSession["attendanceCounts"]
+) {
+  if (!counts) {
+    return "Attendance not logged.";
+  }
+
+  return `Present ${counts.present || 0} · Absent ${counts.absent || 0} · Late ${counts.late || 0} · Injured ${counts.injured || 0} · Excused ${counts.excused || 0}`;
+}
+
 function getCompletedPracticeDate(session: CompletedPracticeSessionItem) {
   return (
     session.date ||
@@ -200,6 +227,8 @@ export default function CalendarPage() {
   const [selectedGroupByDate, setSelectedGroupByDate] = useState<Record<string, string>>({});
   const [customWrestlersByDate, setCustomWrestlersByDate] = useState<Record<string, string[]>>({});
   const [notesByDate, setNotesByDate] = useState<Record<string, string>>({});
+  const [coachCalendarFilter, setCoachCalendarFilter] = useState<CoachCalendarFilter>("all");
+  const [viewAsWrestlerId, setViewAsWrestlerId] = useState("");
   const [weekOffset, setWeekOffset] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(1440);
 
@@ -242,6 +271,15 @@ export default function CalendarPage() {
       >,
     [trainingGroups]
   );
+
+  const visibleAthletePreview =
+    isCoach && viewAsWrestlerId
+      ? wrestlers.find((wrestler) => wrestler.id === viewAsWrestlerId) || null
+      : null;
+
+  const athleteViewBannerName = visibleAthletePreview
+    ? `${visibleAthletePreview.firstName} ${visibleAthletePreview.lastName}`.trim() || "Selected Wrestler"
+    : "";
 
   const weekDates = useMemo(() => {
     const start = getStartOfWeek();
@@ -360,17 +398,7 @@ export default function CalendarPage() {
 
     const eventRows =
       appUser?.role === "coach"
-        ? (
-            await getDocs(
-              query(
-                collection(db, COLLECTIONS.CALENDAR_EVENTS),
-                where("teamId", "==", currentTeam.id)
-              )
-            )
-          ).docs.map((eventDoc) => ({
-            id: eventDoc.id,
-            ...(eventDoc.data() as Omit<CalendarEventItem, "id">),
-          }))
+        ? await listCalendarEvents(db, currentTeam.id, visibleAthletePreview || undefined)
         : await listCalendarEvents(db, currentTeam.id, athleteOwnedWrestler);
 
     setEvents(
@@ -415,10 +443,12 @@ export default function CalendarPage() {
           });
 
           if (
-            appUser?.role === "athlete" &&
-            athleteOwnedWrestler &&
+            ((appUser?.role === "athlete" && athleteOwnedWrestler) || visibleAthletePreview) &&
             entries.length > 0 &&
-            !entries.some((entry) => entry.wrestlerId === athleteOwnedWrestler.id)
+            !entries.some(
+              (entry) =>
+                entry.wrestlerId === (visibleAthletePreview?.id || athleteOwnedWrestler?.id)
+            )
           ) {
             return null;
           }
@@ -472,6 +502,7 @@ export default function CalendarPage() {
     firebaseUser?.uid,
     weekStartKey,
     weekEndKey,
+    visibleAthletePreview?.id,
     wrestlersLoaded,
   ]);
 
@@ -529,6 +560,100 @@ export default function CalendarPage() {
     });
   }
 
+  const filteredEvents = useMemo(() => {
+    if (!isCoach || coachCalendarFilter === "all") {
+      return events;
+    }
+
+    if (coachCalendarFilter === "team") {
+      return events.filter(
+        (event) =>
+          (event.assignmentType || "team") === "team" ||
+          (!event.assignmentType && !event.groupId && !(event.assignedWrestlerIds || []).length)
+      );
+    }
+
+    if (coachCalendarFilter === "custom") {
+      return events.filter((event) => event.assignmentType === "custom");
+    }
+
+    if (coachCalendarFilter.startsWith("group:")) {
+      const groupId = coachCalendarFilter.slice("group:".length);
+      return events.filter((event) => event.groupId === groupId);
+    }
+
+    return events;
+  }, [coachCalendarFilter, events, isCoach]);
+
+  const filteredCompletedPractices = useMemo(() => {
+    if (!isCoach || coachCalendarFilter === "all") {
+      return completedPractices;
+    }
+
+    if (coachCalendarFilter === "team") {
+      return completedPractices.filter(
+        (session) =>
+          (session.assignmentType || "team") === "team" ||
+          (!session.assignmentType && !session.groupId && !(session.assignedWrestlerIds || []).length)
+      );
+    }
+
+    if (coachCalendarFilter === "custom") {
+      return completedPractices.filter((session) => session.assignmentType === "custom");
+    }
+
+    if (coachCalendarFilter.startsWith("group:")) {
+      const groupId = coachCalendarFilter.slice("group:".length);
+      return completedPractices.filter((session) => session.groupId === groupId);
+    }
+
+    return completedPractices;
+  }, [coachCalendarFilter, completedPractices, isCoach]);
+
+  function getResolvedAssignmentPreview(dateKey: string) {
+    const selectedPlan = savedPlans.find((plan) => plan.id === selectedPlanByDate[dateKey]);
+    if (!selectedPlan) {
+      return null;
+    }
+
+    const assignmentType = assignmentTypeByDate[dateKey] || "team";
+    const groupId = selectedGroupByDate[dateKey] || "";
+    const assignedWrestlerIds = getResolvedAssignedWrestlerIds(
+      assignmentType,
+      groupId,
+      customWrestlersByDate[dateKey] || []
+    );
+    const resolvedWrestlers =
+      assignmentType === "team"
+        ? wrestlers
+        : wrestlers.filter((wrestler) => assignedWrestlerIds.includes(wrestler.id));
+    const pushTargetCount =
+      assignmentType === "team"
+        ? uniqueIds(
+            wrestlers
+              .map((wrestler) => wrestler.ownerUserId)
+              .filter((value): value is string => Boolean(value))
+          ).length
+        : uniqueIds(
+            resolvedWrestlers
+              .map((wrestler) => wrestler.ownerUserId)
+              .filter((value): value is string => Boolean(value))
+          ).length;
+
+    return {
+      selectedPlan,
+      assignmentType,
+      groupId,
+      groupName: groupId ? trainingGroupNameById[groupId] || "Selected group" : "",
+      assignedWrestlerIds,
+      resolvedWrestlers,
+      pushTargetCount,
+      isValid:
+        assignmentType === "team" ||
+        (assignmentType === "group" ? Boolean(groupId) : assignedWrestlerIds.length > 0),
+    };
+  }
+
   const weeklyReviewCards = useMemo(() => {
     type ReviewTone = "team" | "group" | "custom";
     type WeeklyReviewCard = {
@@ -542,6 +667,13 @@ export default function CalendarPage() {
       completionRate: number;
       latestNote: CompletedPracticeSessionItem | null;
       noteSessions: CompletedPracticeSessionItem[];
+      attendanceTotals: {
+        present: number;
+        absent: number;
+        late: number;
+        injured: number;
+        excused: number;
+      };
       rosterHref: string;
       rosterLabel: string;
     };
@@ -573,6 +705,20 @@ export default function CalendarPage() {
 
       const noteSessions = completed.filter((session) => session.notes?.trim());
       const latestNote = noteSessions[0] || null;
+      const attendanceTotals = completed.reduce(
+        (totals, session) => {
+          if (!session.attendanceCounts) {
+            return totals;
+          }
+          totals.present += session.attendanceCounts.present || 0;
+          totals.absent += session.attendanceCounts.absent || 0;
+          totals.late += session.attendanceCounts.late || 0;
+          totals.injured += session.attendanceCounts.injured || 0;
+          totals.excused += session.attendanceCounts.excused || 0;
+          return totals;
+        },
+        { present: 0, absent: 0, late: 0, injured: 0, excused: 0 }
+      );
 
       return {
         key,
@@ -585,6 +731,7 @@ export default function CalendarPage() {
         completionRate,
         latestNote,
         noteSessions,
+        attendanceTotals,
         rosterHref: "/wrestlers",
         rosterLabel,
       };
@@ -592,13 +739,13 @@ export default function CalendarPage() {
 
     const cards: WeeklyReviewCard[] = [];
 
-    const legacyTeamScheduled = events.filter(
+    const legacyTeamScheduled = filteredEvents.filter(
       (event) =>
         (event.assignmentType || "team") === "team" ||
         (!event.assignmentType && !event.groupId && !(event.assignedWrestlerIds || []).length)
     );
 
-    const legacyTeamCompleted = completedPractices.filter(
+    const legacyTeamCompleted = filteredCompletedPractices.filter(
       (session) =>
         (session.assignmentType || "team") === "team" ||
         (!session.assignmentType && !session.groupId && !(session.assignedWrestlerIds || []).length)
@@ -622,8 +769,8 @@ export default function CalendarPage() {
         group.name,
         group.description?.trim() || "Training group review for the selected week.",
         "group",
-        events.filter((event) => event.groupId === group.id),
-        completedPractices.filter((session) => session.groupId === group.id),
+        filteredEvents.filter((event) => event.groupId === group.id),
+        filteredCompletedPractices.filter((session) => session.groupId === group.id),
         `Open ${group.name} roster`
       );
 
@@ -635,15 +782,15 @@ export default function CalendarPage() {
       "Custom / 1-on-1",
       "Individually assigned practices and private work this week.",
       "custom",
-      events.filter((event) => event.assignmentType === "custom"),
-      completedPractices.filter((session) => session.assignmentType === "custom"),
+      filteredEvents.filter((event) => event.assignmentType === "custom"),
+      filteredCompletedPractices.filter((session) => session.assignmentType === "custom"),
       "Open wrestler assignments"
     );
 
     if (customCard) cards.push(customCard);
 
     return cards;
-  }, [activeTrainingGroups, completedPractices, events]);
+  }, [activeTrainingGroups, filteredCompletedPractices, filteredEvents]);
 
   async function assignPlanToDate(dateKey: string) {
     if (!currentTeam?.id) {
@@ -751,8 +898,106 @@ export default function CalendarPage() {
     }
   }
 
+  async function copyThisWeek() {
+    if (!currentTeam?.id || !isCoach) {
+      return;
+    }
+
+    const offsetInput = window.prompt(
+      "Copy this week to how many weeks ahead?",
+      "1"
+    );
+
+    if (!offsetInput) {
+      return;
+    }
+
+    const weekJump = Number.parseInt(offsetInput, 10);
+    if (!Number.isFinite(weekJump) || weekJump < 1) {
+      alert("Enter a valid number of weeks ahead.");
+      return;
+    }
+
+    const targetDates = weekDates.map((date) => {
+      const next = new Date(date);
+      next.setDate(next.getDate() + weekJump * 7);
+      return formatDateKey(next);
+    });
+    const targetStart = targetDates[0];
+    const targetEnd = targetDates[targetDates.length - 1];
+
+    try {
+      const allEventsSnapshot = await getDocs(
+        query(collection(db, COLLECTIONS.CALENDAR_EVENTS), where("teamId", "==", currentTeam.id))
+      );
+      const allTeamEvents = allEventsSnapshot.docs.map((docSnapshot) => ({
+        id: docSnapshot.id,
+        ...(docSnapshot.data() as Omit<CalendarEventItem, "id">),
+      }));
+
+      const existingTargetKeys = new Set(
+        allTeamEvents
+          .filter((event) => event.date >= targetStart && event.date <= targetEnd)
+          .map((event) => `${event.date}::${buildEventAssignmentKey(event)}`)
+      );
+
+      const sourceEvents = allTeamEvents
+        .filter((event) => event.date >= weekStartKey && event.date <= weekEndKey)
+        .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+      let copiedCount = 0;
+      let skippedCount = 0;
+
+      for (const event of sourceEvents) {
+        const sourceIndex = weekDates.findIndex((date) => formatDateKey(date) === event.date);
+        if (sourceIndex === -1) {
+          continue;
+        }
+
+        const nextDate = targetDates[sourceIndex];
+        const targetKey = `${nextDate}::${buildEventAssignmentKey(event)}`;
+
+        if (existingTargetKeys.has(targetKey)) {
+          skippedCount += 1;
+          continue;
+        }
+
+        await addDoc(collection(db, COLLECTIONS.CALENDAR_EVENTS), {
+          teamId: currentTeam.id,
+          date: nextDate,
+          practicePlanId: event.practicePlanId,
+          assignmentType: event.assignmentType || "team",
+          groupId: event.groupId || "",
+          groupName: event.groupName || "",
+          assignedWrestlerIds: event.assignedWrestlerIds || [],
+          practicePlanTitle: event.practicePlanTitle || "",
+          practicePlanStyle: event.practicePlanStyle || "Mixed",
+          totalMinutes: event.totalMinutes || 0,
+          totalSeconds: event.totalSeconds || (event.totalMinutes || 0) * 60 || 0,
+          notes: event.notes || "",
+          startTime: event.startTime || "",
+          endTime: event.endTime || "",
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+
+        existingTargetKeys.add(targetKey);
+        copiedCount += 1;
+      }
+
+      await refreshEvents();
+      alert(
+        skippedCount > 0
+          ? `Copied ${copiedCount} practices. Skipped ${skippedCount} duplicates already scheduled in the target week.`
+          : `Copied ${copiedCount} practices into the target week.`
+      );
+    } catch (error) {
+      console.error("Failed to copy week:", error);
+      alert("Failed to copy this week.");
+    }
+  }
+
   function getEventsForDate(dateKey: string) {
-    return events.filter((event) => event.date === dateKey);
+    return filteredEvents.filter((event) => event.date === dateKey);
   }
 
   function getTournamentsForDate(dateKey: string) {
@@ -760,7 +1005,7 @@ export default function CalendarPage() {
   }
 
   function getCompletedPracticesForDate(dateKey: string) {
-    return completedPractices.filter((session) => getCompletedPracticeDate(session) === dateKey);
+    return filteredCompletedPractices.filter((session) => getCompletedPracticeDate(session) === dateKey);
   }
 
   return (
@@ -814,7 +1059,115 @@ export default function CalendarPage() {
           <button onClick={() => setWeekOffset(0)} style={{ padding: "10px 14px" }}>
             This Week
           </button>
+
+          {isCoach ? (
+            <button onClick={copyThisWeek} style={{ padding: "10px 14px" }}>
+              Copy This Week
+            </button>
+          ) : null}
         </div>
+
+        {isCoach ? (
+          <section
+            style={{
+              border: "1px solid #dbe5f0",
+              borderRadius: 16,
+              padding: 16,
+              background: "#fff",
+              marginBottom: 18,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 16,
+                flexWrap: "wrap",
+                alignItems: "end",
+              }}
+            >
+              <div>
+                <h2 style={{ marginTop: 0, marginBottom: 6, fontSize: 20 }}>Coach schedule lens</h2>
+                <p style={{ marginTop: 0, color: "#667085", fontSize: 14, marginBottom: 0 }}>
+                  Filter the week by assignment lane or preview the schedule exactly as a wrestler would see it.
+                </p>
+              </div>
+
+              <div style={{ display: "grid", gap: 6, minWidth: 260, flex: "0 1 320px" }}>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>View as athlete</span>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <select
+                    value={viewAsWrestlerId}
+                    onChange={(e) => setViewAsWrestlerId(e.target.value)}
+                    style={{ flex: "1 1 220px", padding: 10 }}
+                  >
+                    <option value="">Full coach view</option>
+                    {wrestlers.map((wrestler) => {
+                      const fullName = `${wrestler.firstName} ${wrestler.lastName}`.trim() || "Unnamed Wrestler";
+                      return (
+                        <option key={wrestler.id} value={wrestler.id}>
+                          {fullName}
+                        </option>
+                      );
+                    })}
+                  </select>
+
+                  {viewAsWrestlerId ? (
+                    <button onClick={() => setViewAsWrestlerId("")} style={{ padding: "10px 14px" }}>
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            {athleteViewBannerName ? (
+              <div
+                style={{
+                  marginTop: 14,
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  background: "#fff7ed",
+                  border: "1px solid #fed7aa",
+                  color: "#9a3412",
+                  fontWeight: 700,
+                }}
+              >
+                Viewing schedule as {athleteViewBannerName}
+              </div>
+            ) : null}
+
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
+              {[
+                { key: "all" as CoachCalendarFilter, label: "All" },
+                { key: "team" as CoachCalendarFilter, label: "Team-wide" },
+                ...activeTrainingGroups.map((group) => ({
+                  key: `group:${group.id}` as CoachCalendarFilter,
+                  label: group.name,
+                })),
+                { key: "custom" as CoachCalendarFilter, label: "Custom / 1-on-1" },
+              ].map((filterOption) => {
+                const isActive = coachCalendarFilter === filterOption.key;
+                return (
+                  <button
+                    key={filterOption.key}
+                    onClick={() => setCoachCalendarFilter(filterOption.key)}
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: 999,
+                      border: isActive ? "1px solid #0f3d68" : "1px solid #d1d5db",
+                      background: isActive ? "#0f3d68" : "#fff",
+                      color: isActive ? "#fff" : "#344054",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {filterOption.label}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
 
         {loadingPlans ? <p>Loading practice plans...</p> : null}
         {loadingEvents ? <p>Loading calendar...</p> : null}
@@ -833,6 +1186,7 @@ export default function CalendarPage() {
             const dayEvents = getEventsForDate(dateKey);
             const dayTournaments = getTournamentsForDate(dateKey);
             const dayCompletedPractices = getCompletedPracticesForDate(dateKey);
+            const assignmentPreview = getResolvedAssignmentPreview(dateKey);
 
             return (
               <section
@@ -984,7 +1338,12 @@ export default function CalendarPage() {
 
                 <button
                   onClick={() => assignPlanToDate(dateKey)}
-                  disabled={assigningDate === dateKey || !isCoach}
+                  disabled={
+                    assigningDate === dateKey ||
+                    !isCoach ||
+                    !assignmentPreview?.selectedPlan ||
+                    !assignmentPreview.isValid
+                  }
                   style={{
                     width: "100%",
                     padding: isDenseLayout ? "8px 12px" : "10px 14px",
@@ -993,6 +1352,135 @@ export default function CalendarPage() {
                 >
                   {assigningDate === dateKey ? "Assigning..." : "Assign Plan"}
                 </button>
+
+                {isCoach && assignmentPreview ? (
+                  <div
+                    style={{
+                      border: "1px solid #dbe5f0",
+                      borderRadius: 12,
+                      padding: 12,
+                      background: "#f8fbff",
+                      marginBottom: 16,
+                      display: "grid",
+                      gap: 10,
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          padding: "4px 8px",
+                          borderRadius: 999,
+                          background: "#0f3d68",
+                          color: "#fff",
+                          fontSize: 11,
+                          fontWeight: 800,
+                          letterSpacing: "0.06em",
+                          textTransform: "uppercase",
+                          marginBottom: 8,
+                        }}
+                      >
+                        Assignment Preview
+                      </div>
+                      <div style={{ fontWeight: 700 }}>{assignmentPreview.selectedPlan.title}</div>
+                      <div style={{ color: "#667085", fontSize: 14, marginTop: 4 }}>
+                        {assignmentPreview.assignmentType === "group"
+                          ? assignmentPreview.groupName || "Selected training group"
+                          : assignmentPreview.assignmentType === "custom"
+                            ? "Custom wrestler assignment"
+                            : "Team-wide practice"}{" "}
+                        · {formatDurationLabel(
+                          assignmentPreview.selectedPlan.totalSeconds ||
+                            assignmentPreview.selectedPlan.totalMinutes * 60 ||
+                            0
+                        )}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+                        gap: 10,
+                      }}
+                    >
+                      {[
+                        {
+                          label: "Wrestlers",
+                          value:
+                            assignmentPreview.assignmentType === "team"
+                              ? assignmentPreview.resolvedWrestlers.length
+                              : assignmentPreview.assignedWrestlerIds.length,
+                        },
+                        {
+                          label: "Push targets",
+                          value: assignmentPreview.pushTargetCount,
+                        },
+                        {
+                          label: "Duration",
+                          value: formatDurationLabel(
+                            assignmentPreview.selectedPlan.totalSeconds ||
+                              assignmentPreview.selectedPlan.totalMinutes * 60 ||
+                              0
+                          ),
+                        },
+                      ].map((stat) => (
+                        <div
+                          key={stat.label}
+                          style={{
+                            borderRadius: 10,
+                            padding: 10,
+                            background: "#fff",
+                            border: "1px solid rgba(15, 23, 42, 0.08)",
+                          }}
+                        >
+                          <div style={{ fontSize: 11, color: "#667085", textTransform: "uppercase", fontWeight: 800, letterSpacing: "0.06em", marginBottom: 6 }}>
+                            {stat.label}
+                          </div>
+                          <div style={{ fontSize: 18, fontWeight: 800 }}>{stat.value}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 12, color: "#667085", textTransform: "uppercase", fontWeight: 800, letterSpacing: "0.06em", marginBottom: 6 }}>
+                        Resolved roster
+                      </div>
+                      {assignmentPreview.assignmentType === "team" ? (
+                        <div style={{ color: "#344054", fontSize: 14 }}>
+                          All active team athletes{assignmentPreview.resolvedWrestlers.length > 0 ? ` · ${assignmentPreview.resolvedWrestlers.length} wrestlers` : ""}.
+                        </div>
+                      ) : assignmentPreview.resolvedWrestlers.length === 0 ? (
+                        <div style={{ color: "#b42318", fontSize: 14 }}>
+                          No wrestlers resolved yet. Choose a valid group or custom athlete list before assigning.
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {assignmentPreview.resolvedWrestlers.map((wrestler) => {
+                            const fullName = `${wrestler.firstName} ${wrestler.lastName}`.trim() || "Unnamed Wrestler";
+                            return (
+                              <span
+                                key={wrestler.id}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  padding: "6px 10px",
+                                  borderRadius: 999,
+                                  background: "#fff",
+                                  border: "1px solid #d1d5db",
+                                  fontSize: 13,
+                                }}
+                              >
+                                {fullName}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div style={{ display: "grid", gap: 12 }}>
                   {dayEvents.length === 0 &&
@@ -1048,6 +1536,10 @@ export default function CalendarPage() {
                             : "Team-wide · "}
                         {formatCompletedAt(session.completedAt || session.createdAt)}
                         {session.completedByRole ? ` · ${session.completedByRole}` : ""}
+                      </div>
+
+                      <div style={{ fontSize: 12, color: "#166534", marginTop: 6, fontWeight: 700 }}>
+                        {formatAttendanceSummary(session.attendanceCounts)}
                       </div>
 
                       {session.notes ? (
@@ -1441,11 +1933,24 @@ export default function CalendarPage() {
                           marginBottom: 16,
                         }}
                       >
-                        {[
-                          { label: "Scheduled", value: block.scheduled.length, helper: "Practices on the board" },
-                          { label: "Completed", value: block.completed.length, helper: "Sessions logged this week" },
-                          { label: "Minutes", value: block.totalScheduledMinutes, helper: "Total scheduled training minutes" },
-                        ].map((stat) => (
+                      {[
+                        { label: "Scheduled", value: block.scheduled.length, helper: "Practices on the board" },
+                        { label: "Completed", value: block.completed.length, helper: "Sessions logged this week" },
+                        { label: "Minutes", value: block.totalScheduledMinutes, helper: "Total scheduled training minutes" },
+                        {
+                          label: "Attendance",
+                          value: block.attendanceTotals.present,
+                          helper:
+                            block.attendanceTotals.present +
+                              block.attendanceTotals.absent +
+                              block.attendanceTotals.late +
+                              block.attendanceTotals.injured +
+                              block.attendanceTotals.excused >
+                            0
+                              ? `P ${block.attendanceTotals.present} · A ${block.attendanceTotals.absent} · L ${block.attendanceTotals.late}`
+                              : "Attendance not logged",
+                        },
+                      ].map((stat) => (
                           <div
                             key={stat.label}
                             style={{
@@ -1650,6 +2155,9 @@ export default function CalendarPage() {
                                 </div>
                                 <div style={{ color: "#666", fontSize: 13, marginBottom: 6 }}>
                                   {formatCompletedAt(session.completedAt || session.createdAt)}
+                                </div>
+                                <div style={{ color: "#8a6d00", fontSize: 13, marginBottom: 6, fontWeight: 700 }}>
+                                  {formatAttendanceSummary(session.attendanceCounts)}
                                 </div>
                                 <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
                                   {session.notes}
