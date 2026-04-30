@@ -7,6 +7,7 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 import { auth, db } from "@wrestlewell/firebase/client";
 import {
   completeAccountSetup,
+  listCalendarEvents,
   listTeamAnnouncements,
   listTeamNotifications,
   listTournamentEntries,
@@ -89,9 +90,9 @@ type UpcomingPractice = {
   date: string;
   practicePlanId: string;
   assignedWrestlerIds?: string[];
-  practicePlanTitle: string;
-  practicePlanStyle: string;
-  totalMinutes: number;
+  practicePlanTitle?: string;
+  practicePlanStyle?: string;
+  totalMinutes?: number;
   totalSeconds?: number;
   notes?: string;
 };
@@ -293,30 +294,32 @@ export default function HomePage() {
 
       try {
         setDashboardLoading(true);
+        const roster = await listWrestlers(db, currentTeam.id);
+        const dashboardOwnWrestler =
+          appUser.role === "athlete" && firebaseUser
+            ? roster.find((wrestler) => wrestler.ownerUserId === firebaseUser.uid) || null
+            : null;
 
         const [
-          roster,
-          eventSnapshot,
+          nextEvents,
           practicePlanSnapshot,
           tournamentRows,
           announcementRows,
           notificationRows,
         ] = await Promise.all([
-          listWrestlers(db, currentTeam.id),
-          getDocs(query(collection(db, COLLECTIONS.CALENDAR_EVENTS), where("teamId", "==", currentTeam.id))),
+          appUser.role === "athlete"
+            ? dashboardOwnWrestler
+              ? listCalendarEvents(db, currentTeam.id, dashboardOwnWrestler)
+              : Promise.resolve([])
+            : listCalendarEvents(db, currentTeam.id),
           getDocs(query(collection(db, COLLECTIONS.PRACTICE_PLANS), where("teamId", "==", currentTeam.id))),
           listTournaments(db, currentTeam.id),
           listTeamAnnouncements(db, currentTeam.id),
           listTeamNotifications(db, currentTeam.id, appUser.role),
-        ]);
+        ] as const);
 
         const todayKey = new Date().toISOString().split("T")[0];
-
-        const nextEvents = eventSnapshot.docs
-          .map((eventDoc) => ({
-            id: eventDoc.id,
-            ...(eventDoc.data() as Omit<UpcomingPractice, "id">),
-          }))
+        const upcomingEventRows = nextEvents
           .filter((event) => event.date >= todayKey)
           .sort((a, b) => a.date.localeCompare(b.date))
           .slice(0, 3);
@@ -356,7 +359,7 @@ export default function HomePage() {
         const teamWidePracticePlans = Math.max(0, practicePlans.length - assignedPracticePlans);
 
         const assignedPracticeWrestlerIds = new Set(
-          nextEvents.flatMap((event) =>
+          upcomingEventRows.flatMap((event) =>
             Array.isArray(event.assignedWrestlerIds) ? event.assignedWrestlerIds : []
           )
         );
@@ -365,7 +368,7 @@ export default function HomePage() {
           upcomingTournamentEntries.map((entry) => entry.wrestlerId)
         );
 
-        const teamWideUpcomingPracticeExists = nextEvents.some(
+        const teamWideUpcomingPracticeExists = upcomingEventRows.some(
           (event) => !event.assignedWrestlerIds || event.assignedWrestlerIds.length === 0
         );
 
@@ -411,7 +414,7 @@ export default function HomePage() {
         ).length;
 
         setRosterCount(roster.length);
-        setUpcomingPractices(nextEvents);
+        setUpcomingPractices(upcomingEventRows);
         setDashboardInsights({
           upcomingTournaments: upcomingTournamentRows.length,
           pendingRegistrations: allEntries.filter((entry) => entry.status === "submitted").length,
@@ -814,7 +817,7 @@ export default function HomePage() {
                 <span key={event.id}>
                   {formatPracticeDate(event.date)}: {event.practicePlanTitle || "Untitled plan"} •{" "}
                   {event.practicePlanStyle || "Mixed"} •{" "}
-                  {formatDurationLabel(event.totalSeconds || event.totalMinutes * 60 || 0)}
+                  {formatDurationLabel(event.totalSeconds || (event.totalMinutes || 0) * 60 || 0)}
                 </span>
               ))
             )}
