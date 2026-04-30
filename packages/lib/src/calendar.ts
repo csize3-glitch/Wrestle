@@ -115,10 +115,15 @@ export async function listCalendarEvents(
     query(collection(db, COLLECTIONS.CALENDAR_EVENTS), where("teamId", "==", teamId))
   );
 
-  return snapshot.docs
-    .map((eventDoc) =>
+  const rows = snapshot.docs.map((eventDoc) =>
       normalizeCalendarEvent(eventDoc.id, eventDoc.data() as Record<string, unknown>)
-    )
+    );
+
+  if (typeof wrestler === "undefined") {
+    return rows.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  }
+
+  return rows
     .filter((event) => calendarEventMatchesWrestler(event, wrestler))
     .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
 }
