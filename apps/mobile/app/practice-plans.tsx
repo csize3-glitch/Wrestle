@@ -152,10 +152,37 @@ function getAttendanceStatusLabel(status: PracticeAttendanceStatus) {
   }
 }
 
-function compactUndefined<T extends Record<string, unknown>>(value: T) {
-  return Object.fromEntries(
-    Object.entries(value).filter(([, entry]) => typeof entry !== "undefined")
-  ) as Partial<T>;
+function compactUndefined<T>(value: T): T {
+  if (value === undefined) {
+    return null as T;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .filter((entry) => entry !== undefined)
+      .map((entry) => compactUndefined(entry)) as T;
+  }
+
+  if (value && typeof value === "object") {
+    const prototype = Object.getPrototypeOf(value);
+
+    // Preserve Firebase FieldValue/Timestamp and other class instances.
+    if (prototype !== Object.prototype && prototype !== null) {
+      return value;
+    }
+
+    const cleaned: Record<string, unknown> = {};
+
+    Object.entries(value as Record<string, unknown>).forEach(([key, entry]) => {
+      if (entry !== undefined) {
+        cleaned[key] = compactUndefined(entry);
+      }
+    });
+
+    return cleaned as T;
+  }
+
+  return value;
 }
 
 function getBlockDisplayTitle(block: PracticePlanBlockRecord | null, index?: number) {
@@ -1072,12 +1099,12 @@ export default function PracticePlansScreen() {
         compactUndefined({
           teamId: currentTeam.id,
           practicePlanId: selectedPlan.id,
-          calendarEventId: selectedCalendarEventId || undefined,
+          calendarEventId: selectedCalendarEventId || "",
           practicePlanTitle: selectedPlan.title || "Untitled Practice Plan",
           practicePlanStyle: selectedPlan.style || "Mixed",
           assignmentType: selectedPlanAssignmentType || "team",
-          groupId: selectedPlanGroupId || undefined,
-          groupName: selectedPlanGroupName || undefined,
+          groupId: selectedPlanGroupId || "",
+          groupName: selectedPlanGroupName || "",
           assignedWrestlerIds: selectedPlanAssignedWrestlerIds || [],
           totalSeconds: getPlanSeconds(selectedPlan),
           blockCount: blocks.length,

@@ -124,24 +124,30 @@ export default function CalendarScreen() {
     const todayKey = new Date().toISOString().split("T")[0];
     const todayEvents = nextEvents.filter((event) => event.date === todayKey);
 
+    const wrestlerPool =
+      appUser?.role === "parent" ? linkedParentWrestlers : ownWrestler ? [ownWrestler] : [];
+
+    const eventWrestlerPairs = todayEvents.flatMap((event) =>
+      wrestlerPool
+        .filter((wrestler) => calendarEventMatchesWrestler(event, wrestler))
+        .map((wrestler) => ({ event, wrestler }))
+    );
+
     const attendanceRows = await Promise.all(
-      todayEvents.map((event) =>
-        listPracticeAttendanceForEvent(db, currentTeam.id, event.id, ownWrestler.id)
+      eventWrestlerPairs.map(({ event, wrestler }) =>
+        listPracticeAttendanceForEvent(db, currentTeam.id, event.id, wrestler.id)
       )
     );
 
     const nextMap: Record<string, PracticeAttendanceRecord> = {};
-    const wrestlerPool =
-      appUser?.role === "parent" ? linkedParentWrestlers : ownWrestler ? [ownWrestler] : [];
 
-    todayEvents.forEach((event, index) => {
-      attendanceRows[index]
-        .filter((attendance) =>
-          wrestlerPool.some((wrestler) => wrestler.id === attendance.wrestlerId)
-        )
-        .forEach((attendance) => {
-          nextMap[`${event.id}:${attendance.wrestlerId}`] = attendance;
-        });
+    eventWrestlerPairs.forEach(({ event, wrestler }, index) => {
+      const ownAttendance =
+        attendanceRows[index].find((attendance) => attendance.wrestlerId === wrestler.id) || null;
+
+      if (ownAttendance) {
+        nextMap[`${event.id}:${wrestler.id}`] = ownAttendance;
+      }
     });
 
     setAttendanceByEventId(nextMap);
