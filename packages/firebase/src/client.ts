@@ -30,7 +30,8 @@ const firebaseConfig = {
 };
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-const isReactNative = navigator?.product === "ReactNative";
+const isReactNative =
+  typeof navigator !== "undefined" && navigator.product === "ReactNative";
 
 function createAuthInstance(): Auth {
   if (!isReactNative) {
