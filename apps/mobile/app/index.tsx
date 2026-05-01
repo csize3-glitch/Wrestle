@@ -146,6 +146,30 @@ const athleteActionCards = [
   },
 ];
 
+const parentActionCards = [
+  {
+    title: "Today’s Check-In",
+    subtitle: "Open calendar and check in linked wrestlers for practice.",
+    href: "/calendar",
+    tone: "green",
+    stat: "Today",
+  },
+  {
+    title: "Team Alerts",
+    subtitle: "Read safe team announcements and reminder updates.",
+    href: "/notifications",
+    tone: "red",
+    stat: "Inbox",
+  },
+  {
+    title: "Linked Wrestlers",
+    subtitle: "See linked athletes and their upcoming practice schedule.",
+    href: "/calendar",
+    tone: "blue",
+    stat: "Family",
+  },
+];
+
 function normalizeDateValue(value: unknown): string {
   if (!value) return "";
 
@@ -301,10 +325,7 @@ export default function IndexScreen() {
   const [dashboardLoading, setDashboardLoading] = useState(false);
 
   const teamName =
-    currentTeam?.name ||
-    currentTeam?.teamName ||
-    currentTeam?.displayName ||
-    "Your Team";
+    currentTeam?.name || "Your Team";
 
   const signedIn = Boolean(firebaseUser && appUser);
   const isCoach = appUser?.role === "coach";
@@ -376,6 +397,13 @@ export default function IndexScreen() {
         : null,
     [appUser?.role, firebaseUser, roster]
   );
+  const linkedParentWrestlers = useMemo(
+    () =>
+      appUser?.role === "parent"
+        ? roster.filter((wrestler) => (appUser.linkedWrestlerIds || []).includes(wrestler.id))
+        : [],
+    [appUser?.linkedWrestlerIds, appUser?.role, roster]
+  );
 
   const myTournamentEntries = useMemo(() => {
     if (!ownWrestler) return [];
@@ -409,8 +437,10 @@ export default function IndexScreen() {
       return {
         label: isCoach ? "Run Practice Timer" : "Open My Practice",
         href: "/practice-plans",
-        params: { planId: nextPractice.practicePlanId },
-      };
+        params: {
+          planId: nextPractice.practicePlanId,
+        },
+      } as DashboardAction;
     }
 
     if (nextTournament) {
@@ -418,7 +448,7 @@ export default function IndexScreen() {
         label: "Open Match-Day",
         href: "/match-day",
         params: { tournamentId: nextTournament.id },
-      };
+      } as DashboardAction;
     }
 
     return {
@@ -427,7 +457,12 @@ export default function IndexScreen() {
     };
   }, [appUser?.role, appUser?.varkCompleted, isCoach, nextPractice, nextTournament, signedIn]);
 
-  const actionCards = isCoach ? coachActionCards : athleteActionCards;
+  const actionCards =
+    appUser?.role === "parent"
+      ? parentActionCards
+      : isCoach
+        ? coachActionCards
+        : athleteActionCards;
 
   useEffect(() => {
     if (!firebaseUser || !appUser) return;
@@ -473,6 +508,10 @@ export default function IndexScreen() {
         appUser.role === "athlete" && firebaseUser
           ? wrestlerRows.find((wrestler) => wrestler.ownerUserId === firebaseUser.uid) || null
           : null;
+      const dashboardLinkedWrestlers =
+        appUser.role === "parent"
+          ? wrestlerRows.filter((wrestler) => (appUser.linkedWrestlerIds || []).includes(wrestler.id))
+          : [];
 
       const [
         eventRows,
@@ -485,11 +524,27 @@ export default function IndexScreen() {
           ? dashboardOwnWrestler
             ? listCalendarEvents(db, currentTeam.id, dashboardOwnWrestler)
             : Promise.resolve([])
-          : listCoachCalendarEvents(currentTeam.id),
+          : appUser.role === "parent"
+            ? dashboardLinkedWrestlers.length
+              ? Promise.all(
+                  dashboardLinkedWrestlers.map((wrestler) =>
+                    listCalendarEvents(db, currentTeam.id, wrestler)
+                  )
+                ).then((batches) =>
+                  Array.from(
+                    new Map(
+                      batches
+                        .flat()
+                        .map((event) => [event.id, event] as const)
+                    ).values()
+                  )
+                )
+              : Promise.resolve([])
+            : listCoachCalendarEvents(currentTeam.id),
         listTournaments(db, currentTeam.id),
         listTeamAnnouncements(db, currentTeam.id),
         listTeamNotifications(db, currentTeam.id, appUser.role),
-        listRecentPracticeSessions(currentTeam.id),
+        appUser.role === "coach" ? listRecentPracticeSessions(currentTeam.id) : Promise.resolve([]),
       ]);
 
       setRoster(wrestlerRows);
@@ -734,10 +789,20 @@ export default function IndexScreen() {
                   badge="Practice"
                   tone="green"
                   onPress={() =>
-                    nextPractice?.practicePlanId
+                    appUser?.role === "parent"
+                      ? router.push("/calendar" as any)
+                      : nextPractice?.practicePlanId
                       ? router.push({
                           pathname: "/practice-plans",
-                          params: { planId: nextPractice.practicePlanId },
+                          params: {
+                            planId: nextPractice.practicePlanId,
+                            calendarEventId: nextPractice.id,
+                            date: nextPractice.date,
+                            assignmentType: nextPractice.assignmentType || "team",
+                            groupId: nextPractice.groupId || "",
+                            groupName: nextPractice.groupName || "",
+                            assignedWrestlerIds: (nextPractice.assignedWrestlerIds || []).join(","),
+                          },
                         } as any)
                       : router.push("/calendar" as any)
                   }
@@ -876,7 +941,84 @@ export default function IndexScreen() {
           </WWCard>
         ) : null}
 
-        {signedIn ? (
+        {signedIn && appUser?.role === "parent" ? (
+          <WWCard>
+            <View style={{ gap: 12 }}>
+              <WWBadge label="PARENT VIEW" tone="orange" />
+
+              <Text style={{ color: "#ffffff", fontSize: 24, fontWeight: "900" }}>
+                Family practice snapshot
+              </Text>
+
+              <Text style={{ color: "#b7c9df", fontSize: 15, lineHeight: 22 }}>
+                {linkedParentWrestlers.length > 0
+                  ? `${linkedParentWrestlers.length} linked wrestler${
+                      linkedParentWrestlers.length === 1 ? "" : "s"
+                    } can be checked in from Calendar today.`
+                  : "No linked wrestlers yet. Once a coach links your athletes, their practice-day check-ins will appear here."}
+              </Text>
+
+              {linkedParentWrestlers.length > 0 ? (
+                <View style={{ gap: 10 }}>
+                  {linkedParentWrestlers.slice(0, 3).map((wrestler) => (
+                    <View
+                      key={wrestler.id}
+                      style={{
+                        borderWidth: 1,
+                        borderColor: "#315c86",
+                        backgroundColor: "#102f52",
+                        borderRadius: 18,
+                        padding: 14,
+                      }}
+                    >
+                      <Text style={{ color: "#ffffff", fontSize: 16, fontWeight: "900" }}>
+                        {getFullName(wrestler)}
+                      </Text>
+                      <Text style={{ color: "#b7c9df", fontSize: 14, lineHeight: 20, marginTop: 5 }}>
+                        {wrestler.weightClass || "Weight not set"} •{" "}
+                        {wrestler.styles?.join(", ") || "Style not set"}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+
+              <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+                <Pressable
+                  onPress={() => router.push("/calendar" as any)}
+                  style={({ pressed }) => ({
+                    backgroundColor: pressed ? "#991b1b" : "#bf1029",
+                    borderRadius: 18,
+                    paddingHorizontal: 16,
+                    paddingVertical: 13,
+                  })}
+                >
+                  <Text style={{ color: "#ffffff", fontWeight: "900" }}>
+                    Open Check-In
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => router.push("/notifications" as any)}
+                  style={({ pressed }) => ({
+                    backgroundColor: pressed ? "#12345a" : "#102f52",
+                    borderRadius: 18,
+                    paddingHorizontal: 16,
+                    paddingVertical: 13,
+                    borderWidth: 1,
+                    borderColor: "#315c86",
+                  })}
+                >
+                  <Text style={{ color: "#ffffff", fontWeight: "900" }}>
+                    Team Alerts
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          </WWCard>
+        ) : null}
+
+        {signedIn && isCoach ? (
           <WWCard>
             <View style={{ gap: 12 }}>
               <WWBadge label="ACTION QUEUE" tone="red" />

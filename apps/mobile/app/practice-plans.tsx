@@ -20,6 +20,7 @@ import { WebView } from "react-native-webview";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "@wrestlewell/firebase/client";
 import {
+  completeCalendarPracticeEvent,
   getPracticePlanDetail,
   getYouTubeEmbedUrl,
   listPracticeAttendanceForEvent,
@@ -33,8 +34,10 @@ import type {
   PracticeAttendanceRecord,
   PracticeAttendanceStatus,
   PracticePlan,
+  PracticeSessionFollowUp,
   PracticeSessionAttendanceCounts,
   PracticeSessionAttendanceEntry,
+  PracticeSessionWrestlerNote,
   WrestlerProfile,
 } from "@wrestlewell/types/index";
 import { useMobileAuthState } from "../components/auth-provider";
@@ -78,6 +81,46 @@ const ATTENDANCE_STATUSES: Array<{
   { value: "excused", label: "Excused" },
 ];
 
+const WRESTLER_NOTE_TAGS = [
+  "technique",
+  "effort",
+  "conditioning",
+  "focus",
+  "injury",
+  "attitude",
+  "weight",
+  "match_prep",
+] as const;
+
+const FOLLOW_UP_CATEGORIES = [
+  "technique",
+  "weight",
+  "attendance",
+  "injury",
+  "parent",
+  "match_prep",
+  "mindset",
+] as const;
+
+type CloseoutStep = 1 | 2 | 3 | 4 | 5;
+
+type WrestlerNoteDraft = {
+  note: string;
+  tags: string[];
+  visibility: PracticeSessionWrestlerNote["visibility"];
+};
+
+type FollowUpDraft = {
+  id: string;
+  wrestlerId: string;
+  wrestlerName: string;
+  title: string;
+  details: string;
+  category: string;
+  status: PracticeSessionFollowUp["status"];
+  dueDate: string;
+};
+
 function buildAttendanceCounts(
   attendance: PracticeSessionAttendanceEntry[]
 ): PracticeSessionAttendanceCounts {
@@ -107,6 +150,12 @@ function getAttendanceStatusLabel(status: PracticeAttendanceStatus) {
     default:
       return "Present";
   }
+}
+
+function compactUndefined<T extends Record<string, unknown>>(value: T) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => typeof entry !== "undefined")
+  ) as Partial<T>;
 }
 
 function getBlockDisplayTitle(block: PracticePlanBlockRecord | null, index?: number) {
@@ -183,9 +232,14 @@ export default function PracticePlansScreen() {
   const [orientationLandscape, setOrientationLandscape] = useState(false);
 
   const [completionModalVisible, setCompletionModalVisible] = useState(false);
+  const [closeoutStep, setCloseoutStep] = useState<CloseoutStep>(1);
   const [postPracticeNotes, setPostPracticeNotes] = useState("");
   const [savingCompletion, setSavingCompletion] = useState(false);
   const [loadingAttendance, setLoadingAttendance] = useState(false);
+  const [wrestlerNoteDrafts, setWrestlerNoteDrafts] = useState<Record<string, WrestlerNoteDraft>>(
+    {}
+  );
+  const [followUpDrafts, setFollowUpDrafts] = useState<FollowUpDraft[]>([]);
   const [attendanceByWrestlerId, setAttendanceByWrestlerId] = useState<
     Record<
       string,
@@ -307,6 +361,17 @@ export default function PracticePlansScreen() {
         )
       ),
     [attendanceByWrestlerId]
+  );
+
+  const activeWrestlerNotesCount = useMemo(
+    () =>
+      Object.values(wrestlerNoteDrafts).filter((draft) => draft.note.trim().length > 0).length,
+    [wrestlerNoteDrafts]
+  );
+
+  const openFollowUpCount = useMemo(
+    () => followUpDrafts.filter((draft) => draft.title.trim().length > 0).length,
+    [followUpDrafts]
   );
 
   const directVideoPlayer = useVideoPlayer(directVideoUrl, (player) => {
@@ -770,6 +835,20 @@ export default function PracticePlansScreen() {
     }
 
     await loadCoachAttendanceForSelectedEvent();
+    setCloseoutStep(1);
+    setWrestlerNoteDrafts(
+      Object.fromEntries(
+        resolvedAttendanceWrestlers.map((wrestler) => [
+          wrestler.id,
+          {
+            note: "",
+            tags: [],
+            visibility: "coach_only" as const,
+          },
+        ])
+      )
+    );
+    setFollowUpDrafts([]);
     setCompletionModalVisible(true);
   }
 
@@ -801,6 +880,80 @@ export default function PracticePlansScreen() {
     }));
   }
 
+  function updateWrestlerNoteDraft(
+    wrestlerId: string,
+    updates: Partial<WrestlerNoteDraft>
+  ) {
+    setWrestlerNoteDrafts((prev) => ({
+      ...prev,
+      [wrestlerId]: {
+        ...(prev[wrestlerId] || {
+          note: "",
+          tags: [],
+          visibility: "coach_only" as const,
+        }),
+        ...updates,
+      },
+    }));
+  }
+
+  function toggleWrestlerNoteTag(wrestlerId: string, tag: string) {
+    const currentTags = wrestlerNoteDrafts[wrestlerId]?.tags || [];
+    updateWrestlerNoteDraft(wrestlerId, {
+      tags: currentTags.includes(tag)
+        ? currentTags.filter((entry) => entry !== tag)
+        : [...currentTags, tag],
+    });
+  }
+
+  function addFollowUpDraft() {
+    setFollowUpDrafts((prev) => [
+      ...prev,
+      {
+        id: `followup-${Date.now()}-${prev.length + 1}`,
+        wrestlerId: "",
+        wrestlerName: "",
+        title: "",
+        details: "",
+        category: FOLLOW_UP_CATEGORIES[0],
+        status: "open",
+        dueDate: "",
+      },
+    ]);
+  }
+
+  function updateFollowUpDraft(id: string, updates: Partial<FollowUpDraft>) {
+    setFollowUpDrafts((prev) =>
+      prev.map((draft) => {
+        if (draft.id !== id) {
+          return draft;
+        }
+
+        const nextWrestlerId =
+          typeof updates.wrestlerId === "string" ? updates.wrestlerId : draft.wrestlerId;
+        const linkedWrestler =
+          resolvedAttendanceWrestlers.find((wrestler) => wrestler.id === nextWrestlerId) || null;
+
+        return {
+          ...draft,
+          ...updates,
+          wrestlerName:
+            typeof updates.wrestlerName === "string"
+              ? updates.wrestlerName
+              : linkedWrestler
+                ? `${linkedWrestler.firstName} ${linkedWrestler.lastName}`.trim()
+                : nextWrestlerId
+                  ? draft.wrestlerName
+                  : "",
+        };
+      })
+    );
+  }
+
+  function removeFollowUpDraft(id: string) {
+    setFollowUpDrafts((prev) => prev.filter((draft) => draft.id !== id));
+  }
+
   async function savePracticeCompletion() {
     if (!selectedPlan || !currentTeam?.id || !firebaseUser?.uid) {
       return;
@@ -824,6 +977,60 @@ export default function PracticePlansScreen() {
       );
 
       const attendanceCounts = buildAttendanceCounts(attendance);
+      const wrestlerNotes = Object.entries(wrestlerNoteDrafts)
+        .map(([wrestlerId, draft]) => {
+          const wrestler = resolvedAttendanceWrestlers.find((entry) => entry.id === wrestlerId);
+          const wrestlerName = wrestler
+            ? `${wrestler.firstName} ${wrestler.lastName}`.trim()
+            : "";
+
+          if (!draft.note.trim() || !wrestlerName) {
+            return null;
+          }
+
+          return {
+            wrestlerId,
+            wrestlerName,
+            note: draft.note.trim(),
+            tags: draft.tags,
+            visibility: draft.visibility,
+            createdAt: new Date().toISOString(),
+            createdBy: firebaseUser.uid,
+          } satisfies PracticeSessionWrestlerNote;
+        })
+        .filter((entry): entry is PracticeSessionWrestlerNote => Boolean(entry));
+      const followUps = followUpDrafts
+        .map((draft) => {
+          if (!draft.title.trim()) {
+            return null;
+          }
+
+          return {
+            id: draft.id,
+            wrestlerId: draft.wrestlerId || undefined,
+            wrestlerName: draft.wrestlerName || undefined,
+            title: draft.title.trim(),
+            details: draft.details.trim() || undefined,
+            category: draft.category,
+            status: draft.status,
+            dueDate: draft.dueDate || undefined,
+            createdAt: new Date().toISOString(),
+            createdBy: firebaseUser.uid,
+            completedAt: draft.status === "done" ? new Date().toISOString() : undefined,
+          } satisfies PracticeSessionFollowUp;
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+      if (
+        currentTeam.attendanceRequiredForCloseout &&
+        attendance.some((entry) => entry.status === "not_checked_in")
+      ) {
+        Alert.alert(
+          "Attendance still open",
+          "This team requires attendance before closeout. Update wrestlers who are still marked not checked in."
+        );
+        return;
+      }
 
       await Promise.all(
         Object.entries(attendanceByWrestlerId).map(async ([wrestlerId, value]) => {
@@ -860,30 +1067,49 @@ export default function PracticePlansScreen() {
         })
       );
 
-      await addDoc(collection(db, "practice_sessions"), {
-        teamId: currentTeam.id,
-        practicePlanId: selectedPlan.id,
-        practicePlanTitle: selectedPlan.title || "Untitled Practice Plan",
-        practicePlanStyle: selectedPlan.style || "Mixed",
-        assignmentType: selectedPlanAssignmentType || "team",
-        groupId: selectedPlanGroupId || "",
-        groupName: selectedPlanGroupName || "",
-        assignedWrestlerIds: selectedPlanAssignedWrestlerIds || [],
-        totalSeconds: getPlanSeconds(selectedPlan),
-        blockCount: blocks.length,
-        notes: postPracticeNotes.trim() || "",
-        completedBy: firebaseUser.uid,
-        completedByRole: appUser?.role || "coach",
-        completedAt: serverTimestamp(),
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        attendance,
-        attendanceCounts,
-      });
+      const createdSession = await addDoc(
+        collection(db, "practice_sessions"),
+        compactUndefined({
+          teamId: currentTeam.id,
+          practicePlanId: selectedPlan.id,
+          calendarEventId: selectedCalendarEventId || undefined,
+          practicePlanTitle: selectedPlan.title || "Untitled Practice Plan",
+          practicePlanStyle: selectedPlan.style || "Mixed",
+          assignmentType: selectedPlanAssignmentType || "team",
+          groupId: selectedPlanGroupId || undefined,
+          groupName: selectedPlanGroupName || undefined,
+          assignedWrestlerIds: selectedPlanAssignedWrestlerIds || [],
+          totalSeconds: getPlanSeconds(selectedPlan),
+          blockCount: blocks.length,
+          notes: postPracticeNotes.trim() || "",
+          completedBy: firebaseUser.uid,
+          completedByRole: appUser?.role || "coach",
+          completedAt: serverTimestamp(),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          attendance,
+          attendanceCounts,
+          wrestlerNotes,
+          followUps,
+        })
+      );
+
+      if (selectedCalendarEventId) {
+        await completeCalendarPracticeEvent(db, {
+          calendarEventId: selectedCalendarEventId,
+          practiceSessionId: createdSession.id,
+          completedBy: firebaseUser.uid,
+          attendanceCounts,
+          postPracticeNotesPreview: postPracticeNotes.trim(),
+        });
+      }
 
       setCompletionModalVisible(false);
+      setCloseoutStep(1);
       setPostPracticeNotes("");
       setAttendanceByWrestlerId({});
+      setWrestlerNoteDrafts({});
+      setFollowUpDrafts([]);
 
       Alert.alert("Practice complete", "Post-practice notes were saved.", [
         { text: "Stay Here" },
@@ -949,79 +1175,205 @@ export default function PracticePlansScreen() {
             {formatDurationLabel(getPlanSeconds(selectedPlan))} • {blocks.length} blocks
           </Text>
 
-          <View style={styles.completionSummaryCard}>
-            <Text style={styles.completionSummaryTitle}>Post-practice notes</Text>
-
-            <Text style={styles.completionSummaryCopy}>
-              Use this for who looked sharp, what needs work, injuries, attitude, conditioning,
-              or what you want to remember before building the next plan.
-            </Text>
+          <View style={styles.stepperRow}>
+            {[
+              [1, "Attendance"],
+              [2, "Practice Notes"],
+              [3, "Wrestler Notes"],
+              [4, "Follow-Ups"],
+              [5, "Review"],
+            ].map(([value, label]) => (
+              <Pressable
+                key={String(value)}
+                onPress={() => setCloseoutStep(value as CloseoutStep)}
+                style={[
+                  styles.stepperPill,
+                  closeoutStep === value ? styles.stepperPillActive : null,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.stepperPillText,
+                    closeoutStep === value ? styles.stepperPillTextActive : null,
+                  ]}
+                >
+                  {value}. {label}
+                </Text>
+              </Pressable>
+            ))}
           </View>
 
-          <View style={styles.completionSummaryCard}>
-            <Text style={styles.completionSummaryTitle}>Attendance</Text>
-            <Text style={styles.completionSummaryCopy}>
-              Athlete and parent check-ins load here automatically. Wrestlers with no check-in stay
-              marked as not checked in until you update the exception.
-            </Text>
-          </View>
+          {closeoutStep === 1 ? (
+            <>
+              <View style={styles.completionSummaryCard}>
+                <Text style={styles.completionSummaryTitle}>Attendance</Text>
+                <Text style={styles.completionSummaryCopy}>
+                  Athlete and parent check-ins load here automatically. Wrestlers with no check-in
+                  stay marked as not checked in until you update the exception.
+                </Text>
+              </View>
 
-          <View style={styles.attendanceSummaryCard}>
-            <Text style={styles.attendanceSummaryTitle}>Practice-day attendance summary</Text>
-            <View style={styles.attendanceSummaryGrid}>
-              {[
-                ["Present", attendanceSummaryCounts.present],
-                ["Late", attendanceSummaryCounts.late],
-                ["Absent", attendanceSummaryCounts.absent],
-                ["Injured", attendanceSummaryCounts.injured],
-                ["Excused", attendanceSummaryCounts.excused],
-                ["Not Sure", attendanceSummaryCounts.not_sure],
-                ["Not Checked In", attendanceSummaryCounts.not_checked_in],
-              ].map(([label, value]) => (
-                <View key={String(label)} style={styles.attendanceSummaryPill}>
-                  <Text style={styles.attendanceSummaryPillLabel}>{label}</Text>
-                  <Text style={styles.attendanceSummaryPillValue}>{value}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          {resolvedAttendanceWrestlers.length === 0 ? (
-            <View style={styles.emptyAttendanceCard}>
-              <Text style={styles.emptyAttendanceTitle}>No wrestlers resolved</Text>
-              <Text style={styles.emptyAttendanceCopy}>
-                This practice does not currently resolve any rostered wrestlers. Save will still
-                work, but attendance will not be attached to the session.
-              </Text>
-            </View>
-          ) : (
-            <View style={{ gap: 12 }}>
-              {resolvedAttendanceWrestlers.map((wrestler) => {
-                const fullName = `${wrestler.firstName} ${wrestler.lastName}`.trim() || "Unnamed Wrestler";
-                const attendanceEntry = attendanceByWrestlerId[wrestler.id];
-                const currentStatus = attendanceEntry?.status || "not_checked_in";
-                return (
-                  <View key={wrestler.id} style={styles.attendanceCard}>
-                    <View style={{ marginBottom: 10 }}>
-                      <Text style={styles.attendanceName}>{fullName}</Text>
-                      {wrestler.primaryTrainingGroupId || wrestler.trainingGroupIds?.length ? (
-                        <Text style={styles.attendanceMeta}>
-                          {selectedPlanAssignmentType === "group" && selectedPlanGroupName
-                            ? selectedPlanGroupName
-                            : selectedPlanAssignmentType === "custom"
-                              ? "Custom assignment"
-                              : "Team-wide assignment"}
-                        </Text>
-                      ) : null}
+              <View style={styles.attendanceSummaryCard}>
+                <Text style={styles.attendanceSummaryTitle}>Practice-day attendance summary</Text>
+                <View style={styles.attendanceSummaryGrid}>
+                  {[
+                    ["Present", attendanceSummaryCounts.present],
+                    ["Late", attendanceSummaryCounts.late],
+                    ["Absent", attendanceSummaryCounts.absent],
+                    ["Injured", attendanceSummaryCounts.injured],
+                    ["Excused", attendanceSummaryCounts.excused],
+                    ["Not Sure", attendanceSummaryCounts.not_sure],
+                    ["Not Checked In", attendanceSummaryCounts.not_checked_in],
+                  ].map(([label, value]) => (
+                    <View key={String(label)} style={styles.attendanceSummaryPill}>
+                      <Text style={styles.attendanceSummaryPillLabel}>{label}</Text>
+                      <Text style={styles.attendanceSummaryPillValue}>{value}</Text>
                     </View>
+                  ))}
+                </View>
+              </View>
 
+              {loadingAttendance ? (
+                <Text style={{ color: "#b7c9df" }}>Loading check-ins...</Text>
+              ) : resolvedAttendanceWrestlers.length === 0 ? (
+                <View style={styles.emptyAttendanceCard}>
+                  <Text style={styles.emptyAttendanceTitle}>No wrestlers resolved</Text>
+                  <Text style={styles.emptyAttendanceCopy}>
+                    This practice does not currently resolve any rostered wrestlers. Save will still
+                    work, but attendance will not be attached to the session.
+                  </Text>
+                </View>
+              ) : (
+                <View style={{ gap: 12 }}>
+                  {resolvedAttendanceWrestlers.map((wrestler) => {
+                    const fullName =
+                      `${wrestler.firstName} ${wrestler.lastName}`.trim() || "Unnamed Wrestler";
+                    const attendanceEntry = attendanceByWrestlerId[wrestler.id];
+                    const currentStatus = attendanceEntry?.status || "not_checked_in";
+                    return (
+                      <View key={wrestler.id} style={styles.attendanceCard}>
+                        <View style={{ marginBottom: 10 }}>
+                          <Text style={styles.attendanceName}>{fullName}</Text>
+                          {(wrestler.primaryTrainingGroupId || wrestler.trainingGroupIds?.length) && (
+                            <Text style={styles.attendanceMeta}>
+                              {selectedPlanAssignmentType === "group" && selectedPlanGroupName
+                                ? selectedPlanGroupName
+                                : selectedPlanAssignmentType === "custom"
+                                  ? "Custom assignment"
+                                  : "Team-wide assignment"}
+                            </Text>
+                          )}
+                        </View>
+
+                        <View style={styles.attendanceStatusRow}>
+                          {ATTENDANCE_STATUSES.map((statusOption) => {
+                            const active = currentStatus === statusOption.value;
+                            return (
+                              <Pressable
+                                key={statusOption.value}
+                                onPress={() =>
+                                  setAttendanceStatusForWrestler(wrestler.id, statusOption.value)
+                                }
+                                style={[
+                                  styles.attendanceStatusPill,
+                                  active ? styles.attendanceStatusPillActive : null,
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.attendanceStatusPillText,
+                                    active ? styles.attendanceStatusPillTextActive : null,
+                                  ]}
+                                >
+                                  {statusOption.label}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+
+                        <Text style={styles.attendanceCheckInMeta}>
+                          {attendanceEntry?.checkedInByRole
+                            ? `Checked in by ${attendanceEntry.checkedInByRole}${
+                                attendanceEntry.checkedInAt ? " earlier today" : ""
+                              }`
+                            : currentStatus === "not_checked_in"
+                              ? "No check-in yet"
+                              : `Coach set status to ${getAttendanceStatusLabel(currentStatus).toLowerCase()}`}
+                        </Text>
+
+                        <TextInput
+                          value={attendanceEntry?.notes || ""}
+                          onChangeText={(value) => setAttendanceNotesForWrestler(wrestler.id, value)}
+                          placeholder="Optional attendance note"
+                          placeholderTextColor="#7c8da3"
+                          style={styles.attendanceNotesInput}
+                        />
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </>
+          ) : null}
+
+          {closeoutStep === 2 ? (
+            <>
+              <View style={styles.completionSummaryCard}>
+                <Text style={styles.completionSummaryTitle}>Team practice notes</Text>
+                <Text style={styles.completionSummaryCopy}>
+                  Capture what happened with the room: pace, positional themes, injury notes, and what should shape the next plan.
+                </Text>
+              </View>
+
+              <TextInput
+                value={postPracticeNotes}
+                onChangeText={setPostPracticeNotes}
+                placeholder="Example: Great pace today. Need more work on bottom escapes. Joey looked strong in live goes..."
+                placeholderTextColor="#7c8da3"
+                multiline
+                textAlignVertical="top"
+                style={styles.postPracticeInput}
+              />
+            </>
+          ) : null}
+
+          {closeoutStep === 3 ? (
+            <View style={{ gap: 12 }}>
+              <View style={styles.completionSummaryCard}>
+                <Text style={styles.completionSummaryTitle}>Wrestler-specific notes</Text>
+                <Text style={styles.completionSummaryCopy}>
+                  Save coach observations that should follow a wrestler into profile work, mat-side prep, and next practice planning.
+                </Text>
+              </View>
+
+              {resolvedAttendanceWrestlers.map((wrestler) => {
+                const draft = wrestlerNoteDrafts[wrestler.id] || {
+                  note: "",
+                  tags: [],
+                  visibility: "coach_only" as const,
+                };
+                const fullName =
+                  `${wrestler.firstName} ${wrestler.lastName}`.trim() || "Unnamed Wrestler";
+                return (
+                  <View key={`note-${wrestler.id}`} style={styles.attendanceCard}>
+                    <Text style={styles.attendanceName}>{fullName}</Text>
+                    <TextInput
+                      value={draft.note}
+                      onChangeText={(value) => updateWrestlerNoteDraft(wrestler.id, { note: value })}
+                      placeholder="What should the coach remember about this wrestler from today?"
+                      placeholderTextColor="#7c8da3"
+                      multiline
+                      textAlignVertical="top"
+                      style={styles.postPracticeInputCompact}
+                    />
                     <View style={styles.attendanceStatusRow}>
-                      {ATTENDANCE_STATUSES.map((statusOption) => {
-                        const active = currentStatus === statusOption.value;
+                      {WRESTLER_NOTE_TAGS.map((tag) => {
+                        const active = draft.tags.includes(tag);
                         return (
                           <Pressable
-                            key={statusOption.value}
-                            onPress={() => setAttendanceStatusForWrestler(wrestler.id, statusOption.value)}
+                            key={`${wrestler.id}-${tag}`}
+                            onPress={() => toggleWrestlerNoteTag(wrestler.id, tag)}
                             style={[
                               styles.attendanceStatusPill,
                               active ? styles.attendanceStatusPillActive : null,
@@ -1033,57 +1385,224 @@ export default function PracticePlansScreen() {
                                 active ? styles.attendanceStatusPillTextActive : null,
                               ]}
                             >
-                              {statusOption.label}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
+                              {tag.replace("_", " ")}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
                     </View>
-
-                    <Text style={styles.attendanceCheckInMeta}>
-                      {attendanceEntry?.checkedInByRole
-                        ? `Checked in by ${attendanceEntry.checkedInByRole}${
-                            attendanceEntry.checkedInAt ? " earlier today" : ""
-                          }`
-                        : currentStatus === "not_checked_in"
-                          ? "No check-in yet"
-                          : `Coach set status to ${getAttendanceStatusLabel(currentStatus).toLowerCase()}`}
-                    </Text>
-
-                    <TextInput
-                      value={attendanceEntry?.notes || ""}
-                      onChangeText={(value) => setAttendanceNotesForWrestler(wrestler.id, value)}
-                      placeholder="Optional attendance note"
-                      placeholderTextColor="#7c8da3"
-                      style={styles.attendanceNotesInput}
-                    />
+                    <View style={styles.attendanceStatusRow}>
+                      {[
+                        ["coach_only", "Coach Only"],
+                        ["athlete_visible", "Share With Athlete"],
+                        ["parent_visible", "Share With Parent"],
+                      ].map(([value, label]) => {
+                        const active = draft.visibility === value;
+                        return (
+                          <Pressable
+                            key={`${wrestler.id}-${value}`}
+                            onPress={() =>
+                              updateWrestlerNoteDraft(wrestler.id, {
+                                visibility: value as PracticeSessionWrestlerNote["visibility"],
+                              })
+                            }
+                            style={[
+                              styles.attendanceStatusPill,
+                              active ? styles.attendanceStatusPillActive : null,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.attendanceStatusPillText,
+                                active ? styles.attendanceStatusPillTextActive : null,
+                              ]}
+                            >
+                              {label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
                   </View>
                 );
               })}
             </View>
-          )}
+          ) : null}
 
-          <TextInput
-            value={postPracticeNotes}
-            onChangeText={setPostPracticeNotes}
-            placeholder="Example: Great pace today. Need more work on bottom escapes. Joey looked strong in live goes..."
-            placeholderTextColor="#7c8da3"
-            multiline
-            textAlignVertical="top"
-            style={styles.postPracticeInput}
-          />
+          {closeoutStep === 4 ? (
+            <View style={{ gap: 12 }}>
+              <View style={styles.completionSummaryCard}>
+                <Text style={styles.completionSummaryTitle}>Follow-ups</Text>
+                <Text style={styles.completionSummaryCopy}>
+                  Capture what needs action next: technique fixes, parent conversations, injury monitoring, or match-prep reminders.
+                </Text>
+              </View>
+
+              {followUpDrafts.map((draft) => (
+                <View key={draft.id} style={styles.attendanceCard}>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
+                    <Text style={styles.attendanceName}>Follow-up</Text>
+                    <Pressable onPress={() => removeFollowUpDraft(draft.id)}>
+                      <Text style={{ color: "#fca5a5", fontWeight: "900" }}>Remove</Text>
+                    </Pressable>
+                  </View>
+
+                  <TextInput
+                    value={draft.title}
+                    onChangeText={(value) => updateFollowUpDraft(draft.id, { title: value })}
+                    placeholder="Follow-up title"
+                    placeholderTextColor="#7c8da3"
+                    style={styles.attendanceNotesInput}
+                  />
+
+                  <TextInput
+                    value={draft.details}
+                    onChangeText={(value) => updateFollowUpDraft(draft.id, { details: value })}
+                    placeholder="Details or next action"
+                    placeholderTextColor="#7c8da3"
+                    multiline
+                    textAlignVertical="top"
+                    style={styles.postPracticeInputCompact}
+                  />
+
+                  <View style={styles.attendanceStatusRow}>
+                    {resolvedAttendanceWrestlers.map((wrestler) => {
+                      const label = `${wrestler.firstName} ${wrestler.lastName}`.trim();
+                      const active = draft.wrestlerId === wrestler.id;
+                      return (
+                        <Pressable
+                          key={`${draft.id}-${wrestler.id}`}
+                          onPress={() =>
+                            updateFollowUpDraft(draft.id, {
+                              wrestlerId: active ? "" : wrestler.id,
+                              wrestlerName: active ? "" : label,
+                            })
+                          }
+                          style={[
+                            styles.attendanceStatusPill,
+                            active ? styles.attendanceStatusPillActive : null,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.attendanceStatusPillText,
+                              active ? styles.attendanceStatusPillTextActive : null,
+                            ]}
+                          >
+                            {label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  <View style={styles.attendanceStatusRow}>
+                    {FOLLOW_UP_CATEGORIES.map((category) => {
+                      const active = draft.category === category;
+                      return (
+                        <Pressable
+                          key={`${draft.id}-${category}`}
+                          onPress={() => updateFollowUpDraft(draft.id, { category })}
+                          style={[
+                            styles.attendanceStatusPill,
+                            active ? styles.attendanceStatusPillActive : null,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.attendanceStatusPillText,
+                              active ? styles.attendanceStatusPillTextActive : null,
+                            ]}
+                          >
+                            {category.replace("_", " ")}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  <TextInput
+                    value={draft.dueDate}
+                    onChangeText={(value) => updateFollowUpDraft(draft.id, { dueDate: value })}
+                    placeholder="Due date (YYYY-MM-DD)"
+                    placeholderTextColor="#7c8da3"
+                    style={styles.attendanceNotesInput}
+                  />
+                </View>
+              ))}
+
+              <Pressable onPress={addFollowUpDraft} style={styles.secondaryActionButton}>
+                <Text style={styles.secondaryActionButtonText}>Add Follow-Up</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {closeoutStep === 5 ? (
+            <View style={{ gap: 12 }}>
+              <View style={styles.completionSummaryCard}>
+                <Text style={styles.completionSummaryTitle}>Review and save</Text>
+                <Text style={styles.completionSummaryCopy}>
+                  Double-check the attendance summary, coach notes, wrestler notes, and follow-ups before saving the completed practice.
+                </Text>
+              </View>
+
+              <View style={styles.attendanceSummaryCard}>
+                <Text style={styles.attendanceSummaryTitle}>What will be saved</Text>
+                <View style={styles.attendanceSummaryGrid}>
+                  {[
+                    ["Attendance", resolvedAttendanceWrestlers.length],
+                    ["Wrestler Notes", activeWrestlerNotesCount],
+                    ["Follow-Ups", openFollowUpCount],
+                    ["Practice Notes", postPracticeNotes.trim() ? 1 : 0],
+                  ].map(([label, value]) => (
+                    <View key={String(label)} style={styles.attendanceSummaryPill}>
+                      <Text style={styles.attendanceSummaryPillLabel}>{label}</Text>
+                      <Text style={styles.attendanceSummaryPillValue}>{value}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+
+              {postPracticeNotes.trim() ? (
+                <View style={styles.attendanceCard}>
+                  <Text style={styles.attendanceName}>Team practice notes</Text>
+                  <Text style={{ color: "#dbeafe", lineHeight: 21 }}>{postPracticeNotes.trim()}</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
 
           <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+            {closeoutStep > 1 ? (
+              <Pressable
+                onPress={() => setCloseoutStep((prev) => Math.max(1, prev - 1) as CloseoutStep)}
+                disabled={savingCompletion}
+                style={styles.secondaryActionButton}
+              >
+                <Text style={styles.secondaryActionButtonText}>Back</Text>
+              </Pressable>
+            ) : null}
+
+            {closeoutStep < 5 ? (
+              <Pressable
+                onPress={() => setCloseoutStep((prev) => Math.min(5, prev + 1) as CloseoutStep)}
+                disabled={savingCompletion}
+                style={styles.secondaryActionButton}
+              >
+                <Text style={styles.secondaryActionButtonText}>Next Step</Text>
+              </Pressable>
+            ) : null}
+
             <Pressable
               onPress={savePracticeCompletion}
-              disabled={savingCompletion}
+              disabled={savingCompletion || closeoutStep !== 5}
               style={{
                 alignSelf: "flex-start",
                 paddingHorizontal: 16,
                 paddingVertical: 12,
                 borderRadius: 999,
                 backgroundColor: "#bf1029",
-                opacity: savingCompletion ? 0.55 : 1,
+                opacity: savingCompletion || closeoutStep !== 5 ? 0.55 : 1,
               }}
             >
               <Text style={{ color: "#ffffff", fontWeight: "900" }}>
@@ -2081,6 +2600,31 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginTop: 6,
   },
+  stepperRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  stepperPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#315c86",
+    backgroundColor: "#102f52",
+  },
+  stepperPillActive: {
+    borderColor: "#fca5a5",
+    backgroundColor: "#bf1029",
+  },
+  stepperPillText: {
+    color: "#dbeafe",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  stepperPillTextActive: {
+    color: "#ffffff",
+  },
   attendanceSummaryCard: {
     borderWidth: 1,
     borderColor: "#315c86",
@@ -2195,6 +2739,18 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 14,
   },
+  postPracticeInputCompact: {
+    minHeight: 110,
+    borderWidth: 1,
+    borderColor: "#315c86",
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: "#0b2542",
+    color: "#ffffff",
+    fontSize: 14,
+    lineHeight: 20,
+  },
   postPracticeInput: {
     minHeight: 180,
     borderWidth: 1,
@@ -2206,6 +2762,19 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 15,
     lineHeight: 21,
+  },
+  secondaryActionButton: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 999,
+    backgroundColor: "#102f52",
+    borderWidth: 1,
+    borderColor: "#315c86",
+  },
+  secondaryActionButtonText: {
+    color: "#ffffff",
+    fontWeight: "900",
   },
   blockCard: {
     borderWidth: 1,

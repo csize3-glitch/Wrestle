@@ -105,6 +105,12 @@ export interface CalendarEvent {
   startTime?: string;
   endTime?: string;
   notes?: string;
+  status?: "scheduled" | "completed";
+  completedPracticeSessionId?: string;
+  completedAt?: string;
+  completedBy?: string;
+  attendanceCounts?: PracticeSessionAttendanceCounts;
+  postPracticeNotesPreview?: string;
   createdAt: string;
   updatedAt: string;
   totalSeconds?: number;
@@ -151,6 +157,7 @@ export interface PracticeSession {
   id: string;
   teamId: string;
   practicePlanId: string;
+  calendarEventId?: string;
   practicePlanTitle?: string;
   practicePlanStyle?: string;
   totalSeconds?: number;
@@ -230,16 +237,23 @@ export interface PracticeSessionWrestlerNote {
   wrestlerName: string;
   note: string;
   tags: string[];
-  visibility: "coach_private" | "share_with_athlete" | "share_with_parent";
+  visibility: "coach_only" | "athlete_visible" | "parent_visible";
+  createdAt: string;
+  createdBy: string;
 }
 
 export interface PracticeSessionFollowUp {
+  id: string;
   wrestlerId?: string;
   wrestlerName?: string;
-  tag: string;
-  note?: string;
-  status: "open" | "resolved";
+  title: string;
+  details?: string;
+  category: string;
+  status: "open" | "done";
+  dueDate?: string;
   createdAt: string;
+  createdBy: string;
+  completedAt?: string;
 }
 
 export interface MatSideSummary {
@@ -305,6 +319,10 @@ export interface Team {
   parentCheckInEnabled?: boolean;
   athleteCheckInEnabled?: boolean;
   coachCanLockAttendance?: boolean;
+  coachCanOverrideAttendance?: boolean;
+  attendanceRequiredForCloseout?: boolean;
+  showAttendanceToAthletes?: boolean;
+  showAttendanceToParents?: boolean;
   ownerUserId: string;
   createdAt: string;
   updatedAt: string;

@@ -513,11 +513,7 @@ export default function WrestlersScreen() {
 
   const isCoach = appUser?.role === "coach";
 
-  const teamName =
-    currentTeam?.name ||
-    currentTeam?.teamName ||
-    currentTeam?.displayName ||
-    "Your Team";
+  const teamName = currentTeam?.name || "Your Team";
 
   async function refresh() {
     if (!currentTeam?.id) {

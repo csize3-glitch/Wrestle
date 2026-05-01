@@ -44,6 +44,12 @@ type MatchDayWrestler = WrestlerProfile & {
   tournamentEntry?: TournamentEntry;
 };
 
+function isMatchDayWrestler(
+  wrestler: WrestlerProfile | MatchDayWrestler | null
+): wrestler is MatchDayWrestler {
+  return Boolean(wrestler);
+}
+
 type MatchFormState = {
   boutNumber: string;
   matNumber: string;
@@ -382,10 +388,10 @@ export default function MatchDayScreen() {
     [entries]
   );
 
-  const matchDayRoster = useMemo<MatchDayWrestler[]>(() => {
+  const matchDayRoster = useMemo((): MatchDayWrestler[] => {
     if (confirmedEntries.length > 0) {
-      return confirmedEntries
-        .map((entry) => {
+      const resolvedRoster = confirmedEntries
+        .map<MatchDayWrestler | null>((entry) => {
           const wrestler = teamRoster.find((row) => row.id === entry.wrestlerId);
           if (!wrestler) return null;
 
@@ -395,8 +401,9 @@ export default function MatchDayScreen() {
             tournamentEntry: entry,
           };
         })
-        .filter((row): row is MatchDayWrestler => Boolean(row))
-        .sort((a, b) => {
+        .filter(isMatchDayWrestler);
+
+      return resolvedRoster.sort((a, b) => {
           const aWeight = Number(String(a.weightClass || "").replace(/[^0-9.]/g, ""));
           const bWeight = Number(String(b.weightClass || "").replace(/[^0-9.]/g, ""));
 
@@ -405,7 +412,7 @@ export default function MatchDayScreen() {
           }
 
           return getFullName(a).localeCompare(getFullName(b));
-        });
+      });
     }
 
     return teamRoster.slice().sort((a, b) => getFullName(a).localeCompare(getFullName(b)));
@@ -418,7 +425,7 @@ export default function MatchDayScreen() {
 
   const selectedWrestler = selectedIndex >= 0 ? matchDayRoster[selectedIndex] : null;
 
-  const selectedEntry = useMemo(() => {
+  const selectedEntry = useMemo<TournamentEntry | null>(() => {
     if (selectedWrestler?.tournamentEntry) return selectedWrestler.tournamentEntry;
     return confirmedEntries.find((entry) => entry.wrestlerId === selectedWrestlerId) || null;
   }, [confirmedEntries, selectedWrestler, selectedWrestlerId]);
@@ -801,10 +808,13 @@ export default function MatchDayScreen() {
       teamRoster.find((wrestler) => wrestler.id === selectedWrestlerId) ||
       selectedWrestler;
 
-    const formEntry =
-      formWrestler && "tournamentEntry" in formWrestler && formWrestler.tournamentEntry
-        ? formWrestler.tournamentEntry
-        : confirmedEntries.find((entry) => entry.wrestlerId === selectedWrestlerId) || selectedEntry;
+    const rosterTournamentEntry =
+      formWrestler && "tournamentEntry" in formWrestler ? formWrestler.tournamentEntry : undefined;
+    const formEntry: TournamentEntry | null =
+      (rosterTournamentEntry as TournamentEntry | undefined) ||
+      confirmedEntries.find((entry) => entry.wrestlerId === selectedWrestlerId) ||
+      selectedEntry ||
+      null;
 
     if (!formWrestler || !formEntry) {
       Alert.alert("Confirmed entry needed", "Select a confirmed wrestler before saving this match.");

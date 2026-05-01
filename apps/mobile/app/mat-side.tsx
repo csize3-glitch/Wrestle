@@ -14,6 +14,7 @@ import { db } from "@wrestlewell/firebase/client";
 import {
   getAppUser,
   getMatSideSummary,
+  listPracticeSessionsForWrestler,
   listWrestlers,
   mergeMatSideSummaryWithProfile,
 } from "@wrestlewell/lib/index";
@@ -21,6 +22,7 @@ import {
   COLLECTIONS,
   type AppUser,
   type MatSideSummary,
+  type PracticeSession,
   type StyleMatSideSection,
   type VarkStyle,
   type WrestlerMatch,
@@ -551,9 +553,11 @@ export default function MatSideScreen() {
   const [wrestlerMatches, setWrestlerMatches] = useState<WrestlerMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMatches, setLoadingMatches] = useState(false);
+  const [loadingPracticeContext, setLoadingPracticeContext] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeStyle, setActiveStyle] = useState<WrestlingStyle>("Folkstyle");
   const [summary, setSummary] = useState<MatSideSummary | null>(null);
+  const [practiceContextSessions, setPracticeContextSessions] = useState<PracticeSession[]>([]);
   const [loadingSummary, setLoadingSummary] = useState(false);
 
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -656,6 +660,25 @@ export default function MatSideScreen() {
     }
   }
 
+  async function refreshPracticeContext(wrestlerId = selectedId) {
+    if (!currentTeam?.id || !wrestlerId) {
+      setPracticeContextSessions([]);
+      return;
+    }
+
+    try {
+      setLoadingPracticeContext(true);
+      setPracticeContextSessions(
+        (await listPracticeSessionsForWrestler(db, currentTeam.id, wrestlerId)).slice(0, 6)
+      );
+    } catch (error) {
+      console.error("Failed to load practice context:", error);
+      setPracticeContextSessions([]);
+    } finally {
+      setLoadingPracticeContext(false);
+    }
+  }
+
   useEffect(() => {
     async function load() {
       try {
@@ -676,6 +699,10 @@ export default function MatSideScreen() {
 
   useEffect(() => {
     refreshMatchHistory(selectedId);
+  }, [currentTeam?.id, selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    refreshPracticeContext(selectedId);
   }, [currentTeam?.id, selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedWrestler = useMemo(
@@ -1234,6 +1261,93 @@ export default function MatSideScreen() {
               <SummarySection title="Weaknesses" items={resolvedSummary.weaknesses} />
               <SummarySection title="Game Plan" items={resolvedSummary.gamePlan} />
               <SummarySection title="Recent Notes" items={resolvedSummary.recentNotes} />
+
+              <View
+                style={{
+                  marginTop: 18,
+                  padding: 14,
+                  borderRadius: 18,
+                  backgroundColor: "#102f52",
+                  borderWidth: 1,
+                  borderColor: "#315c86",
+                }}
+              >
+                <Text
+                  style={{
+                    color: "#93c5fd",
+                    fontSize: 12,
+                    fontWeight: "900",
+                    letterSpacing: 1,
+                    marginBottom: 6,
+                  }}
+                >
+                  PRACTICE CONTEXT
+                </Text>
+
+                {loadingPracticeContext ? (
+                  <Text style={{ color: "#b7c9df", lineHeight: 21 }}>
+                    Loading recent practice notes and follow-ups...
+                  </Text>
+                ) : practiceContextSessions.length === 0 ? (
+                  <Text style={{ color: "#b7c9df", lineHeight: 21 }}>
+                    No wrestler-specific practice notes or follow-ups yet.
+                  </Text>
+                ) : (
+                  <View style={{ gap: 12 }}>
+                    {practiceContextSessions.map((session) => {
+                      const wrestlerNotes = (session.wrestlerNotes || []).filter(
+                        (note) => note.wrestlerId === selectedWrestler.id
+                      );
+                      const followUps = (session.followUps || []).filter(
+                        (followUp) => followUp.wrestlerId === selectedWrestler.id
+                      );
+
+                      if (!wrestlerNotes.length && !followUps.length) {
+                        return null;
+                      }
+
+                      return (
+                        <View
+                          key={session.id}
+                          style={{
+                            borderWidth: 1,
+                            borderColor: "#21486e",
+                            borderRadius: 16,
+                            padding: 12,
+                            backgroundColor: "#061a33",
+                            gap: 8,
+                          }}
+                        >
+                          <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>
+                            {session.practicePlanTitle || "Completed practice"}
+                          </Text>
+
+                          {wrestlerNotes.map((note, index) => (
+                            <View key={`${session.id}-note-${index}`} style={{ gap: 4 }}>
+                              <Text style={{ color: "#fca5a5", fontWeight: "800" }}>
+                                Note • {note.tags.join(", ") || "coach note"}
+                              </Text>
+                              <Text style={{ color: "#dbeafe", lineHeight: 21 }}>{note.note}</Text>
+                            </View>
+                          ))}
+
+                          {followUps.map((followUp) => (
+                            <View key={followUp.id} style={{ gap: 4 }}>
+                              <Text style={{ color: "#fde68a", fontWeight: "800" }}>
+                                Follow-up • {followUp.category}
+                              </Text>
+                              <Text style={{ color: "#dbeafe", lineHeight: 21 }}>
+                                {followUp.title}
+                                {followUp.details ? ` — ${followUp.details}` : ""}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
             </View>
           ) : null}
         </View>

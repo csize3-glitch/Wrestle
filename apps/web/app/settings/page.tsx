@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { db } from "@wrestlewell/firebase/client";
 import {
   updateTeamBranding,
+  updateTeamPracticeSettings,
   updateUserNotificationPreferences,
 } from "@wrestlewell/lib/index";
 import type { NotificationPreferences } from "@wrestlewell/types/index";
@@ -25,7 +26,17 @@ export default function SettingsPage() {
   const [logoUrl, setLogoUrl] = useState("");
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [savingBranding, setSavingBranding] = useState(false);
+  const [savingPracticeSettings, setSavingPracticeSettings] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [practiceSettings, setPracticeSettings] = useState({
+    practiceCheckInEnabled: true,
+    athleteCheckInEnabled: true,
+    parentCheckInEnabled: true,
+    coachCanOverrideAttendance: true,
+    attendanceRequiredForCloseout: false,
+    showAttendanceToAthletes: true,
+    showAttendanceToParents: true,
+  });
 
   const isOwner = Boolean(appUser && currentTeam && currentTeam.ownerUserId === appUser.id);
 
@@ -37,6 +48,26 @@ export default function SettingsPage() {
     setTeamName(currentTeam?.name || "");
     setLogoUrl(currentTeam?.logoUrl || "");
   }, [currentTeam?.logoUrl, currentTeam?.name]);
+
+  useEffect(() => {
+    setPracticeSettings({
+      practiceCheckInEnabled: currentTeam?.practiceCheckInEnabled !== false,
+      athleteCheckInEnabled: currentTeam?.athleteCheckInEnabled !== false,
+      parentCheckInEnabled: currentTeam?.parentCheckInEnabled !== false,
+      coachCanOverrideAttendance: currentTeam?.coachCanOverrideAttendance !== false,
+      attendanceRequiredForCloseout: currentTeam?.attendanceRequiredForCloseout === true,
+      showAttendanceToAthletes: currentTeam?.showAttendanceToAthletes !== false,
+      showAttendanceToParents: currentTeam?.showAttendanceToParents !== false,
+    });
+  }, [
+    currentTeam?.practiceCheckInEnabled,
+    currentTeam?.athleteCheckInEnabled,
+    currentTeam?.parentCheckInEnabled,
+    currentTeam?.coachCanOverrideAttendance,
+    currentTeam?.attendanceRequiredForCloseout,
+    currentTeam?.showAttendanceToAthletes,
+    currentTeam?.showAttendanceToParents,
+  ]);
 
   async function savePreferences() {
     if (!appUser) {
@@ -75,6 +106,26 @@ export default function SettingsPage() {
       setMessage("Failed to update team branding.");
     } finally {
       setSavingBranding(false);
+    }
+  }
+
+  async function savePracticeSettings() {
+    if (!currentTeam?.id || !isOwner) {
+      return;
+    }
+
+    setSavingPracticeSettings(true);
+    setMessage(null);
+
+    try {
+      await updateTeamPracticeSettings(db, currentTeam.id, practiceSettings);
+      await refreshAppState();
+      setMessage("Practice-day settings updated.");
+    } catch (error) {
+      console.error("Failed to update practice settings:", error);
+      setMessage("Failed to update practice-day settings.");
+    } finally {
+      setSavingPracticeSettings(false);
     }
   }
 
@@ -224,6 +275,73 @@ export default function SettingsPage() {
             )}
           </section>
         </div>
+
+        <section className="content-card">
+          <h2 className="content-card__title">Practice-day attendance controls</h2>
+          <p className="content-card__copy">
+            Decide who can check in, whether attendance is required before closeout, and how much athletes and parents can see.
+          </p>
+
+          {!isOwner ? (
+            <p className="content-card__copy" style={{ marginTop: 18 }}>
+              Only the team owner can change practice-day settings.
+            </p>
+          ) : (
+            <div
+              style={{
+                marginTop: 18,
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                gap: 14,
+              }}
+            >
+              {[
+                ["practiceCheckInEnabled", "Practice-day check-in enabled"],
+                ["athleteCheckInEnabled", "Athletes can check themselves in"],
+                ["parentCheckInEnabled", "Parents can check in linked wrestlers"],
+                ["coachCanOverrideAttendance", "Coaches can override attendance"],
+                ["attendanceRequiredForCloseout", "Attendance required before closeout"],
+                ["showAttendanceToAthletes", "Show attendance status to athletes"],
+                ["showAttendanceToParents", "Show attendance status to parents"],
+              ].map(([key, label]) => (
+                <label
+                  key={key}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "14px 16px",
+                    borderRadius: 16,
+                    border: "1px solid #e5e7eb",
+                    background: "#fff",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={practiceSettings[key as keyof typeof practiceSettings]}
+                    onChange={(event) =>
+                      setPracticeSettings((prev) => ({
+                        ...prev,
+                        [key]: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+
+              <div className="hero-actions" style={{ marginTop: 0, gridColumn: "1 / -1" }}>
+                <button
+                  className="button-primary"
+                  onClick={savePracticeSettings}
+                  disabled={savingPracticeSettings}
+                >
+                  {savingPracticeSettings ? "Saving..." : "Save Practice Settings"}
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
       </main>
     </RequireAuth>
   );

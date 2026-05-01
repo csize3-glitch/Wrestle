@@ -12,6 +12,8 @@ import {
   type PracticeSession,
   type PracticeSessionAttendanceCounts,
   type PracticeSessionAttendanceEntry,
+  type PracticeSessionFollowUp,
+  type PracticeSessionWrestlerNote,
 } from "@wrestlewell/types/index";
 
 function normalizeDateValue(value: unknown): string {
@@ -108,6 +110,83 @@ function normalizeAttendance(value: unknown): PracticeSessionAttendanceEntry[] {
     .filter((entry): entry is PracticeSessionAttendanceEntry => Boolean(entry));
 }
 
+function normalizeWrestlerNote(value: unknown): PracticeSessionWrestlerNote | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const note = value as Record<string, unknown>;
+  const wrestlerId = typeof note.wrestlerId === "string" ? note.wrestlerId : "";
+  const wrestlerName = typeof note.wrestlerName === "string" ? note.wrestlerName : "";
+  const text = typeof note.note === "string" ? note.note : "";
+
+  if (!wrestlerId || !wrestlerName || !text.trim()) {
+    return null;
+  }
+
+  return {
+    wrestlerId,
+    wrestlerName,
+    note: text,
+    tags: ensureStringArray(note.tags),
+    visibility:
+      note.visibility === "athlete_visible" || note.visibility === "parent_visible"
+        ? note.visibility
+        : "coach_only",
+    createdAt: normalizeDateValue(note.createdAt),
+    createdBy: typeof note.createdBy === "string" ? note.createdBy : "",
+  };
+}
+
+function normalizeWrestlerNotes(value: unknown): PracticeSessionWrestlerNote[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => normalizeWrestlerNote(entry))
+    .filter((entry): entry is PracticeSessionWrestlerNote => Boolean(entry));
+}
+
+function normalizeFollowUp(value: unknown): PracticeSessionFollowUp | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const followUp = value as Record<string, unknown>;
+  const id = typeof followUp.id === "string" ? followUp.id : "";
+  const title = typeof followUp.title === "string" ? followUp.title : "";
+
+  if (!id || !title.trim()) {
+    return null;
+  }
+
+  return {
+    id,
+    wrestlerId: typeof followUp.wrestlerId === "string" ? followUp.wrestlerId : undefined,
+    wrestlerName:
+      typeof followUp.wrestlerName === "string" ? followUp.wrestlerName : undefined,
+    title,
+    details: typeof followUp.details === "string" ? followUp.details : undefined,
+    category: typeof followUp.category === "string" ? followUp.category : "technique",
+    status: followUp.status === "done" ? "done" : "open",
+    dueDate: typeof followUp.dueDate === "string" ? followUp.dueDate : undefined,
+    createdAt: normalizeDateValue(followUp.createdAt),
+    createdBy: typeof followUp.createdBy === "string" ? followUp.createdBy : "",
+    completedAt: normalizeDateValue(followUp.completedAt),
+  };
+}
+
+function normalizeFollowUps(value: unknown): PracticeSessionFollowUp[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => normalizeFollowUp(entry))
+    .filter((entry): entry is PracticeSessionFollowUp => Boolean(entry));
+}
+
 function normalizeAttendanceCounts(
   value: unknown,
   attendance: PracticeSessionAttendanceEntry[]
@@ -141,10 +220,14 @@ function normalizeAttendanceCounts(
 
 function normalizePracticeSession(id: string, value: Record<string, unknown>): PracticeSession {
   const attendance = normalizeAttendance(value.attendance);
+  const wrestlerNotes = normalizeWrestlerNotes(value.wrestlerNotes);
+  const followUps = normalizeFollowUps(value.followUps);
   return {
     id,
     teamId: typeof value.teamId === "string" ? value.teamId : "",
     practicePlanId: typeof value.practicePlanId === "string" ? value.practicePlanId : "",
+    calendarEventId:
+      typeof value.calendarEventId === "string" ? value.calendarEventId : undefined,
     practicePlanTitle:
       typeof value.practicePlanTitle === "string" ? value.practicePlanTitle : undefined,
     practicePlanStyle:
@@ -167,6 +250,8 @@ function normalizePracticeSession(id: string, value: Record<string, unknown>): P
     assignedWrestlerIds: ensureStringArray(value.assignedWrestlerIds),
     attendance,
     attendanceCounts: normalizeAttendanceCounts(value.attendanceCounts, attendance),
+    wrestlerNotes,
+    followUps,
   };
 }
 
@@ -195,4 +280,18 @@ export async function listPracticeSessions(
       if (endDate && dateKey > endDate) return false;
       return true;
     });
+}
+
+export async function listPracticeSessionsForWrestler(
+  db: Firestore,
+  teamId: string,
+  wrestlerId: string
+): Promise<PracticeSession[]> {
+  const sessions = await listPracticeSessions(db, teamId);
+  return sessions.filter(
+    (session) =>
+      session.wrestlerNotes?.some((note) => note.wrestlerId === wrestlerId) ||
+      session.followUps?.some((followUp) => followUp.wrestlerId === wrestlerId) ||
+      session.attendance?.some((entry) => entry.wrestlerId === wrestlerId)
+  );
 }

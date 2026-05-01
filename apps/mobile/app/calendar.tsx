@@ -4,6 +4,7 @@ import { Pressable, Text, View } from "react-native";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@wrestlewell/firebase/client";
 import {
+  calendarEventMatchesWrestler,
   listPracticeAttendanceForEvent,
   listCalendarEvents,
   listWrestlers,
@@ -102,11 +103,20 @@ export default function CalendarScreen() {
       ? wrestlers.find((wrestler) => wrestler.ownerUserId === firebaseUser?.uid) ||
         null
       : null;
+  const linkedParentWrestlers =
+    appUser?.role === "parent"
+      ? wrestlers.filter((wrestler) => (appUser.linkedWrestlerIds || []).includes(wrestler.id))
+      : [];
 
   async function refreshAttendanceForVisibleEvents(
     nextEvents: CalendarEventRecord[]
   ) {
-    if (!currentTeam?.id || appUser?.role !== "athlete" || !ownWrestler) {
+    if (
+      !currentTeam?.id ||
+      (appUser?.role !== "athlete" && appUser?.role !== "parent") ||
+      (appUser?.role === "athlete" && !ownWrestler) ||
+      (appUser?.role === "parent" && linkedParentWrestlers.length === 0)
+    ) {
       setAttendanceByEventId({});
       return;
     }
@@ -116,26 +126,22 @@ export default function CalendarScreen() {
 
     const attendanceRows = await Promise.all(
       todayEvents.map((event) =>
-        listPracticeAttendanceForEvent(
-          db,
-          currentTeam.id,
-          event.id,
-          ownWrestler.id
-        )
+        listPracticeAttendanceForEvent(db, currentTeam.id, event.id)
       )
     );
 
     const nextMap: Record<string, PracticeAttendanceRecord> = {};
+    const wrestlerPool =
+      appUser?.role === "parent" ? linkedParentWrestlers : ownWrestler ? [ownWrestler] : [];
 
     todayEvents.forEach((event, index) => {
-      const ownAttendance =
-        attendanceRows[index].find(
-          (attendance) => attendance.wrestlerId === ownWrestler.id
-        ) || null;
-
-      if (ownAttendance) {
-        nextMap[event.id] = ownAttendance;
-      }
+      attendanceRows[index]
+        .filter((attendance) =>
+          wrestlerPool.some((wrestler) => wrestler.id === attendance.wrestlerId)
+        )
+        .forEach((attendance) => {
+          nextMap[`${event.id}:${attendance.wrestlerId}`] = attendance;
+        });
     });
 
     setAttendanceByEventId(nextMap);
@@ -156,6 +162,31 @@ export default function CalendarScreen() {
       }
 
       const rows = await listCalendarEvents(db, currentTeam.id, ownWrestler);
+      setEvents(rows);
+      await refreshAttendanceForVisibleEvents(rows);
+      return;
+    }
+
+    if (appUser?.role === "parent") {
+      if (!wrestlersLoaded || linkedParentWrestlers.length === 0) {
+        setEvents([]);
+        setAttendanceByEventId({});
+        return;
+      }
+
+      const rows = Array.from(
+        new Map(
+          (
+            await Promise.all(
+              linkedParentWrestlers.map((wrestler) =>
+                listCalendarEvents(db, currentTeam.id, wrestler)
+              )
+            )
+          )
+            .flat()
+            .map((event) => [event.id, event] as const)
+        ).values()
+      );
       setEvents(rows);
       await refreshAttendanceForVisibleEvents(rows);
       return;
@@ -196,11 +227,18 @@ export default function CalendarScreen() {
         return;
       }
 
-      if (appUser.role === "athlete" && !wrestlersLoaded) {
+      if ((appUser.role === "athlete" || appUser.role === "parent") && !wrestlersLoaded) {
         return;
       }
 
       if (appUser.role === "athlete" && !ownWrestler) {
+        setEvents([]);
+        setAttendanceByEventId({});
+        setLoading(false);
+        return;
+      }
+
+      if (appUser.role === "parent" && linkedParentWrestlers.length === 0) {
         setEvents([]);
         setAttendanceByEventId({});
         setLoading(false);
@@ -224,6 +262,7 @@ export default function CalendarScreen() {
     firebaseUser?.uid,
     ownWrestler?.id,
     wrestlersLoaded,
+    linkedParentWrestlers.length,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const upcomingEvents = useMemo(() => {
@@ -246,6 +285,22 @@ export default function CalendarScreen() {
     const todayKey = new Date().toISOString().split("T")[0];
     return upcomingEvents.filter((event) => event.date === todayKey);
   }, [upcomingEvents]);
+
+  const parentTodayCheckInRows = useMemo(() => {
+    if (appUser?.role !== "parent") {
+      return [];
+    }
+
+    return linkedParentWrestlers.flatMap((wrestler) =>
+      todayCheckInEvents
+        .filter((event) => calendarEventMatchesWrestler(event, wrestler))
+        .map((event) => ({
+          event,
+          wrestler,
+          attendance: attendanceByEventId[`${event.id}:${wrestler.id}`] || null,
+        }))
+    );
+  }, [appUser?.role, attendanceByEventId, linkedParentWrestlers, todayCheckInEvents]);
 
   if (!authLoading && (!firebaseUser || !appUser)) {
     return (
@@ -294,7 +349,9 @@ export default function CalendarScreen() {
       subtitle={
         appUser?.role === "coach"
           ? "Review the team practice schedule and jump straight into assigned plans."
-          : "Stay ready with the live team schedule and open assigned practice plans."
+          : appUser?.role === "parent"
+            ? "Check linked wrestlers in for practice and stay on top of today’s schedule."
+            : "Stay ready with the live team schedule and open assigned practice plans."
       }
     >
       <Pressable
@@ -335,7 +392,11 @@ export default function CalendarScreen() {
           <Text style={{ fontSize: 16, lineHeight: 22, color: "#b7c9df" }}>
             {appUser?.role === "coach"
               ? "No upcoming practices are scheduled yet. Assign them on the website and they will appear here."
-              : ownWrestler
+              : appUser?.role === "parent"
+                ? linkedParentWrestlers.length > 0
+                  ? "No upcoming practices are visible for your linked wrestlers yet."
+                  : "No linked wrestlers yet. Once a coach links your athletes, practice-day check-ins will appear here."
+                : ownWrestler
                 ? "No upcoming practices are assigned to you yet. Team-wide and wrestler-specific practices will appear here."
                 : "Create your wrestler profile to see assigned practices."}
           </Text>
@@ -484,6 +545,141 @@ export default function CalendarScreen() {
                                 fontSize: 13,
                               }}
                             >
+                              {label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </View>
+      ) : null}
+
+      {appUser?.role === "parent" &&
+      currentTeam?.practiceCheckInEnabled !== false &&
+      currentTeam?.parentCheckInEnabled !== false ? (
+        <View
+          style={{
+            borderWidth: 1,
+            borderColor: "#21486e",
+            borderRadius: 20,
+            padding: 18,
+            backgroundColor: "#0b2542",
+            marginBottom: 18,
+            gap: 12,
+          }}
+        >
+          <Text style={{ fontSize: 20, fontWeight: "900", color: "#ffffff" }}>
+            Family Check-In
+          </Text>
+
+          <Text style={{ color: "#b7c9df", lineHeight: 20 }}>
+            Check in linked wrestlers for today’s visible practices. Coaches will only need to clean up exceptions.
+          </Text>
+
+          {linkedParentWrestlers.length === 0 ? (
+            <Text style={{ color: "#b7c9df" }}>
+              No linked wrestlers yet. Ask a coach to connect your family account.
+            </Text>
+          ) : parentTodayCheckInRows.length === 0 ? (
+            <Text style={{ color: "#b7c9df" }}>
+              No visible practices for your linked wrestlers today.
+            </Text>
+          ) : (
+            <View style={{ gap: 12 }}>
+              {parentTodayCheckInRows.map(({ event, wrestler, attendance }) => {
+                const attendanceKey = `${event.id}:${wrestler.id}`;
+                return (
+                  <View
+                    key={`parent-attendance-${attendanceKey}`}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: "#315c86",
+                      borderRadius: 18,
+                      padding: 14,
+                      backgroundColor: "#102f52",
+                      gap: 10,
+                    }}
+                  >
+                    <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>
+                      {`${wrestler.firstName} ${wrestler.lastName}`.trim() || "Linked Wrestler"}
+                    </Text>
+
+                    <Text style={{ color: "#dbeafe", fontWeight: "800" }}>
+                      {event.practicePlanTitle || "Scheduled practice"}
+                    </Text>
+
+                    <Text style={{ color: "#b7c9df" }}>
+                      {event.assignmentType === "group" && event.groupName
+                        ? event.groupName
+                        : event.assignmentType === "custom"
+                          ? "Custom assignment"
+                          : "Team-wide"}{" "}
+                      · {formatPracticeDate(event.date)}
+                    </Text>
+
+                    <Text style={{ color: "#93c5fd", fontWeight: "800" }}>
+                      Current status: {attendance?.status ? attendance.status.replace("_", " ") : "not checked in"}
+                    </Text>
+
+                    <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                      {[
+                        ["present", "Present"],
+                        ["late", "Running Late"],
+                        ["absent", "Absent"],
+                        ["injured", "Injured"],
+                        ["not_sure", "Not Sure"],
+                      ].map(([value, label]) => {
+                        const active = attendance?.status === value;
+                        return (
+                          <Pressable
+                            key={`${attendanceKey}-${value}`}
+                            onPress={async () => {
+                              if (!currentTeam?.id || !firebaseUser?.uid) {
+                                return;
+                              }
+
+                              try {
+                                setSavingAttendanceKey(attendanceKey);
+                                await upsertPracticeAttendanceCheckIn(db, {
+                                  teamId: currentTeam.id,
+                                  calendarEventId: event.id,
+                                  practicePlanId: event.practicePlanId,
+                                  date: event.date,
+                                  assignmentType: event.assignmentType || "team",
+                                  groupId: event.groupId,
+                                  groupName: event.groupName,
+                                  assignedWrestlerIds: event.assignedWrestlerIds,
+                                  wrestlerId: wrestler.id,
+                                  wrestlerName:
+                                    `${wrestler.firstName} ${wrestler.lastName}`.trim() ||
+                                    "Unnamed Wrestler",
+                                  status: value as PracticeAttendanceStatus,
+                                  checkedInByUserId: firebaseUser.uid,
+                                  checkedInByRole: "parent",
+                                });
+                                await refresh();
+                              } catch (error) {
+                                console.error("Failed to save parent check-in:", error);
+                              } finally {
+                                setSavingAttendanceKey(null);
+                              }
+                            }}
+                            style={{
+                              paddingHorizontal: 12,
+                              paddingVertical: 8,
+                              borderRadius: 999,
+                              backgroundColor: active ? "#bf1029" : "#0b2542",
+                              borderWidth: 1,
+                              borderColor: active ? "#fca5a5" : "#315c86",
+                              opacity: savingAttendanceKey === attendanceKey ? 0.6 : 1,
+                            }}
+                          >
+                            <Text style={{ color: "#ffffff", fontWeight: "800", fontSize: 13 }}>
                               {label}
                             </Text>
                           </Pressable>

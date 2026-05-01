@@ -1,13 +1,17 @@
 import {
+  doc,
   collection,
   getDocs,
   query,
+  serverTimestamp,
+  updateDoc,
   where,
   type Firestore,
 } from "firebase/firestore";
 import {
   COLLECTIONS,
   type CalendarEvent,
+  type PracticeSession,
   type WrestlerProfile,
 } from "@wrestlewell/types/index";
 
@@ -45,6 +49,51 @@ function normalizeCalendarEvent(
     startTime: typeof value.startTime === "string" ? value.startTime : undefined,
     endTime: typeof value.endTime === "string" ? value.endTime : undefined,
     notes: typeof value.notes === "string" ? value.notes : undefined,
+    status: value.status === "completed" ? "completed" : "scheduled",
+    completedPracticeSessionId:
+      typeof value.completedPracticeSessionId === "string"
+        ? value.completedPracticeSessionId
+        : undefined,
+    completedAt: normalizeDateValue(value.completedAt),
+    completedBy: typeof value.completedBy === "string" ? value.completedBy : undefined,
+    attendanceCounts:
+      value.attendanceCounts && typeof value.attendanceCounts === "object"
+        ? {
+            present:
+              typeof (value.attendanceCounts as Record<string, unknown>).present === "number"
+                ? ((value.attendanceCounts as Record<string, unknown>).present as number)
+                : 0,
+            absent:
+              typeof (value.attendanceCounts as Record<string, unknown>).absent === "number"
+                ? ((value.attendanceCounts as Record<string, unknown>).absent as number)
+                : 0,
+            late:
+              typeof (value.attendanceCounts as Record<string, unknown>).late === "number"
+                ? ((value.attendanceCounts as Record<string, unknown>).late as number)
+                : 0,
+            injured:
+              typeof (value.attendanceCounts as Record<string, unknown>).injured === "number"
+                ? ((value.attendanceCounts as Record<string, unknown>).injured as number)
+                : 0,
+            excused:
+              typeof (value.attendanceCounts as Record<string, unknown>).excused === "number"
+                ? ((value.attendanceCounts as Record<string, unknown>).excused as number)
+                : 0,
+            not_sure:
+              typeof (value.attendanceCounts as Record<string, unknown>).not_sure === "number"
+                ? ((value.attendanceCounts as Record<string, unknown>).not_sure as number)
+                : 0,
+            not_checked_in:
+              typeof (value.attendanceCounts as Record<string, unknown>).not_checked_in ===
+              "number"
+                ? ((value.attendanceCounts as Record<string, unknown>).not_checked_in as number)
+                : 0,
+          }
+        : undefined,
+    postPracticeNotesPreview:
+      typeof value.postPracticeNotesPreview === "string"
+        ? value.postPracticeNotesPreview
+        : undefined,
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
     totalSeconds,
@@ -55,6 +104,41 @@ function normalizeCalendarEvent(
     totalMinutes:
       typeof value.totalMinutes === "number" ? value.totalMinutes : Math.round(totalSeconds / 60),
   };
+}
+
+function normalizeDateValue(value: unknown): string {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "toDate" in value &&
+    typeof (value as { toDate?: unknown }).toDate === "function"
+  ) {
+    try {
+      return (value as { toDate: () => Date }).toDate().toISOString();
+    } catch {
+      return "";
+    }
+  }
+
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "seconds" in value &&
+    typeof (value as { seconds?: unknown }).seconds === "number"
+  ) {
+    return new Date((value as { seconds: number }).seconds * 1000).toISOString();
+  }
+
+  return "";
+}
+
+function compactUndefined<T extends Record<string, unknown>>(value: T) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => typeof entry !== "undefined")
+  ) as Partial<T>;
 }
 
 type CalendarEventViewer =
@@ -126,4 +210,30 @@ export async function listCalendarEvents(
   return rows
     .filter((event) => calendarEventMatchesWrestler(event, wrestler))
     .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+}
+
+export async function completeCalendarPracticeEvent(
+  db: Firestore,
+  input: {
+    calendarEventId: string;
+    practiceSessionId: string;
+    completedBy: string;
+    attendanceCounts?: PracticeSession["attendanceCounts"];
+    postPracticeNotesPreview?: string;
+  }
+) {
+  await updateDoc(
+    doc(db, COLLECTIONS.CALENDAR_EVENTS, input.calendarEventId),
+    compactUndefined({
+      status: "completed",
+      completedPracticeSessionId: input.practiceSessionId,
+      completedAt: serverTimestamp(),
+      completedBy: input.completedBy,
+      attendanceCounts: input.attendanceCounts,
+      postPracticeNotesPreview: input.postPracticeNotesPreview?.trim()
+        ? input.postPracticeNotesPreview.trim().slice(0, 240)
+        : "",
+      updatedAt: serverTimestamp(),
+    })
+  );
 }

@@ -16,6 +16,8 @@ import { db } from "@wrestlewell/firebase/client";
 import {
   COLLECTIONS,
   type PracticeSession,
+  type PracticeSessionFollowUp,
+  type PracticeSessionWrestlerNote,
   type TrainingGroup,
   type WrestlerProfile,
 } from "@wrestlewell/types/index";
@@ -61,6 +63,12 @@ type CalendarEventItem = {
   startTime?: string;
   endTime?: string;
   notes?: string;
+  status?: "scheduled" | "completed";
+  completedPracticeSessionId?: string;
+  completedAt?: string;
+  completedBy?: string;
+  attendanceCounts?: PracticeSession["attendanceCounts"];
+  postPracticeNotesPreview?: string;
 };
 
 type TournamentCalendarItem = {
@@ -76,6 +84,18 @@ type TournamentCalendarItem = {
 
 type CompletedPracticeSessionItem = PracticeSession & {
   date: string;
+};
+
+type SessionWrestlerNoteItem = PracticeSessionWrestlerNote & {
+  sessionId: string;
+  sessionTitle: string;
+  sessionCompletedAt?: string;
+};
+
+type SessionFollowUpItem = PracticeSessionFollowUp & {
+  sessionId: string;
+  sessionTitle: string;
+  sessionCompletedAt?: string;
 };
 
 type AssignmentType = "team" | "group" | "custom";
@@ -626,6 +646,26 @@ export default function CalendarPage() {
     return visibleCompletedPractices;
   }, [coachCalendarFilter, isCoach, visibleCompletedPractices]);
 
+  const linkedCompletedPracticeByEventId = useMemo(() => {
+    const visibleEventIds = new Set(filteredEvents.map((event) => event.id));
+    return Object.fromEntries(
+      filteredCompletedPractices
+        .filter(
+          (session) => session.calendarEventId && visibleEventIds.has(session.calendarEventId)
+        )
+        .map((session) => [session.calendarEventId as string, session])
+    ) as Record<string, CompletedPracticeSessionItem>;
+  }, [filteredCompletedPractices, filteredEvents]);
+
+  const standaloneCompletedPractices = useMemo(
+    () =>
+      filteredCompletedPractices.filter(
+        (session) =>
+          !session.calendarEventId || !linkedCompletedPracticeByEventId[session.calendarEventId]
+      ),
+    [filteredCompletedPractices, linkedCompletedPracticeByEventId]
+  );
+
   function getResolvedAssignmentPreview(dateKey: string) {
     const selectedPlan = savedPlans.find((plan) => plan.id === selectedPlanByDate[dateKey]);
     if (!selectedPlan) {
@@ -683,6 +723,11 @@ export default function CalendarPage() {
       completionRate: number;
       latestNote: CompletedPracticeSessionItem | null;
       noteSessions: CompletedPracticeSessionItem[];
+      wrestlerNotes: SessionWrestlerNoteItem[];
+      latestWrestlerNote: SessionWrestlerNoteItem | null;
+      followUps: SessionFollowUpItem[];
+      openFollowUps: SessionFollowUpItem[];
+      openFollowUpCounts: Array<{ category: string; count: number }>;
       attendanceTotals: {
         present: number;
         absent: number;
@@ -723,6 +768,38 @@ export default function CalendarPage() {
 
       const noteSessions = completed.filter((session) => session.notes?.trim());
       const latestNote = noteSessions[0] || null;
+      const wrestlerNotes = completed
+        .flatMap((session) =>
+          (session.wrestlerNotes || []).map((note) => ({
+            ...note,
+            sessionId: session.id,
+            sessionTitle: session.practicePlanTitle || "Completed practice",
+            sessionCompletedAt: session.completedAt || session.createdAt,
+          }))
+        )
+        .sort(
+          (a, b) =>
+            new Date(normalizeDateValue(b.sessionCompletedAt) || 0).getTime() -
+            new Date(normalizeDateValue(a.sessionCompletedAt) || 0).getTime()
+        );
+      const latestWrestlerNote = wrestlerNotes[0] || null;
+      const followUps = completed.flatMap((session) =>
+        (session.followUps || []).map((followUp) => ({
+          ...followUp,
+          sessionId: session.id,
+          sessionTitle: session.practicePlanTitle || "Completed practice",
+          sessionCompletedAt: session.completedAt || session.createdAt,
+        }))
+      );
+      const openFollowUps = followUps.filter((followUp) => followUp.status === "open");
+      const openFollowUpCounts = Array.from(
+        openFollowUps.reduce((map, followUp) => {
+          map.set(followUp.category, (map.get(followUp.category) || 0) + 1);
+          return map;
+        }, new Map<string, number>())
+      )
+        .map(([category, count]) => ({ category, count }))
+        .sort((a, b) => b.count - a.count || a.category.localeCompare(b.category));
       const attendanceTotals = completed.reduce(
         (totals, session) => {
           if (!session.attendanceCounts) {
@@ -759,6 +836,11 @@ export default function CalendarPage() {
         completionRate,
         latestNote,
         noteSessions,
+        wrestlerNotes,
+        latestWrestlerNote,
+        followUps,
+        openFollowUps,
+        openFollowUpCounts,
         attendanceTotals,
         rosterHref: "/wrestlers",
         rosterLabel,
@@ -1033,7 +1115,9 @@ export default function CalendarPage() {
   }
 
   function getCompletedPracticesForDate(dateKey: string) {
-    return filteredCompletedPractices.filter((session) => getCompletedPracticeDate(session) === dateKey);
+    return standaloneCompletedPractices.filter(
+      (session) => getCompletedPracticeDate(session) === dateKey
+    );
   }
 
   return (
@@ -1676,70 +1760,175 @@ export default function CalendarPage() {
                   ))}
 
                   {dayEvents.map((event) => (
-                    <div
-                      key={event.id}
-                      style={{
-                        border: "1px solid #eee",
-                        borderRadius: 10,
-                        padding: isDenseLayout ? 10 : 12,
-                        background: "#fafafa",
-                        minWidth: 0,
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          padding: "4px 8px",
-                          borderRadius: 999,
-                          background: "#0f3d68",
-                          color: "#fff",
-                          fontSize: 11,
-                          fontWeight: 800,
-                          letterSpacing: "0.06em",
-                          textTransform: "uppercase",
-                          marginBottom: 8,
-                        }}
-                      >
-                        Scheduled Practice
-                      </div>
+                    (() => {
+                      const linkedSession = linkedCompletedPracticeByEventId[event.id] || null;
+                      const isCompleted = event.status === "completed" || Boolean(linkedSession);
+                      const attendanceCounts =
+                        linkedSession?.attendanceCounts || event.attendanceCounts;
+                      const linkedWrestlerNoteCount = linkedSession?.wrestlerNotes?.length || 0;
+                      const linkedOpenFollowUps =
+                        linkedSession?.followUps?.filter((followUp) => followUp.status === "open")
+                          .length || 0;
+                      const completionStamp =
+                        linkedSession?.completedAt ||
+                        event.completedAt ||
+                        linkedSession?.createdAt;
 
-                      <strong>{event.practicePlanTitle}</strong>
+                      return (
+                        <div
+                          key={event.id}
+                          style={{
+                            border: isCompleted
+                              ? "1px solid rgba(22, 101, 52, 0.28)"
+                              : "1px solid #eee",
+                            borderRadius: 10,
+                            padding: isDenseLayout ? 10 : 12,
+                            background: isCompleted ? "rgba(22, 101, 52, 0.08)" : "#fafafa",
+                            minWidth: 0,
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              padding: "4px 8px",
+                              borderRadius: 999,
+                              background: isCompleted ? "#166534" : "#0f3d68",
+                              color: "#fff",
+                              fontSize: 11,
+                              fontWeight: 800,
+                              letterSpacing: "0.06em",
+                              textTransform: "uppercase",
+                              marginBottom: 8,
+                            }}
+                          >
+                            {isCompleted ? "Completed Practice" : "Scheduled Practice"}
+                          </div>
 
-                      <div style={{ fontSize: isDenseLayout ? 13 : 14, marginTop: 6 }}>
-                        {event.practicePlanStyle || "Mixed"} ·{" "}
-                        {formatDurationLabel(
-                          event.totalSeconds || (event.totalMinutes || 0) * 60 || 0
-                        )}
-                      </div>
+                          <strong>{event.practicePlanTitle}</strong>
 
-                      <div style={{ fontSize: 12, color: "#666", marginTop: 6 }}>
-                        {event.assignmentType === "group" && event.groupName
-                          ? `Training group · ${event.groupName}`
-                          : event.assignmentType === "custom"
-                            ? `Custom wrestlers · ${(event.assignedWrestlerIds || []).length}`
-                            : "Team-wide practice"}
-                      </div>
+                          <div style={{ fontSize: isDenseLayout ? 13 : 14, marginTop: 6 }}>
+                            {event.practicePlanStyle || "Mixed"} ·{" "}
+                            {formatDurationLabel(
+                              event.totalSeconds || (event.totalMinutes || 0) * 60 || 0
+                            )}
+                          </div>
 
-                      {event.notes ? (
-                        <p style={{ fontSize: isDenseLayout ? 13 : 14, marginTop: 8, marginBottom: 8 }}>
-                          {event.notes}
-                        </p>
-                      ) : null}
+                          <div style={{ fontSize: 12, color: "#666", marginTop: 6 }}>
+                            {event.assignmentType === "group" && event.groupName
+                              ? `Training group · ${event.groupName}`
+                              : event.assignmentType === "custom"
+                                ? `Custom wrestlers · ${(event.assignedWrestlerIds || []).length}`
+                                : "Team-wide practice"}
+                            {isCompleted && completionStamp
+                              ? ` · ${formatCompletedAt(completionStamp)}`
+                              : ""}
+                          </div>
 
-                      <Link
-                        href={`/practice-plans?open=${event.practicePlanId}`}
-                        style={{ display: "inline-block", marginRight: 10, marginBottom: 8 }}
-                      >
-                        Open Plan
-                      </Link>
+                          {attendanceCounts ? (
+                            <div
+                              style={{
+                                fontSize: 12,
+                                color: "#166534",
+                                marginTop: 6,
+                                fontWeight: 700,
+                              }}
+                            >
+                              {formatAttendanceSummary(attendanceCounts)}
+                            </div>
+                          ) : null}
 
-                      {isCoach ? (
-                        <button onClick={() => removeEvent(event.id)} style={{ padding: "6px 10px" }}>
-                          Remove
-                        </button>
-                      ) : null}
-                    </div>
+                          {isCompleted && (linkedWrestlerNoteCount > 0 || linkedOpenFollowUps > 0) ? (
+                            <div
+                              style={{
+                                fontSize: 12,
+                                color: "#0f3d68",
+                                marginTop: 6,
+                                fontWeight: 700,
+                              }}
+                            >
+                              {linkedWrestlerNoteCount} wrestler note
+                              {linkedWrestlerNoteCount === 1 ? "" : "s"} · {linkedOpenFollowUps} open
+                              follow-up{linkedOpenFollowUps === 1 ? "" : "s"}
+                            </div>
+                          ) : null}
+
+                          {event.notes ? (
+                            <p
+                              style={{
+                                fontSize: isDenseLayout ? 13 : 14,
+                                marginTop: 8,
+                                marginBottom: linkedSession?.notes ? 8 : 8,
+                              }}
+                            >
+                              {event.notes}
+                            </p>
+                          ) : null}
+
+                          {linkedSession?.notes ? (
+                            <div
+                              style={{
+                                marginTop: 10,
+                                padding: 10,
+                                borderRadius: 8,
+                                background: "#fff",
+                                border: "1px solid rgba(22, 101, 52, 0.16)",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 800,
+                                  color: "#166534",
+                                  textTransform: "uppercase",
+                                  marginBottom: 6,
+                                  letterSpacing: "0.06em",
+                                }}
+                              >
+                                Post-practice notes
+                              </div>
+                              <p
+                                style={{
+                                  fontSize: isDenseLayout ? 13 : 14,
+                                  margin: 0,
+                                  whiteSpace: "pre-wrap",
+                                  lineHeight: 1.5,
+                                }}
+                              >
+                                {linkedSession.notes}
+                              </p>
+                            </div>
+                          ) : isCompleted && event.postPracticeNotesPreview ? (
+                            <div
+                              style={{
+                                marginTop: 10,
+                                padding: 10,
+                                borderRadius: 8,
+                                background: "#fff",
+                                border: "1px solid rgba(22, 101, 52, 0.16)",
+                                fontSize: isDenseLayout ? 13 : 14,
+                                lineHeight: 1.5,
+                              }}
+                            >
+                              {event.postPracticeNotesPreview}
+                            </div>
+                          ) : null}
+
+                          <Link
+                            href={`/practice-plans?open=${event.practicePlanId}`}
+                            style={{ display: "inline-block", marginRight: 10, marginTop: 10 }}
+                          >
+                            Open Plan
+                          </Link>
+
+                          {isCoach && !isCompleted ? (
+                            <button onClick={() => removeEvent(event.id)} style={{ padding: "6px 10px" }}>
+                              Remove
+                            </button>
+                          ) : null}
+                        </div>
+                      );
+                    })()
                   ))}
                 </div>
               </section>
@@ -1980,6 +2169,17 @@ export default function CalendarPage() {
                               ? `P ${block.attendanceTotals.present} · A ${block.attendanceTotals.absent} · L ${block.attendanceTotals.late} · ? ${block.attendanceTotals.not_sure} · NC ${block.attendanceTotals.not_checked_in}`
                               : "Attendance not logged",
                         },
+                        {
+                          label: "Follow-Ups",
+                          value: block.openFollowUps.length,
+                          helper:
+                            block.openFollowUpCounts.length > 0
+                              ? block.openFollowUpCounts
+                                  .slice(0, 3)
+                                  .map((item) => `${item.category} ${item.count}`)
+                                  .join(" · ")
+                              : "No open follow-ups",
+                        },
                       ].map((stat) => (
                           <div
                             key={stat.label}
@@ -2053,6 +2253,62 @@ export default function CalendarPage() {
                               No post-practice notes yet. Coaches will see the newest reflection here after a session is marked complete.
                             </div>
                           )}
+
+                          {block.latestWrestlerNote ? (
+                            (() => {
+                              const latestWrestlerNote = block.latestWrestlerNote;
+                              return (
+                                <div
+                                  style={{
+                                    marginTop: 14,
+                                    paddingTop: 14,
+                                    borderTop: "1px solid rgba(15, 23, 42, 0.08)",
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      fontSize: 12,
+                                      color: "#667085",
+                                      textTransform: "uppercase",
+                                      letterSpacing: "0.06em",
+                                      marginBottom: 8,
+                                      fontWeight: 800,
+                                    }}
+                                  >
+                                    Latest wrestler note
+                                  </div>
+                                  <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                                    {latestWrestlerNote.wrestlerName} · {latestWrestlerNote.sessionTitle}
+                                  </div>
+                                  <div style={{ color: "#667085", fontSize: 13, marginBottom: 8 }}>
+                                    {formatCompletedAt(latestWrestlerNote.sessionCompletedAt)}
+                                  </div>
+                                  {latestWrestlerNote.tags.length > 0 ? (
+                                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                                      {latestWrestlerNote.tags.map((tag) => (
+                                        <span
+                                          key={`${latestWrestlerNote.sessionId}-${tag}`}
+                                          style={{
+                                            padding: "4px 8px",
+                                            borderRadius: 999,
+                                            background: "#eef4ff",
+                                            color: "#0f3d68",
+                                            fontSize: 12,
+                                            fontWeight: 700,
+                                          }}
+                                        >
+                                          {tag}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                  <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                                    {latestWrestlerNote.note}
+                                  </div>
+                                </div>
+                              );
+                            })()
+                          ) : null}
                         </div>
 
                         <div
@@ -2078,6 +2334,8 @@ export default function CalendarPage() {
                           <div style={{ display: "grid", gap: 6, color: "#344054", fontSize: 14 }}>
                             <div>{block.scheduled.length} scheduled practices queued for this review lane.</div>
                             <div>{block.completed.length} completed sessions feeding weekly notes.</div>
+                            <div>{block.wrestlerNotes.length} wrestler-specific note{block.wrestlerNotes.length === 1 ? "" : "s"} captured this week.</div>
+                            <div>{block.openFollowUps.length} open follow-up{block.openFollowUps.length === 1 ? "" : "s"} still need action.</div>
                             <div>
                               {block.completionRate === 100 && block.scheduled.length > 0
                                 ? "All scheduled work is completed."
@@ -2189,6 +2447,14 @@ export default function CalendarPage() {
                                 <div style={{ color: "#8a6d00", fontSize: 13, marginBottom: 6, fontWeight: 700 }}>
                                   {formatAttendanceSummary(session.attendanceCounts)}
                                 </div>
+                                {(session.wrestlerNotes?.length || 0) > 0 || (session.followUps?.length || 0) > 0 ? (
+                                  <div style={{ color: "#8a6d00", fontSize: 13, marginBottom: 6, fontWeight: 700 }}>
+                                    {(session.wrestlerNotes?.length || 0)} wrestler note
+                                    {(session.wrestlerNotes?.length || 0) === 1 ? "" : "s"} ·{" "}
+                                    {(session.followUps || []).filter((followUp) => followUp.status === "open").length} open
+                                    follow-up{(session.followUps || []).filter((followUp) => followUp.status === "open").length === 1 ? "" : "s"}
+                                  </div>
+                                ) : null}
                                 <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
                                   {session.notes}
                                 </div>
@@ -2196,6 +2462,99 @@ export default function CalendarPage() {
                             ))}
                           </div>
                         )}
+
+                        {block.wrestlerNotes.length > 0 ? (
+                          <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+                            <div style={{ fontSize: 12, color: "#8a6d00", textTransform: "uppercase", fontWeight: 800, letterSpacing: "0.06em" }}>
+                              Wrestler-specific notes
+                            </div>
+                            {block.wrestlerNotes.slice(0, 6).map((note) => (
+                              <div
+                                key={`${note.sessionId}-${note.wrestlerId}-${note.createdAt}`}
+                                style={{
+                                  borderRadius: 8,
+                                  border: "1px solid #eadf9a",
+                                  padding: 10,
+                                  background: "#ffffff",
+                                }}
+                              >
+                                <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                                  {note.wrestlerName} · {note.sessionTitle}
+                                </div>
+                                <div style={{ color: "#666", fontSize: 13, marginBottom: 6 }}>
+                                  {formatCompletedAt(note.sessionCompletedAt)}
+                                </div>
+                                {note.tags.length > 0 ? (
+                                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                                    {note.tags.map((tag) => (
+                                      <span
+                                        key={`${note.sessionId}-${note.wrestlerId}-${tag}`}
+                                        style={{
+                                          padding: "4px 8px",
+                                          borderRadius: 999,
+                                          background: "#fff7db",
+                                          color: "#8a6d00",
+                                          fontSize: 12,
+                                          fontWeight: 700,
+                                        }}
+                                      >
+                                        {tag}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : null}
+                                <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{note.note}</div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {block.followUps.length > 0 ? (
+                          <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+                            <div style={{ fontSize: 12, color: "#8a6d00", textTransform: "uppercase", fontWeight: 800, letterSpacing: "0.06em" }}>
+                              Follow-ups
+                            </div>
+                            {block.followUps.slice(0, 6).map((followUp) => (
+                              <div
+                                key={`${followUp.sessionId}-${followUp.id}`}
+                                style={{
+                                  borderRadius: 8,
+                                  border: "1px solid #eadf9a",
+                                  padding: 10,
+                                  background: "#ffffff",
+                                }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                                  <div style={{ fontWeight: 700 }}>
+                                    {followUp.title}
+                                    {followUp.wrestlerName ? ` · ${followUp.wrestlerName}` : ""}
+                                  </div>
+                                  <span
+                                    style={{
+                                      padding: "4px 8px",
+                                      borderRadius: 999,
+                                      background: followUp.status === "open" ? "#fee2e2" : "#dcfce7",
+                                      color: followUp.status === "open" ? "#b91c1c" : "#166534",
+                                      fontSize: 12,
+                                      fontWeight: 800,
+                                    }}
+                                  >
+                                    {followUp.status === "open" ? "Open" : "Done"}
+                                  </span>
+                                </div>
+                                <div style={{ color: "#666", fontSize: 13, marginBottom: 6 }}>
+                                  {followUp.category} · {followUp.sessionTitle}
+                                  {followUp.dueDate ? ` · Due ${followUp.dueDate}` : ""}
+                                </div>
+                                {followUp.details ? (
+                                  <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{followUp.details}</div>
+                                ) : (
+                                  <div style={{ color: "#666", fontSize: 14 }}>No extra detail added.</div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     </section>
                   );

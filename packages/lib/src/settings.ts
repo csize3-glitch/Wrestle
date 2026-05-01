@@ -1,5 +1,9 @@
 import { doc, serverTimestamp, updateDoc, type Firestore } from "firebase/firestore";
-import { COLLECTIONS, type NotificationPreferences } from "@wrestlewell/types/index";
+import {
+  COLLECTIONS,
+  type NotificationPreferences,
+  type Team,
+} from "@wrestlewell/types/index";
 
 export async function updateUserNotificationPreferences(
   db: Firestore,
@@ -31,6 +35,32 @@ export async function updateTeamBranding(
   await updateDoc(doc(db, COLLECTIONS.TEAMS, teamId), {
     name: args.name.trim(),
     logoUrl: args.logoUrl?.trim() || "",
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function updateTeamPracticeSettings(
+  db: Firestore,
+  teamId: string,
+  settings: Pick<
+    Team,
+    | "practiceCheckInEnabled"
+    | "athleteCheckInEnabled"
+    | "parentCheckInEnabled"
+    | "coachCanOverrideAttendance"
+    | "attendanceRequiredForCloseout"
+    | "showAttendanceToAthletes"
+    | "showAttendanceToParents"
+  >
+): Promise<void> {
+  await updateDoc(doc(db, COLLECTIONS.TEAMS, teamId), {
+    practiceCheckInEnabled: settings.practiceCheckInEnabled !== false,
+    athleteCheckInEnabled: settings.athleteCheckInEnabled !== false,
+    parentCheckInEnabled: settings.parentCheckInEnabled !== false,
+    coachCanOverrideAttendance: settings.coachCanOverrideAttendance !== false,
+    attendanceRequiredForCloseout: settings.attendanceRequiredForCloseout === true,
+    showAttendanceToAthletes: settings.showAttendanceToAthletes !== false,
+    showAttendanceToParents: settings.showAttendanceToParents !== false,
     updatedAt: serverTimestamp(),
   });
 }
