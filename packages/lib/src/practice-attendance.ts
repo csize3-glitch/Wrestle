@@ -57,6 +57,7 @@ function normalizeDateValue(value: unknown): string {
 
 function normalizeStatus(value: unknown): PracticeAttendanceStatus {
   switch (value) {
+    case "present":
     case "absent":
     case "late":
     case "injured":
@@ -76,21 +77,27 @@ function normalizePracticeAttendance(
   return {
     id,
     teamId: typeof value.teamId === "string" ? value.teamId : "",
-    calendarEventId: typeof value.calendarEventId === "string" ? value.calendarEventId : "",
-    practicePlanId: typeof value.practicePlanId === "string" ? value.practicePlanId : "",
+    calendarEventId:
+      typeof value.calendarEventId === "string" ? value.calendarEventId : "",
+    practicePlanId:
+      typeof value.practicePlanId === "string" ? value.practicePlanId : "",
     date: typeof value.date === "string" ? value.date : "",
     assignmentType:
       value.assignmentType === "group" || value.assignmentType === "custom"
         ? value.assignmentType
         : "team",
     groupId: typeof value.groupId === "string" ? value.groupId : undefined,
-    groupName: typeof value.groupName === "string" ? value.groupName : undefined,
+    groupName:
+      typeof value.groupName === "string" ? value.groupName : undefined,
     assignedWrestlerIds: ensureStringArray(value.assignedWrestlerIds),
     wrestlerId: typeof value.wrestlerId === "string" ? value.wrestlerId : "",
-    wrestlerName: typeof value.wrestlerName === "string" ? value.wrestlerName : "",
+    wrestlerName:
+      typeof value.wrestlerName === "string" ? value.wrestlerName : "",
     status: normalizeStatus(value.status),
     checkedInByUserId:
-      typeof value.checkedInByUserId === "string" ? value.checkedInByUserId : undefined,
+      typeof value.checkedInByUserId === "string"
+        ? value.checkedInByUserId
+        : undefined,
     checkedInByRole:
       value.checkedInByRole === "athlete" ||
       value.checkedInByRole === "parent" ||
@@ -99,7 +106,9 @@ function normalizePracticeAttendance(
         : undefined,
     checkedInAt: normalizeDateValue(value.checkedInAt),
     coachUpdatedBy:
-      typeof value.coachUpdatedBy === "string" ? value.coachUpdatedBy : undefined,
+      typeof value.coachUpdatedBy === "string"
+        ? value.coachUpdatedBy
+        : undefined,
     coachUpdatedAt: normalizeDateValue(value.coachUpdatedAt),
     notes: typeof value.notes === "string" ? value.notes : undefined,
     createdAt: normalizeDateValue(value.createdAt),
@@ -109,7 +118,10 @@ function normalizePracticeAttendance(
 
 export function resolveExpectedWrestlersForCalendarEvent(
   wrestlers: WrestlerProfile[],
-  event: Pick<CalendarEvent, "assignmentType" | "groupId" | "assignedWrestlerIds">
+  event: Pick<
+    CalendarEvent,
+    "assignmentType" | "groupId" | "assignedWrestlerIds"
+  >
 ) {
   const assignmentType = event.assignmentType || "team";
   const assignedIds = event.assignedWrestlerIds || [];
@@ -156,19 +168,28 @@ export function buildAttendanceCounts(
 export async function listPracticeAttendanceForEvent(
   db: Firestore,
   teamId: string,
-  calendarEventId: string
+  calendarEventId: string,
+  wrestlerId?: string
 ): Promise<PracticeAttendanceRecord[]> {
+  const filters = [
+    where("teamId", "==", teamId),
+    where("calendarEventId", "==", calendarEventId),
+  ];
+
+  if (wrestlerId) {
+    filters.push(where("wrestlerId", "==", wrestlerId));
+  }
+
   const snapshot = await getDocs(
-    query(
-      collection(db, COLLECTIONS.PRACTICE_ATTENDANCE),
-      where("teamId", "==", teamId),
-      where("calendarEventId", "==", calendarEventId)
-    )
+    query(collection(db, COLLECTIONS.PRACTICE_ATTENDANCE), ...filters)
   );
 
   return snapshot.docs
     .map((docSnapshot) =>
-      normalizePracticeAttendance(docSnapshot.id, docSnapshot.data() as Record<string, unknown>)
+      normalizePracticeAttendance(
+        docSnapshot.id,
+        docSnapshot.data() as Record<string, unknown>
+      )
     )
     .sort((a, b) => a.wrestlerName.localeCompare(b.wrestlerName));
 }
@@ -204,6 +225,7 @@ export async function upsertPracticeAttendanceCheckIn(
   );
 
   const existing = snapshot.docs[0];
+
   const payload = {
     teamId: input.teamId,
     calendarEventId: input.calendarEventId,
@@ -217,7 +239,7 @@ export async function upsertPracticeAttendanceCheckIn(
     wrestlerName: input.wrestlerName,
     status: input.status,
     checkedInByUserId: input.checkedInByUserId || "",
-    checkedInByRole: input.checkedInByRole,
+    checkedInByRole: input.checkedInByRole || "athlete",
     checkedInAt: serverTimestamp(),
     notes: input.notes || "",
     updatedAt: serverTimestamp(),
@@ -232,6 +254,7 @@ export async function upsertPracticeAttendanceCheckIn(
     ...payload,
     createdAt: serverTimestamp(),
   });
+
   return created.id;
 }
 
