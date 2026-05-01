@@ -220,7 +220,7 @@ service cloud.firestore {
           isCoach() ||
           resource.data.wrestlerId != null &&
           (
-            isOwnWrestler(resource.data.wrestlerId) ||
+            isOwnedWrestler(resource.data.wrestlerId) ||
             isLinkedParentWrestler(resource.data.wrestlerId)
           )
         );
@@ -246,7 +246,7 @@ service cloud.firestore {
           (
             resource.data.wrestlerId != null &&
             (
-              isOwnWrestler(resource.data.wrestlerId) ||
+              isOwnedWrestler(resource.data.wrestlerId) ||
               isLinkedParentWrestler(resource.data.wrestlerId)
             )
           )
