@@ -219,37 +219,47 @@ service cloud.firestore {
         sameTeam(resource.data.teamId) &&
         (
           isCoach() ||
-          resource.data.wrestlerId != null &&
           (
-            isOwnedWrestler(resource.data.wrestlerId) ||
+            resource.data.wrestlerId != null &&
+            exists(/databases/$(database)/documents/wrestlers/$(resource.data.wrestlerId)) &&
+            get(/databases/$(database)/documents/wrestlers/$(resource.data.wrestlerId)).data.teamId == currentTeamId() &&
+            get(/databases/$(database)/documents/wrestlers/$(resource.data.wrestlerId)).data.ownerUserId == request.auth.uid
+          ) ||
+          (
+            resource.data.wrestlerId != null &&
             isLinkedParentWrestler(resource.data.wrestlerId)
           )
         );
 
       allow create: if signedIn() &&
         request.resource.data.teamId == currentTeamId() &&
+        request.resource.data.wrestlerId != null &&
         (
           isCoach() ||
           (
-            request.resource.data.wrestlerId != null &&
-            (
-              canReadWrestler(request.resource.data.wrestlerId) &&
-              get(/databases/$(database)/documents/wrestlers/$(request.resource.data.wrestlerId)).data.ownerUserId == request.auth.uid
-            ) ||
-            isLinkedParentWrestler(request.resource.data.wrestlerId)
-          )
+            exists(/databases/$(database)/documents/wrestlers/$(request.resource.data.wrestlerId)) &&
+            get(/databases/$(database)/documents/wrestlers/$(request.resource.data.wrestlerId)).data.teamId == currentTeamId() &&
+            get(/databases/$(database)/documents/wrestlers/$(request.resource.data.wrestlerId)).data.ownerUserId == request.auth.uid
+          ) ||
+          isLinkedParentWrestler(request.resource.data.wrestlerId)
         );
 
       allow update: if signedIn() &&
         sameTeam(resource.data.teamId) &&
+        request.resource.data.teamId == resource.data.teamId &&
+        request.resource.data.wrestlerId == resource.data.wrestlerId &&
+        request.resource.data.calendarEventId == resource.data.calendarEventId &&
         (
           isCoach() ||
           (
             resource.data.wrestlerId != null &&
-            (
-              isOwnedWrestler(resource.data.wrestlerId) ||
-              isLinkedParentWrestler(resource.data.wrestlerId)
-            )
+            exists(/databases/$(database)/documents/wrestlers/$(resource.data.wrestlerId)) &&
+            get(/databases/$(database)/documents/wrestlers/$(resource.data.wrestlerId)).data.teamId == currentTeamId() &&
+            get(/databases/$(database)/documents/wrestlers/$(resource.data.wrestlerId)).data.ownerUserId == request.auth.uid
+          ) ||
+          (
+            resource.data.wrestlerId != null &&
+            isLinkedParentWrestler(resource.data.wrestlerId)
           )
         );
 
