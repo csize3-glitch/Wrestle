@@ -1,7 +1,7 @@
 {
   "name": "wrestlewell",
   "private": true,
-  "main": "apps/mobile/index.js",
+  "main": "index.js",
   "packageManager": "pnpm@10.0.0",
   "scripts": {
     "dev:web": "pnpm --filter web dev",
