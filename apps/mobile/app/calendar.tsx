@@ -126,7 +126,7 @@ export default function CalendarScreen() {
 
     const attendanceRows = await Promise.all(
       todayEvents.map((event) =>
-        listPracticeAttendanceForEvent(db, currentTeam.id, event.id)
+        listPracticeAttendanceForEvent(db, currentTeam.id, event.id, ownWrestler.id)
       )
     );
 
@@ -434,8 +434,8 @@ export default function CalendarScreen() {
           ) : (
             <View style={{ gap: 12 }}>
               {todayCheckInEvents.map((event) => {
-                const attendance = attendanceByEventId[event.id];
                 const attendanceKey = `${event.id}:${ownWrestler.id}`;
+                const attendance = attendanceByEventId[attendanceKey];
 
                 return (
                   <View
@@ -502,7 +502,12 @@ export default function CalendarScreen() {
                               try {
                                 setSavingAttendanceKey(attendanceKey);
 
-                                await upsertPracticeAttendanceCheckIn(db, {
+                                const savedStatus = value as PracticeAttendanceStatus;
+                                const savedWrestlerName =
+                                  `${ownWrestler.firstName} ${ownWrestler.lastName}`.trim() ||
+                                  "Unnamed Wrestler";
+
+                                const attendanceId = await upsertPracticeAttendanceCheckIn(db, {
                                   teamId: currentTeam.id,
                                   calendarEventId: event.id,
                                   practicePlanId: event.practicePlanId,
@@ -512,16 +517,38 @@ export default function CalendarScreen() {
                                   groupName: event.groupName,
                                   assignedWrestlerIds: event.assignedWrestlerIds,
                                   wrestlerId: ownWrestler.id,
-                                  wrestlerName:
-                                    `${ownWrestler.firstName} ${ownWrestler.lastName}`.trim() ||
-                                    "Unnamed Wrestler",
-                                  status: value as PracticeAttendanceStatus,
+                                  wrestlerName: savedWrestlerName,
+                                  status: savedStatus,
                                   checkedInByUserId: firebaseUser.uid,
                                   checkedInByRole: "athlete",
                                 });
 
-                                await refresh();
-                              } catch (error) {
+                                setAttendanceByEventId((prev) => ({
+                                  ...prev,
+                                  [attendanceKey]: {
+                                    ...(prev[attendanceKey] || {}),
+                                    id: attendanceId,
+                                    teamId: currentTeam.id,
+                                    calendarEventId: event.id,
+                                    practicePlanId: event.practicePlanId,
+                                    date: event.date,
+                                    assignmentType: event.assignmentType || "team",
+                                    groupId: event.groupId,
+                                    groupName: event.groupName,
+                                    assignedWrestlerIds: event.assignedWrestlerIds || [],
+                                    wrestlerId: ownWrestler.id,
+                                    wrestlerName: savedWrestlerName,
+                                    status: savedStatus,
+                                    checkedInByUserId: firebaseUser.uid,
+                                    checkedInByRole: "athlete",
+                                    checkedInAt: new Date().toISOString(),
+                                    notes: "",
+                                    createdAt: prev[attendanceKey]?.createdAt || new Date().toISOString(),
+                                    updatedAt: new Date().toISOString(),
+                                  },
+                                }));
+
+                              } catch (error: any) {
                                 console.error("Failed to save check-in:", error);
                               } finally {
                                 setSavingAttendanceKey(null);
