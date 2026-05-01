@@ -22,11 +22,15 @@ import { db } from "@wrestlewell/firebase/client";
 import {
   getPracticePlanDetail,
   getYouTubeEmbedUrl,
+  listPracticeAttendanceForEvent,
   listPracticePlans,
   listWrestlers,
+  upsertPracticeAttendanceCheckIn,
+  updatePracticeAttendanceByCoach,
   type PracticePlanBlockRecord,
 } from "@wrestlewell/lib/index";
 import type {
+  PracticeAttendanceRecord,
   PracticeAttendanceStatus,
   PracticePlan,
   PracticeSessionAttendanceCounts,
@@ -67,6 +71,7 @@ const ATTENDANCE_STATUSES: Array<{
   label: string;
 }> = [
   { value: "present", label: "Present" },
+  { value: "not_sure", label: "Not Sure" },
   { value: "absent", label: "Absent" },
   { value: "late", label: "Late" },
   { value: "injured", label: "Injured" },
@@ -81,8 +86,27 @@ function buildAttendanceCounts(
       totals[entry.status] += 1;
       return totals;
     },
-    { present: 0, absent: 0, late: 0, injured: 0, excused: 0 }
+    { present: 0, absent: 0, late: 0, injured: 0, excused: 0, not_sure: 0, not_checked_in: 0 }
   );
+}
+
+function getAttendanceStatusLabel(status: PracticeAttendanceStatus) {
+  switch (status) {
+    case "late":
+      return "Late";
+    case "absent":
+      return "Absent";
+    case "injured":
+      return "Injured";
+    case "excused":
+      return "Excused";
+    case "not_sure":
+      return "Not Sure";
+    case "not_checked_in":
+      return "Not Checked In";
+    default:
+      return "Present";
+  }
 }
 
 function getBlockDisplayTitle(block: PracticePlanBlockRecord | null, index?: number) {
@@ -129,6 +153,8 @@ export default function PracticePlansScreen() {
   const { firebaseUser, appUser, currentTeam, loading: authLoading } = useMobileAuthState();
   const params = useLocalSearchParams<{
     planId?: string;
+    calendarEventId?: string;
+    date?: string;
     assignmentType?: "team" | "group" | "custom";
     groupId?: string;
     groupName?: string;
@@ -159,8 +185,22 @@ export default function PracticePlansScreen() {
   const [completionModalVisible, setCompletionModalVisible] = useState(false);
   const [postPracticeNotes, setPostPracticeNotes] = useState("");
   const [savingCompletion, setSavingCompletion] = useState(false);
+  const [loadingAttendance, setLoadingAttendance] = useState(false);
   const [attendanceByWrestlerId, setAttendanceByWrestlerId] = useState<
-    Record<string, { wrestlerName: string; status: PracticeAttendanceStatus; notes: string }>
+    Record<
+      string,
+      {
+        attendanceId?: string;
+        wrestlerName: string;
+        status: PracticeAttendanceStatus;
+        notes: string;
+        checkedInByUserId?: string;
+        checkedInByRole?: "athlete" | "parent" | "coach";
+        checkedInAt?: string;
+        coachUpdatedBy?: string;
+        coachUpdatedAt?: string;
+      }
+    >
   >({});
 
   const announcedBlockRef = useRef<string | null>(null);
@@ -197,6 +237,12 @@ export default function PracticePlansScreen() {
         : [],
     [params.assignedWrestlerIds]
   );
+  const selectedCalendarEventId =
+    typeof params.calendarEventId === "string" && params.calendarEventId.trim().length > 0
+      ? params.calendarEventId.trim()
+      : "";
+  const selectedCalendarDate =
+    typeof params.date === "string" && params.date.trim().length > 0 ? params.date.trim() : "";
   const usingRouteAssignment =
     selectedPlan?.id &&
     typeof params.planId === "string" &&
@@ -242,6 +288,26 @@ export default function PracticePlansScreen() {
     selectedPlanGroupId,
     wrestlers,
   ]);
+
+  const attendanceSummaryCounts = useMemo(
+    () =>
+      buildAttendanceCounts(
+        Object.entries(attendanceByWrestlerId).map(
+          ([wrestlerId, value]): PracticeSessionAttendanceEntry => ({
+            wrestlerId,
+            wrestlerName: value.wrestlerName,
+            status: value.status,
+            notes: value.notes.trim() || undefined,
+            checkedInByUserId: value.checkedInByUserId,
+            checkedInByRole: value.checkedInByRole,
+            checkedInAt: value.checkedInAt,
+            coachUpdatedBy: value.coachUpdatedBy,
+            coachUpdatedAt: value.coachUpdatedAt,
+          })
+        )
+      ),
+    [attendanceByWrestlerId]
+  );
 
   const directVideoPlayer = useVideoPlayer(directVideoUrl, (player) => {
     player.pause();
@@ -351,6 +417,24 @@ export default function PracticePlansScreen() {
       console.error("Failed to load selected practice plan:", error);
     });
   }, [selectedPlanId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!isCoach || !selectedPlan || !resolvedAttendanceWrestlers.length) {
+      if (!resolvedAttendanceWrestlers.length) {
+        setAttendanceByWrestlerId({});
+      }
+      return;
+    }
+
+    loadCoachAttendanceForSelectedEvent().catch((error) => {
+      console.error("Failed to load coach attendance state:", error);
+    });
+  }, [
+    isCoach,
+    selectedPlan?.id,
+    selectedCalendarEventId,
+    resolvedAttendanceWrestlers,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let mounted = true;
@@ -604,6 +688,71 @@ export default function PracticePlansScreen() {
     directVideoPlayer.pause();
   }
 
+  async function loadCoachAttendanceForSelectedEvent() {
+    if (!currentTeam?.id || !selectedCalendarEventId) {
+      setAttendanceByWrestlerId(
+        Object.fromEntries(
+          resolvedAttendanceWrestlers.map((wrestler) => {
+            const fullName = `${wrestler.firstName} ${wrestler.lastName}`.trim() || "Unnamed Wrestler";
+            return [
+              wrestler.id,
+              {
+                wrestlerName: fullName,
+                status: "not_checked_in" as PracticeAttendanceStatus,
+                notes: "",
+              },
+            ];
+          })
+        )
+      );
+      return;
+    }
+
+    setLoadingAttendance(true);
+    try {
+      const attendanceRows = await listPracticeAttendanceForEvent(
+        db,
+        currentTeam.id,
+        selectedCalendarEventId
+      );
+
+      const rowsByWrestlerId = new Map<string, PracticeAttendanceRecord>(
+        attendanceRows.map((row) => [row.wrestlerId, row])
+      );
+
+      setAttendanceByWrestlerId(
+        Object.fromEntries(
+          resolvedAttendanceWrestlers.map((wrestler) => {
+            const fullName = `${wrestler.firstName} ${wrestler.lastName}`.trim() || "Unnamed Wrestler";
+            const existing = rowsByWrestlerId.get(wrestler.id);
+            return [
+              wrestler.id,
+              existing
+                ? {
+                    attendanceId: existing.id,
+                    wrestlerName: existing.wrestlerName || fullName,
+                    status: existing.status,
+                    notes: existing.notes || "",
+                    checkedInByUserId: existing.checkedInByUserId,
+                    checkedInByRole: existing.checkedInByRole,
+                    checkedInAt: existing.checkedInAt,
+                    coachUpdatedBy: existing.coachUpdatedBy,
+                    coachUpdatedAt: existing.coachUpdatedAt,
+                  }
+                : {
+                    wrestlerName: fullName,
+                    status: "not_checked_in" as PracticeAttendanceStatus,
+                    notes: "",
+                  },
+            ];
+          })
+        )
+      );
+    } finally {
+      setLoadingAttendance(false);
+    }
+  }
+
   async function openCompletionModal() {
     if (!selectedPlan || !currentTeam?.id || !firebaseUser?.uid) {
       Alert.alert("Practice needed", "Select a practice plan before marking it complete.");
@@ -620,21 +769,7 @@ export default function PracticePlansScreen() {
       console.warn("Could not unlock orientation before completion modal:", error);
     }
 
-    setAttendanceByWrestlerId(
-      Object.fromEntries(
-        resolvedAttendanceWrestlers.map((wrestler) => {
-          const fullName = `${wrestler.firstName} ${wrestler.lastName}`.trim() || "Unnamed Wrestler";
-          return [
-            wrestler.id,
-            {
-              wrestlerName: fullName,
-              status: "present" as PracticeAttendanceStatus,
-              notes: "",
-            },
-          ];
-        })
-      )
-    );
+    await loadCoachAttendanceForSelectedEvent();
     setCompletionModalVisible(true);
   }
 
@@ -647,6 +782,7 @@ export default function PracticePlansScreen() {
       [wrestlerId]: {
         ...(prev[wrestlerId] || { wrestlerName: "Unnamed Wrestler", notes: "" }),
         status,
+        coachUpdatedBy: firebaseUser?.uid,
       },
     }));
   }
@@ -655,8 +791,12 @@ export default function PracticePlansScreen() {
     setAttendanceByWrestlerId((prev) => ({
       ...prev,
       [wrestlerId]: {
-        ...(prev[wrestlerId] || { wrestlerName: "Unnamed Wrestler", status: "present" as PracticeAttendanceStatus }),
+        ...(prev[wrestlerId] || {
+          wrestlerName: "Unnamed Wrestler",
+          status: "not_checked_in" as PracticeAttendanceStatus,
+        }),
         notes,
+        coachUpdatedBy: firebaseUser?.uid,
       },
     }));
   }
@@ -674,9 +814,49 @@ export default function PracticePlansScreen() {
           wrestlerName: value.wrestlerName,
           status: value.status,
           notes: value.notes.trim() || undefined,
+          checkedInByUserId: value.checkedInByUserId,
+          checkedInByRole: value.checkedInByRole,
+          checkedInAt: value.checkedInAt,
+          coachUpdatedBy: value.coachUpdatedBy,
+          coachUpdatedAt: value.coachUpdatedAt,
         })
       );
       const attendanceCounts = buildAttendanceCounts(attendance);
+
+      await Promise.all(
+        Object.entries(attendanceByWrestlerId).map(async ([wrestlerId, value]) => {
+          if (value.attendanceId) {
+            await updatePracticeAttendanceByCoach(db, {
+              attendanceId: value.attendanceId,
+              status: value.status,
+              coachUpdatedBy: firebaseUser.uid,
+              notes: value.notes.trim() || undefined,
+            });
+            return;
+          }
+
+          if (!selectedCalendarEventId) {
+            return;
+          }
+
+          await upsertPracticeAttendanceCheckIn(db, {
+            teamId: currentTeam.id,
+            calendarEventId: selectedCalendarEventId,
+            practicePlanId: selectedPlan.id,
+            date: selectedCalendarDate || new Date().toISOString().split("T")[0],
+            assignmentType: selectedPlanAssignmentType,
+            groupId: selectedPlanGroupId,
+            groupName: selectedPlanGroupName,
+            assignedWrestlerIds: selectedPlanAssignedWrestlerIds,
+            wrestlerId,
+            wrestlerName: value.wrestlerName,
+            status: value.status,
+            checkedInByUserId: firebaseUser.uid,
+            checkedInByRole: "coach",
+            notes: value.notes.trim() || undefined,
+          });
+        })
+      );
 
       await addDoc(collection(db, "practice_sessions"), {
         teamId: currentTeam.id,
@@ -779,9 +959,29 @@ export default function PracticePlansScreen() {
           <View style={styles.completionSummaryCard}>
             <Text style={styles.completionSummaryTitle}>Attendance</Text>
             <Text style={styles.completionSummaryCopy}>
-              Everyone defaults to present so you can move quickly. Update absences, late arrivals,
-              injuries, or excused wrestlers before saving the session.
+              Athlete and parent check-ins load here automatically. Wrestlers with no check-in stay
+              marked as not checked in until you update the exception.
             </Text>
+          </View>
+
+          <View style={styles.attendanceSummaryCard}>
+            <Text style={styles.attendanceSummaryTitle}>Practice-day attendance summary</Text>
+            <View style={styles.attendanceSummaryGrid}>
+              {[
+                ["Present", attendanceSummaryCounts.present],
+                ["Late", attendanceSummaryCounts.late],
+                ["Absent", attendanceSummaryCounts.absent],
+                ["Injured", attendanceSummaryCounts.injured],
+                ["Excused", attendanceSummaryCounts.excused],
+                ["Not Sure", attendanceSummaryCounts.not_sure],
+                ["Not Checked In", attendanceSummaryCounts.not_checked_in],
+              ].map(([label, value]) => (
+                <View key={String(label)} style={styles.attendanceSummaryPill}>
+                  <Text style={styles.attendanceSummaryPillLabel}>{label}</Text>
+                  <Text style={styles.attendanceSummaryPillValue}>{value}</Text>
+                </View>
+              ))}
+            </View>
           </View>
 
           {resolvedAttendanceWrestlers.length === 0 ? (
@@ -797,7 +997,7 @@ export default function PracticePlansScreen() {
               {resolvedAttendanceWrestlers.map((wrestler) => {
                 const fullName = `${wrestler.firstName} ${wrestler.lastName}`.trim() || "Unnamed Wrestler";
                 const attendanceEntry = attendanceByWrestlerId[wrestler.id];
-                const currentStatus = attendanceEntry?.status || "present";
+                const currentStatus = attendanceEntry?.status || "not_checked_in";
                 return (
                   <View key={wrestler.id} style={styles.attendanceCard}>
                     <View style={{ marginBottom: 10 }}>
@@ -832,11 +1032,21 @@ export default function PracticePlansScreen() {
                               ]}
                             >
                               {statusOption.label}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
                     </View>
+
+                    <Text style={styles.attendanceCheckInMeta}>
+                      {attendanceEntry?.checkedInByRole
+                        ? `Checked in by ${attendanceEntry.checkedInByRole}${
+                            attendanceEntry.checkedInAt ? " earlier today" : ""
+                          }`
+                        : currentStatus === "not_checked_in"
+                          ? "No check-in yet"
+                          : `Coach set status to ${getAttendanceStatusLabel(currentStatus).toLowerCase()}`}
+                    </Text>
 
                     <TextInput
                       value={attendanceEntry?.notes || ""}
@@ -1869,6 +2079,44 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginTop: 6,
   },
+  attendanceSummaryCard: {
+    borderWidth: 1,
+    borderColor: "#315c86",
+    backgroundColor: "#0b2542",
+    borderRadius: 18,
+    padding: 14,
+    gap: 12,
+  },
+  attendanceSummaryTitle: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  attendanceSummaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  attendanceSummaryPill: {
+    minWidth: 104,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: "#102f52",
+    borderWidth: 1,
+    borderColor: "#21486e",
+    gap: 4,
+  },
+  attendanceSummaryPillLabel: {
+    color: "#b7c9df",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  attendanceSummaryPillValue: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "900",
+  },
   emptyAttendanceCard: {
     borderWidth: 1,
     borderColor: "#7f1d1d",
@@ -1904,6 +2152,11 @@ const styles = StyleSheet.create({
     color: "#b7c9df",
     fontSize: 13,
     marginTop: 4,
+  },
+  attendanceCheckInMeta: {
+    color: "#8eb4d9",
+    fontSize: 13,
+    lineHeight: 18,
   },
   attendanceStatusRow: {
     flexDirection: "row",

@@ -4,11 +4,18 @@ import { Pressable, Text, View } from "react-native";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@wrestlewell/firebase/client";
 import {
+  listPracticeAttendanceForEvent,
   listCalendarEvents,
   listWrestlers,
+  upsertPracticeAttendanceCheckIn,
   type CalendarEventRecord,
 } from "@wrestlewell/lib/index";
-import { COLLECTIONS, type WrestlerProfile } from "@wrestlewell/types/index";
+import {
+  COLLECTIONS,
+  type PracticeAttendanceRecord,
+  type PracticeAttendanceStatus,
+  type WrestlerProfile,
+} from "@wrestlewell/types/index";
 import { useMobileAuthState } from "../components/auth-provider";
 import { MobileScreenShell } from "../components/mobile-screen-shell";
 
@@ -61,6 +68,8 @@ function openPracticePlan(event: CalendarEventRecord) {
     pathname: "/practice-plans",
     params: {
       planId: event.practicePlanId,
+      calendarEventId: event.id,
+      date: event.date,
       assignmentType: event.assignmentType || "team",
       groupId: event.groupId || "",
       groupName: event.groupName || "",
@@ -75,14 +84,42 @@ export default function CalendarScreen() {
 
   const [events, setEvents] = useState<CalendarEventRecord[]>([]);
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
+  const [attendanceByEventId, setAttendanceByEventId] = useState<Record<string, PracticeAttendanceRecord>>({});
   const [wrestlersLoaded, setWrestlersLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [savingAttendanceKey, setSavingAttendanceKey] = useState<string | null>(null);
 
   const ownWrestler =
     appUser?.role === "athlete"
       ? wrestlers.find((wrestler) => wrestler.ownerUserId === firebaseUser?.uid) ||
         null
       : null;
+
+  async function refreshAttendanceForVisibleEvents(nextEvents: CalendarEventRecord[]) {
+    if (!currentTeam?.id || appUser?.role !== "athlete" || !ownWrestler) {
+      setAttendanceByEventId({});
+      return;
+    }
+
+    const todayKey = new Date().toISOString().split("T")[0];
+    const todayEvents = nextEvents.filter((event) => event.date === todayKey);
+
+    const attendanceRows = await Promise.all(
+      todayEvents.map((event) =>
+        listPracticeAttendanceForEvent(db, currentTeam.id, event.id)
+      )
+    );
+
+    const nextMap: Record<string, PracticeAttendanceRecord> = {};
+    todayEvents.forEach((event, index) => {
+      const ownAttendance =
+        attendanceRows[index].find((attendance) => attendance.wrestlerId === ownWrestler.id) || null;
+      if (ownAttendance) {
+        nextMap[event.id] = ownAttendance;
+      }
+    });
+    setAttendanceByEventId(nextMap);
+  }
 
   async function refresh() {
     if (!currentTeam?.id) {
@@ -98,11 +135,13 @@ export default function CalendarScreen() {
 
       const rows = await listCalendarEvents(db, currentTeam.id, ownWrestler);
       setEvents(rows);
+      await refreshAttendanceForVisibleEvents(rows);
       return;
     }
 
     const rows = await listCoachCalendarEvents(currentTeam.id);
     setEvents(rows);
+    setAttendanceByEventId({});
   }
 
   useEffect(() => {
@@ -177,6 +216,11 @@ export default function CalendarScreen() {
         return (a.startTime || "").localeCompare(b.startTime || "");
       });
   }, [events]);
+
+  const todayCheckInEvents = useMemo(() => {
+    const todayKey = new Date().toISOString().split("T")[0];
+    return upcomingEvents.filter((event) => event.date === todayKey);
+  }, [upcomingEvents]);
 
   if (!authLoading && (!firebaseUser || !appUser)) {
     return (
@@ -270,6 +314,134 @@ export default function CalendarScreen() {
                 ? "No upcoming practices are assigned to you yet. Team-wide and wrestler-specific practices will appear here."
                 : "Create your wrestler profile to see assigned practices."}
           </Text>
+        </View>
+      ) : null}
+
+      {appUser?.role === "athlete" &&
+      ownWrestler &&
+      currentTeam?.practiceCheckInEnabled !== false &&
+      currentTeam?.athleteCheckInEnabled !== false ? (
+        <View
+          style={{
+            borderWidth: 1,
+            borderColor: "#21486e",
+            borderRadius: 20,
+            padding: 18,
+            backgroundColor: "#0b2542",
+            marginBottom: 18,
+            gap: 12,
+          }}
+        >
+          <Text style={{ fontSize: 20, fontWeight: "900", color: "#ffffff" }}>
+            Today&apos;s Check-In
+          </Text>
+
+          <Text style={{ color: "#b7c9df", lineHeight: 20 }}>
+            Check in for today&apos;s practice so your coach only has to clean up exceptions.
+          </Text>
+
+          {todayCheckInEvents.length === 0 ? (
+            <Text style={{ color: "#b7c9df" }}>
+              No visible practices for today.
+            </Text>
+          ) : (
+            <View style={{ gap: 12 }}>
+              {todayCheckInEvents.map((event) => {
+                const attendance = attendanceByEventId[event.id];
+                const attendanceKey = `${event.id}:${ownWrestler.id}`;
+                return (
+                  <View
+                    key={`attendance-${event.id}`}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: "#315c86",
+                      borderRadius: 18,
+                      padding: 14,
+                      backgroundColor: "#102f52",
+                      gap: 10,
+                    }}
+                  >
+                    <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>
+                      {event.practicePlanTitle || "Scheduled practice"}
+                    </Text>
+                    <Text style={{ color: "#b7c9df" }}>
+                      {event.assignmentType === "group" && event.groupName
+                        ? event.groupName
+                        : event.assignmentType === "custom"
+                          ? "Custom assignment"
+                          : "Team-wide"}{" "}
+                      · {formatPracticeDate(event.date)}
+                    </Text>
+                    <Text style={{ color: "#93c5fd", fontWeight: "800" }}>
+                      Current status:{" "}
+                      {attendance?.status ? attendance.status.replace("_", " ") : "not checked in"}
+                    </Text>
+
+                    <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                      {[
+                        ["present", "Present"],
+                        ["late", "Running Late"],
+                        ["absent", "Absent"],
+                        ["injured", "Injured"],
+                        ["not_sure", "Not Sure"],
+                      ].map(([value, label]) => {
+                        const active = attendance?.status === value;
+                        return (
+                          <Pressable
+                            key={value}
+                            onPress={async () => {
+                              if (!currentTeam?.id || !firebaseUser?.uid) {
+                                return;
+                              }
+
+                              try {
+                                setSavingAttendanceKey(attendanceKey);
+                                await upsertPracticeAttendanceCheckIn(db, {
+                                  teamId: currentTeam.id,
+                                  calendarEventId: event.id,
+                                  practicePlanId: event.practicePlanId,
+                                  date: event.date,
+                                  assignmentType: event.assignmentType || "team",
+                                  groupId: event.groupId,
+                                  groupName: event.groupName,
+                                  assignedWrestlerIds: event.assignedWrestlerIds,
+                                  wrestlerId: ownWrestler.id,
+                                  wrestlerName:
+                                    `${ownWrestler.firstName} ${ownWrestler.lastName}`.trim() ||
+                                    "Unnamed Wrestler",
+                                  status: value as PracticeAttendanceStatus,
+                                  checkedInByUserId: firebaseUser.uid,
+                                  checkedInByRole: "athlete",
+                                });
+                                await refresh();
+                              } catch (error) {
+                                console.error("Failed to save check-in:", error);
+                              } finally {
+                                setSavingAttendanceKey(null);
+                              }
+                            }}
+                            style={{
+                              paddingHorizontal: 12,
+                              paddingVertical: 8,
+                              borderRadius: 999,
+                              backgroundColor: active ? "#bf1029" : "#0b2542",
+                              borderWidth: 1,
+                              borderColor: active ? "#fca5a5" : "#315c86",
+                              opacity: savingAttendanceKey === attendanceKey ? 0.6 : 1,
+                            }}
+                          >
+                            <Text style={{ color: "#ffffff", fontWeight: "800", fontSize: 13 }}>
+                              {label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
         </View>
       ) : null}
 

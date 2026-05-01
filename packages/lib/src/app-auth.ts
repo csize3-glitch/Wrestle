@@ -45,7 +45,11 @@ export type AccountSetupInput = {
 };
 
 function normalizeRole(value: unknown): UserRole {
-  return value === "coach" ? "coach" : "athlete";
+  if (value === "coach" || value === "athlete" || value === "parent") {
+    return value;
+  }
+
+  return "athlete";
 }
 
 function normalizeVarkStyle(value: unknown): VarkStyle | "" {
@@ -121,6 +125,9 @@ function normalizeAppUser(id: string, value: Record<string, unknown>): AppUser {
     displayName: typeof value.displayName === "string" ? value.displayName : "",
     role: normalizeRole(value.role),
     currentTeamId: typeof value.currentTeamId === "string" ? value.currentTeamId : undefined,
+    linkedWrestlerIds: Array.isArray(value.linkedWrestlerIds)
+      ? value.linkedWrestlerIds.filter((entry): entry is string => typeof entry === "string")
+      : undefined,
     notificationPreferences: normalizeNotificationPreferences(value.notificationPreferences),
     lastSeenNotificationsAt:
       typeof value.lastSeenNotificationsAt === "string" ? value.lastSeenNotificationsAt : undefined,
@@ -139,6 +146,10 @@ function normalizeTeam(id: string, value: Record<string, unknown>): Team {
     coachInviteCode:
       typeof value.coachInviteCode === "string" ? value.coachInviteCode : undefined,
     logoUrl: typeof value.logoUrl === "string" ? value.logoUrl : undefined,
+    practiceCheckInEnabled: value.practiceCheckInEnabled !== false,
+    parentCheckInEnabled: value.parentCheckInEnabled !== false,
+    athleteCheckInEnabled: value.athleteCheckInEnabled !== false,
+    coachCanLockAttendance: value.coachCanLockAttendance !== false,
     ownerUserId: typeof value.ownerUserId === "string" ? value.ownerUserId : "",
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",

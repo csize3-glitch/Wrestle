@@ -1,5 +1,5 @@
 export type WrestlingStyle = "Freestyle" | "Folkstyle" | "Greco-Roman";
-export type UserRole = "coach" | "athlete";
+export type UserRole = "coach" | "athlete" | "parent";
 
 export type VarkStyle = "visual" | "auditory" | "readingWriting" | "kinesthetic";
 
@@ -167,6 +167,8 @@ export interface PracticeSession {
   assignedWrestlerIds?: string[];
   attendance?: PracticeSessionAttendanceEntry[];
   attendanceCounts?: PracticeSessionAttendanceCounts;
+  wrestlerNotes?: PracticeSessionWrestlerNote[];
+  followUps?: PracticeSessionFollowUp[];
 }
 
 export type PracticeAttendanceStatus =
@@ -174,13 +176,20 @@ export type PracticeAttendanceStatus =
   | "absent"
   | "late"
   | "injured"
-  | "excused";
+  | "excused"
+  | "not_sure"
+  | "not_checked_in";
 
 export interface PracticeSessionAttendanceEntry {
   wrestlerId: string;
   wrestlerName: string;
   status: PracticeAttendanceStatus;
   notes?: string;
+  checkedInByUserId?: string;
+  checkedInByRole?: "athlete" | "parent" | "coach";
+  checkedInAt?: string;
+  coachUpdatedBy?: string;
+  coachUpdatedAt?: string;
 }
 
 export interface PracticeSessionAttendanceCounts {
@@ -189,6 +198,48 @@ export interface PracticeSessionAttendanceCounts {
   late: number;
   injured: number;
   excused: number;
+  not_sure: number;
+  not_checked_in: number;
+}
+
+export interface PracticeAttendanceRecord {
+  id: string;
+  teamId: string;
+  calendarEventId: string;
+  practicePlanId: string;
+  date: string;
+  assignmentType?: "team" | "group" | "custom";
+  groupId?: string;
+  groupName?: string;
+  assignedWrestlerIds?: string[];
+  wrestlerId: string;
+  wrestlerName: string;
+  status: PracticeAttendanceStatus;
+  checkedInByUserId?: string;
+  checkedInByRole?: "athlete" | "parent" | "coach";
+  checkedInAt?: string;
+  coachUpdatedBy?: string;
+  coachUpdatedAt?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PracticeSessionWrestlerNote {
+  wrestlerId: string;
+  wrestlerName: string;
+  note: string;
+  tags: string[];
+  visibility: "coach_private" | "share_with_athlete" | "share_with_parent";
+}
+
+export interface PracticeSessionFollowUp {
+  wrestlerId?: string;
+  wrestlerName?: string;
+  tag: string;
+  note?: string;
+  status: "open" | "resolved";
+  createdAt: string;
 }
 
 export interface MatSideSummary {
@@ -235,6 +286,7 @@ export interface AppUser {
   displayName: string;
   role: UserRole;
   currentTeamId?: string;
+  linkedWrestlerIds?: string[];
   notificationPreferences?: NotificationPreferences;
   lastSeenNotificationsAt?: string;
   varkCompleted?: boolean;
@@ -249,6 +301,10 @@ export interface Team {
   teamCode: string;
   coachInviteCode?: string;
   logoUrl?: string;
+  practiceCheckInEnabled?: boolean;
+  parentCheckInEnabled?: boolean;
+  athleteCheckInEnabled?: boolean;
+  coachCanLockAttendance?: boolean;
   ownerUserId: string;
   createdAt: string;
   updatedAt: string;
@@ -383,6 +439,7 @@ export const COLLECTIONS = {
   PRACTICE_PLANS: "practice_plans",
   PRACTICE_BLOCKS: "practice_blocks",
   PRACTICE_SESSIONS: "practice_sessions",
+  PRACTICE_ATTENDANCE: "practice_attendance",
   CALENDAR_EVENTS: "calendar_events",
   TRAINING_GROUPS: "training_groups",
   WRESTLERS: "wrestlers",

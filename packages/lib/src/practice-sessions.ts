@@ -57,6 +57,8 @@ function normalizeAttendanceStatus(value: unknown): PracticeAttendanceStatus {
     case "late":
     case "injured":
     case "excused":
+    case "not_sure":
+    case "not_checked_in":
       return value;
     default:
       return "present";
@@ -81,6 +83,18 @@ function normalizeAttendanceEntry(value: unknown): PracticeSessionAttendanceEntr
     wrestlerName,
     status: normalizeAttendanceStatus(entry.status),
     notes: typeof entry.notes === "string" ? entry.notes : undefined,
+    checkedInByUserId:
+      typeof entry.checkedInByUserId === "string" ? entry.checkedInByUserId : undefined,
+    checkedInByRole:
+      entry.checkedInByRole === "athlete" ||
+      entry.checkedInByRole === "parent" ||
+      entry.checkedInByRole === "coach"
+        ? entry.checkedInByRole
+        : undefined,
+    checkedInAt: normalizeDateValue(entry.checkedInAt),
+    coachUpdatedBy:
+      typeof entry.coachUpdatedBy === "string" ? entry.coachUpdatedBy : undefined,
+    coachUpdatedAt: normalizeDateValue(entry.coachUpdatedAt),
   };
 }
 
@@ -106,6 +120,9 @@ function normalizeAttendanceCounts(
       late: typeof counts.late === "number" ? counts.late : 0,
       injured: typeof counts.injured === "number" ? counts.injured : 0,
       excused: typeof counts.excused === "number" ? counts.excused : 0,
+      not_sure: typeof counts.not_sure === "number" ? counts.not_sure : 0,
+      not_checked_in:
+        typeof counts.not_checked_in === "number" ? counts.not_checked_in : 0,
     };
   }
 
@@ -118,7 +135,7 @@ function normalizeAttendanceCounts(
       totals[entry.status] += 1;
       return totals;
     },
-    { present: 0, absent: 0, late: 0, injured: 0, excused: 0 }
+    { present: 0, absent: 0, late: 0, injured: 0, excused: 0, not_sure: 0, not_checked_in: 0 }
   );
 }
 

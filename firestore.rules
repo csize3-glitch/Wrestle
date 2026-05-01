@@ -29,6 +29,20 @@ service cloud.firestore {
       return currentRole() == "coach";
     }
 
+    function isParent() {
+      return currentRole() == "parent";
+    }
+
+    function linkedWrestlerIds() {
+      return hasUserDoc() && userDoc().data.linkedWrestlerIds is list
+        ? userDoc().data.linkedWrestlerIds
+        : [];
+    }
+
+    function isLinkedParentWrestler(wrestlerId) {
+      return isParent() && linkedWrestlerIds().hasAny([wrestlerId]);
+    }
+
     function teamOwnerId(teamId) {
       return get(/databases/$(database)/documents/teams/$(teamId)).data.ownerUserId;
     }
@@ -44,7 +58,7 @@ service cloud.firestore {
         request.resource.data.email == resource.data.email &&
         request.resource.data.displayName == resource.data.displayName &&
         request.resource.data.createdAt == resource.data.createdAt &&
-        (request.resource.data.role == "coach" || request.resource.data.role == "athlete") &&
+        (request.resource.data.role == "coach" || request.resource.data.role == "athlete" || request.resource.data.role == "parent") &&
         (request.resource.data.currentTeamId == currentTeamId() || request.resource.data.currentTeamId == "");
     }
 
@@ -53,7 +67,7 @@ service cloud.firestore {
         request.resource.data.teamId == resource.data.teamId &&
         request.resource.data.userId == resource.data.userId &&
         request.resource.data.createdAt == resource.data.createdAt &&
-        (request.resource.data.role == "coach" || request.resource.data.role == "athlete");
+        (request.resource.data.role == "coach" || request.resource.data.role == "athlete" || request.resource.data.role == "parent");
     }
 
     function practicePlanTeamId(planId) {
@@ -154,7 +168,7 @@ service cloud.firestore {
 
       allow create: if signedIn() &&
         request.resource.data.userId == request.auth.uid &&
-        (request.resource.data.role == "athlete" || request.resource.data.role == "coach");
+        (request.resource.data.role == "athlete" || request.resource.data.role == "coach" || request.resource.data.role == "parent");
 
       allow update: if signedIn() &&
         canManageTeamMember(resource.data.teamId, resource.data.userId) &&
@@ -197,6 +211,48 @@ service cloud.firestore {
       allow update, delete: if signedIn() &&
         isCoach() &&
         sameTeam(resource.data.teamId);
+    }
+
+    match /practice_attendance/{attendanceId} {
+      allow read: if signedIn() &&
+        sameTeam(resource.data.teamId) &&
+        (
+          isCoach() ||
+          resource.data.wrestlerId != null &&
+          (
+            isOwnWrestler(resource.data.wrestlerId) ||
+            isLinkedParentWrestler(resource.data.wrestlerId)
+          )
+        );
+
+      allow create: if signedIn() &&
+        request.resource.data.teamId == currentTeamId() &&
+        (
+          isCoach() ||
+          (
+            request.resource.data.wrestlerId != null &&
+            (
+              canReadWrestler(request.resource.data.wrestlerId) &&
+              get(/databases/$(database)/documents/wrestlers/$(request.resource.data.wrestlerId)).data.ownerUserId == request.auth.uid
+            ) ||
+            isLinkedParentWrestler(request.resource.data.wrestlerId)
+          )
+        );
+
+      allow update: if signedIn() &&
+        sameTeam(resource.data.teamId) &&
+        (
+          isCoach() ||
+          (
+            resource.data.wrestlerId != null &&
+            (
+              isOwnWrestler(resource.data.wrestlerId) ||
+              isLinkedParentWrestler(resource.data.wrestlerId)
+            )
+          )
+        );
+
+      allow delete: if signedIn() && isCoach() && sameTeam(resource.data.teamId);
     }
 
     match /training_groups/{groupId} {

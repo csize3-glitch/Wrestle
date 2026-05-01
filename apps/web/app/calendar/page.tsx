@@ -196,7 +196,7 @@ function formatAttendanceSummary(
     return "Attendance not logged.";
   }
 
-  return `Present ${counts.present || 0} · Absent ${counts.absent || 0} · Late ${counts.late || 0} · Injured ${counts.injured || 0} · Excused ${counts.excused || 0}`;
+  return `Present ${counts.present || 0} · Late ${counts.late || 0} · Absent ${counts.absent || 0} · Injured ${counts.injured || 0} · Excused ${counts.excused || 0} · Not sure ${counts.not_sure || 0} · Not checked in ${counts.not_checked_in || 0}`;
 }
 
 function getCompletedPracticeDate(session: CompletedPracticeSessionItem) {
@@ -689,6 +689,8 @@ export default function CalendarPage() {
         late: number;
         injured: number;
         excused: number;
+        not_sure: number;
+        not_checked_in: number;
       };
       rosterHref: string;
       rosterLabel: string;
@@ -731,9 +733,19 @@ export default function CalendarPage() {
           totals.late += session.attendanceCounts.late || 0;
           totals.injured += session.attendanceCounts.injured || 0;
           totals.excused += session.attendanceCounts.excused || 0;
+          totals.not_sure += session.attendanceCounts.not_sure || 0;
+          totals.not_checked_in += session.attendanceCounts.not_checked_in || 0;
           return totals;
         },
-        { present: 0, absent: 0, late: 0, injured: 0, excused: 0 }
+        {
+          present: 0,
+          absent: 0,
+          late: 0,
+          injured: 0,
+          excused: 0,
+          not_sure: 0,
+          not_checked_in: 0,
+        }
       );
 
       return {
@@ -1961,9 +1973,11 @@ export default function CalendarPage() {
                               block.attendanceTotals.absent +
                               block.attendanceTotals.late +
                               block.attendanceTotals.injured +
-                              block.attendanceTotals.excused >
+                              block.attendanceTotals.excused +
+                              block.attendanceTotals.not_sure +
+                              block.attendanceTotals.not_checked_in >
                             0
-                              ? `P ${block.attendanceTotals.present} · A ${block.attendanceTotals.absent} · L ${block.attendanceTotals.late}`
+                              ? `P ${block.attendanceTotals.present} · A ${block.attendanceTotals.absent} · L ${block.attendanceTotals.late} · ? ${block.attendanceTotals.not_sure} · NC ${block.attendanceTotals.not_checked_in}`
                               : "Attendance not logged",
                         },
                       ].map((stat) => (

@@ -7,6 +7,7 @@ export * from "./tournaments";
 export * from "./tournament-entries";
 export * from "./practice-plans";
 export * from "./practice-sessions";
+export * from "./practice-attendance";
 export * from "./calendar";
 export * from "./training-groups";
 export * from "./announcements";
