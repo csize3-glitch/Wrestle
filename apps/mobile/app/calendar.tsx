@@ -79,15 +79,23 @@ function openPracticePlan(event: CalendarEventRecord) {
 }
 
 export default function CalendarScreen() {
-  const { firebaseUser, appUser, currentTeam, loading: authLoading } =
-    useMobileAuthState();
+  const {
+    firebaseUser,
+    appUser,
+    currentTeam,
+    loading: authLoading,
+  } = useMobileAuthState();
 
   const [events, setEvents] = useState<CalendarEventRecord[]>([]);
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
-  const [attendanceByEventId, setAttendanceByEventId] = useState<Record<string, PracticeAttendanceRecord>>({});
+  const [attendanceByEventId, setAttendanceByEventId] = useState<
+    Record<string, PracticeAttendanceRecord>
+  >({});
   const [wrestlersLoaded, setWrestlersLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [savingAttendanceKey, setSavingAttendanceKey] = useState<string | null>(null);
+  const [savingAttendanceKey, setSavingAttendanceKey] = useState<string | null>(
+    null
+  );
 
   const ownWrestler =
     appUser?.role === "athlete"
@@ -95,7 +103,9 @@ export default function CalendarScreen() {
         null
       : null;
 
-  async function refreshAttendanceForVisibleEvents(nextEvents: CalendarEventRecord[]) {
+  async function refreshAttendanceForVisibleEvents(
+    nextEvents: CalendarEventRecord[]
+  ) {
     if (!currentTeam?.id || appUser?.role !== "athlete" || !ownWrestler) {
       setAttendanceByEventId({});
       return;
@@ -106,30 +116,42 @@ export default function CalendarScreen() {
 
     const attendanceRows = await Promise.all(
       todayEvents.map((event) =>
-        listPracticeAttendanceForEvent(db, currentTeam.id, event.id)
+        listPracticeAttendanceForEvent(
+          db,
+          currentTeam.id,
+          event.id,
+          ownWrestler.id
+        )
       )
     );
 
     const nextMap: Record<string, PracticeAttendanceRecord> = {};
+
     todayEvents.forEach((event, index) => {
       const ownAttendance =
-        attendanceRows[index].find((attendance) => attendance.wrestlerId === ownWrestler.id) || null;
+        attendanceRows[index].find(
+          (attendance) => attendance.wrestlerId === ownWrestler.id
+        ) || null;
+
       if (ownAttendance) {
         nextMap[event.id] = ownAttendance;
       }
     });
+
     setAttendanceByEventId(nextMap);
   }
 
   async function refresh() {
     if (!currentTeam?.id) {
       setEvents([]);
+      setAttendanceByEventId({});
       return;
     }
 
     if (appUser?.role === "athlete") {
       if (!wrestlersLoaded || !ownWrestler) {
         setEvents([]);
+        setAttendanceByEventId({});
         return;
       }
 
@@ -169,6 +191,7 @@ export default function CalendarScreen() {
     async function load() {
       if (!firebaseUser || !appUser) {
         setEvents([]);
+        setAttendanceByEventId({});
         setLoading(false);
         return;
       }
@@ -179,11 +202,13 @@ export default function CalendarScreen() {
 
       if (appUser.role === "athlete" && !ownWrestler) {
         setEvents([]);
+        setAttendanceByEventId({});
         setLoading(false);
         return;
       }
 
       try {
+        setLoading(true);
         await refresh();
       } catch (error) {
         console.error("Failed to load calendar:", error);
@@ -337,7 +362,8 @@ export default function CalendarScreen() {
           </Text>
 
           <Text style={{ color: "#b7c9df", lineHeight: 20 }}>
-            Check in for today&apos;s practice so your coach only has to clean up exceptions.
+            Check in for today&apos;s practice so your coach only has to clean up
+            exceptions.
           </Text>
 
           {todayCheckInEvents.length === 0 ? (
@@ -349,6 +375,7 @@ export default function CalendarScreen() {
               {todayCheckInEvents.map((event) => {
                 const attendance = attendanceByEventId[event.id];
                 const attendanceKey = `${event.id}:${ownWrestler.id}`;
+
                 return (
                   <View
                     key={`attendance-${event.id}`}
@@ -361,9 +388,16 @@ export default function CalendarScreen() {
                       gap: 10,
                     }}
                   >
-                    <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>
+                    <Text
+                      style={{
+                        color: "#ffffff",
+                        fontWeight: "900",
+                        fontSize: 16,
+                      }}
+                    >
                       {event.practicePlanTitle || "Scheduled practice"}
                     </Text>
+
                     <Text style={{ color: "#b7c9df" }}>
                       {event.assignmentType === "group" && event.groupName
                         ? event.groupName
@@ -372,12 +406,21 @@ export default function CalendarScreen() {
                           : "Team-wide"}{" "}
                       · {formatPracticeDate(event.date)}
                     </Text>
+
                     <Text style={{ color: "#93c5fd", fontWeight: "800" }}>
                       Current status:{" "}
-                      {attendance?.status ? attendance.status.replace("_", " ") : "not checked in"}
+                      {attendance?.status
+                        ? attendance.status.replace("_", " ")
+                        : "not checked in"}
                     </Text>
 
-                    <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        gap: 8,
+                        flexWrap: "wrap",
+                      }}
+                    >
                       {[
                         ["present", "Present"],
                         ["late", "Running Late"],
@@ -386,6 +429,7 @@ export default function CalendarScreen() {
                         ["not_sure", "Not Sure"],
                       ].map(([value, label]) => {
                         const active = attendance?.status === value;
+
                         return (
                           <Pressable
                             key={value}
@@ -396,6 +440,7 @@ export default function CalendarScreen() {
 
                               try {
                                 setSavingAttendanceKey(attendanceKey);
+
                                 await upsertPracticeAttendanceCheckIn(db, {
                                   teamId: currentTeam.id,
                                   calendarEventId: event.id,
@@ -413,6 +458,7 @@ export default function CalendarScreen() {
                                   checkedInByUserId: firebaseUser.uid,
                                   checkedInByRole: "athlete",
                                 });
+
                                 await refresh();
                               } catch (error) {
                                 console.error("Failed to save check-in:", error);
@@ -427,10 +473,17 @@ export default function CalendarScreen() {
                               backgroundColor: active ? "#bf1029" : "#0b2542",
                               borderWidth: 1,
                               borderColor: active ? "#fca5a5" : "#315c86",
-                              opacity: savingAttendanceKey === attendanceKey ? 0.6 : 1,
+                              opacity:
+                                savingAttendanceKey === attendanceKey ? 0.6 : 1,
                             }}
                           >
-                            <Text style={{ color: "#ffffff", fontWeight: "800", fontSize: 13 }}>
+                            <Text
+                              style={{
+                                color: "#ffffff",
+                                fontWeight: "800",
+                                fontSize: 13,
+                              }}
+                            >
                               {label}
                             </Text>
                           </Pressable>
@@ -470,7 +523,9 @@ export default function CalendarScreen() {
                 marginBottom: 10,
               }}
             >
-              <Text style={{ color: "#93c5fd", fontSize: 12, fontWeight: "900" }}>
+              <Text
+                style={{ color: "#93c5fd", fontSize: 12, fontWeight: "900" }}
+              >
                 PRACTICE
               </Text>
             </View>
@@ -503,23 +558,46 @@ export default function CalendarScreen() {
               {event.practicePlanTitle || "Untitled Practice Plan"}
             </Text>
 
-            <Text style={{ fontSize: 14, color: "#b7c9df", marginTop: 8, lineHeight: 20 }}>
+            <Text
+              style={{
+                fontSize: 14,
+                color: "#b7c9df",
+                marginTop: 8,
+                lineHeight: 20,
+              }}
+            >
               {event.practicePlanStyle || "Mixed"} •{" "}
               {formatDurationLabel(getEventSeconds(event))}
             </Text>
 
-            <Text style={{ fontSize: 13, color: "#dbeafe", marginTop: 8, fontWeight: "800" }}>
+            <Text
+              style={{
+                fontSize: 13,
+                color: "#dbeafe",
+                marginTop: 8,
+                fontWeight: "800",
+              }}
+            >
               {event.assignmentType === "group" && event.groupName
                 ? `Training group • ${event.groupName}`
                 : event.assignmentType === "custom"
-                  ? `Custom wrestlers • ${(event.assignedWrestlerIds || []).length} wrestler${
+                  ? `Custom wrestlers • ${
+                      (event.assignedWrestlerIds || []).length
+                    } wrestler${
                       (event.assignedWrestlerIds || []).length === 1 ? "" : "s"
                     }`
                   : "Team-wide"}
             </Text>
 
             {event.notes ? (
-              <Text style={{ fontSize: 14, color: "#dbeafe", marginTop: 10, lineHeight: 21 }}>
+              <Text
+                style={{
+                  fontSize: 14,
+                  color: "#dbeafe",
+                  marginTop: 10,
+                  lineHeight: 21,
+                }}
+              >
                 {event.notes}
               </Text>
             ) : null}

@@ -102,8 +102,9 @@ service cloud.firestore {
     }
 
     function isOwnedWrestler(wrestlerId) {
-      return canReadWrestler(wrestlerId) &&
-        resource.data.ownerUserId == request.auth.uid;
+      return exists(/databases/$(database)/documents/wrestlers/$(wrestlerId)) &&
+        get(/databases/$(database)/documents/wrestlers/$(wrestlerId)).data.teamId == currentTeamId() &&
+        get(/databases/$(database)/documents/wrestlers/$(wrestlerId)).data.ownerUserId == request.auth.uid;
     }
 
     function isAthleteSubmittedTournamentUpdate() {

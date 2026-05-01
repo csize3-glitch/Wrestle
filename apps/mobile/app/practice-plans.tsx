@@ -808,19 +808,21 @@ export default function PracticePlansScreen() {
 
     try {
       setSavingCompletion(true);
+
       const attendance = Object.entries(attendanceByWrestlerId).map(
         ([wrestlerId, value]): PracticeSessionAttendanceEntry => ({
           wrestlerId,
-          wrestlerName: value.wrestlerName,
-          status: value.status,
-          notes: value.notes.trim() || undefined,
-          checkedInByUserId: value.checkedInByUserId,
-          checkedInByRole: value.checkedInByRole,
-          checkedInAt: value.checkedInAt,
-          coachUpdatedBy: value.coachUpdatedBy,
-          coachUpdatedAt: value.coachUpdatedAt,
+          wrestlerName: value.wrestlerName || "Unnamed Wrestler",
+          status: value.status || "not_checked_in",
+          notes: value.notes.trim() || "",
+          checkedInByUserId: value.checkedInByUserId || "",
+          checkedInByRole: value.checkedInByRole || "coach",
+          checkedInAt: value.checkedInAt || "",
+          coachUpdatedBy: value.coachUpdatedBy || firebaseUser.uid,
+          coachUpdatedAt: value.coachUpdatedAt || "",
         })
       );
+
       const attendanceCounts = buildAttendanceCounts(attendance);
 
       await Promise.all(
@@ -828,9 +830,9 @@ export default function PracticePlansScreen() {
           if (value.attendanceId) {
             await updatePracticeAttendanceByCoach(db, {
               attendanceId: value.attendanceId,
-              status: value.status,
+              status: value.status || "not_checked_in",
               coachUpdatedBy: firebaseUser.uid,
-              notes: value.notes.trim() || undefined,
+              notes: value.notes.trim() || "",
             });
             return;
           }
@@ -844,16 +846,16 @@ export default function PracticePlansScreen() {
             calendarEventId: selectedCalendarEventId,
             practicePlanId: selectedPlan.id,
             date: selectedCalendarDate || new Date().toISOString().split("T")[0],
-            assignmentType: selectedPlanAssignmentType,
-            groupId: selectedPlanGroupId,
-            groupName: selectedPlanGroupName,
-            assignedWrestlerIds: selectedPlanAssignedWrestlerIds,
+            assignmentType: selectedPlanAssignmentType || "team",
+            groupId: selectedPlanGroupId || "",
+            groupName: selectedPlanGroupName || "",
+            assignedWrestlerIds: selectedPlanAssignedWrestlerIds || [],
             wrestlerId,
-            wrestlerName: value.wrestlerName,
-            status: value.status,
+            wrestlerName: value.wrestlerName || "Unnamed Wrestler",
+            status: value.status || "not_checked_in",
             checkedInByUserId: firebaseUser.uid,
             checkedInByRole: "coach",
-            notes: value.notes.trim() || undefined,
+            notes: value.notes.trim() || "",
           });
         })
       );
@@ -863,13 +865,13 @@ export default function PracticePlansScreen() {
         practicePlanId: selectedPlan.id,
         practicePlanTitle: selectedPlan.title || "Untitled Practice Plan",
         practicePlanStyle: selectedPlan.style || "Mixed",
-        assignmentType: selectedPlanAssignmentType,
-        groupId: selectedPlanGroupId,
-        groupName: selectedPlanGroupName,
-        assignedWrestlerIds: selectedPlanAssignedWrestlerIds,
+        assignmentType: selectedPlanAssignmentType || "team",
+        groupId: selectedPlanGroupId || "",
+        groupName: selectedPlanGroupName || "",
+        assignedWrestlerIds: selectedPlanAssignedWrestlerIds || [],
         totalSeconds: getPlanSeconds(selectedPlan),
         blockCount: blocks.length,
-        notes: postPracticeNotes.trim(),
+        notes: postPracticeNotes.trim() || "",
         completedBy: firebaseUser.uid,
         completedByRole: appUser?.role || "coach",
         completedAt: serverTimestamp(),
