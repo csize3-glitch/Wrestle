@@ -45,13 +45,20 @@ export async function listTeamMembers(
   );
 
   const userSnapshots = await Promise.all(
-    members.map((member) => getDoc(doc(db, COLLECTIONS.USERS, member.userId)))
+    members.map(async (member) => {
+      try {
+        return await getDoc(doc(db, COLLECTIONS.USERS, member.userId));
+      } catch (error) {
+        console.warn("Could not read team member user profile:", member.userId, error);
+        return null;
+      }
+    })
   );
 
   return members
     .map((member, index) => {
       const userSnapshot = userSnapshots[index];
-      const userData = userSnapshot.exists()
+      const userData = userSnapshot?.exists()
         ? (userSnapshot.data() as Record<string, unknown>)
         : {};
 
