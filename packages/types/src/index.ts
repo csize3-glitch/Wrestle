@@ -348,7 +348,23 @@ export interface TeamMemberRecord extends TeamMember {
   displayName: string;
   email: string;
   currentTeamId?: string;
+  linkedWrestlerIds?: string[];
   isOwner: boolean;
+}
+
+export interface PracticeSessionFollowUpRecord extends PracticeSessionFollowUp {
+  sessionId: string;
+  teamId: string;
+  practicePlanId: string;
+  practicePlanTitle?: string;
+  practicePlanStyle?: string;
+  calendarEventId?: string;
+  groupId?: string;
+  groupName?: string;
+  assignmentType?: "team" | "group" | "custom";
+  sessionCompletedAt?: string;
+  sessionNotes?: string;
+  sourceFollowUps: PracticeSessionFollowUp[];
 }
 
 export interface Tournament {

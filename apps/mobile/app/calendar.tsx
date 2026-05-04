@@ -8,6 +8,7 @@ import {
   listPracticeAttendanceForEvent,
   listCalendarEvents,
   listWrestlers,
+  listWrestlersByIds,
   upsertPracticeAttendanceCheckIn,
   type CalendarEventRecord,
 } from "@wrestlewell/lib/index";
@@ -231,7 +232,11 @@ export default function CalendarScreen() {
 
       try {
         setWrestlersLoaded(false);
-        setWrestlers(await listWrestlers(db, currentTeam.id));
+        setWrestlers(
+          appUser?.role === "parent"
+            ? await listWrestlersByIds(db, appUser.linkedWrestlerIds || [])
+            : await listWrestlers(db, currentTeam.id)
+        );
       } catch (error) {
         console.error("Failed to load wrestlers for calendar assignments:", error);
       } finally {
@@ -240,7 +245,7 @@ export default function CalendarScreen() {
     }
 
     loadWrestlers();
-  }, [currentTeam?.id]);
+  }, [appUser?.linkedWrestlerIds, appUser?.role, currentTeam?.id]);
 
   useEffect(() => {
     async function load() {

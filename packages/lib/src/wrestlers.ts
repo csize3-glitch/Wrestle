@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   query,
   serverTimestamp,
@@ -161,6 +162,42 @@ export async function listWrestlers(db: Firestore, teamId?: string): Promise<Wre
   return snapshot.docs
     .map((wrestlerDoc) =>
       normalizeWrestlerRecord(wrestlerDoc.id, wrestlerDoc.data() as Record<string, unknown>)
+    )
+    .sort((a, b) => {
+      const lastNameCompare = a.lastName.localeCompare(b.lastName);
+      if (lastNameCompare !== 0) {
+        return lastNameCompare;
+      }
+
+      return a.firstName.localeCompare(b.firstName);
+    });
+}
+
+export async function listWrestlersByIds(
+  db: Firestore,
+  wrestlerIds: string[]
+): Promise<WrestlerProfile[]> {
+  const uniqueIds = Array.from(
+    new Set(
+      wrestlerIds
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (!uniqueIds.length) {
+    return [];
+  }
+
+  const snapshots = await Promise.all(
+    uniqueIds.map((wrestlerId) => getDoc(doc(db, COLLECTIONS.WRESTLERS, wrestlerId)))
+  );
+
+  return snapshots
+    .flatMap((snapshot) =>
+      snapshot.exists()
+        ? [normalizeWrestlerRecord(snapshot.id, snapshot.data() as Record<string, unknown>)]
+        : []
     )
     .sort((a, b) => {
       const lastNameCompare = a.lastName.localeCompare(b.lastName);

@@ -54,11 +54,12 @@ service cloud.firestore {
     }
 
     function validManagedUserUpdate() {
-      return request.resource.data.diff(resource.data).changedKeys().hasOnly(["role", "currentTeamId", "updatedAt"]) &&
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(["role", "currentTeamId", "linkedWrestlerIds", "updatedAt"]) &&
         request.resource.data.email == resource.data.email &&
         request.resource.data.displayName == resource.data.displayName &&
         request.resource.data.createdAt == resource.data.createdAt &&
         (request.resource.data.role == "coach" || request.resource.data.role == "athlete" || request.resource.data.role == "parent") &&
+        (!("linkedWrestlerIds" in request.resource.data) || request.resource.data.linkedWrestlerIds is list) &&
         (request.resource.data.currentTeamId == currentTeamId() || request.resource.data.currentTeamId == "");
     }
 
@@ -89,7 +90,11 @@ service cloud.firestore {
 
     function canReadWrestler(wrestlerId) {
       return exists(/databases/$(database)/documents/wrestlers/$(wrestlerId)) &&
-        sameTeam(wrestlerTeamId(wrestlerId));
+        sameTeam(wrestlerTeamId(wrestlerId)) &&
+        (
+          currentRole() != "parent" ||
+          isLinkedParentWrestler(wrestlerId)
+        );
     }
 
     function canWriteWrestler(wrestlerId) {
@@ -289,7 +294,7 @@ service cloud.firestore {
     }
 
     match /wrestlers/{wrestlerId} {
-      allow read: if signedIn() && sameTeam(resource.data.teamId);
+      allow read: if signedIn() && canReadWrestler(wrestlerId);
 
       allow create: if signedIn() &&
         (

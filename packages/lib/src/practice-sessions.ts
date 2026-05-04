@@ -16,6 +16,7 @@ import {
   type PracticeSessionAttendanceCounts,
   type PracticeSessionAttendanceEntry,
   type PracticeSessionFollowUp,
+  type PracticeSessionFollowUpRecord,
   type PracticeSessionWrestlerNote,
 } from "@wrestlewell/types/index";
 
@@ -297,6 +298,41 @@ export async function listPracticeSessionsForWrestler(
       session.followUps?.some((followUp) => followUp.wrestlerId === wrestlerId) ||
       session.attendance?.some((entry) => entry.wrestlerId === wrestlerId)
   );
+}
+
+export async function listPracticeSessionFollowUps(
+  db: Firestore,
+  teamId: string
+): Promise<PracticeSessionFollowUpRecord[]> {
+  const sessions = await listPracticeSessions(db, teamId);
+
+  return sessions
+    .flatMap((session) =>
+      (session.followUps || []).map((followUp) => ({
+        ...followUp,
+        sessionId: session.id,
+        teamId: session.teamId,
+        practicePlanId: session.practicePlanId,
+        practicePlanTitle: session.practicePlanTitle,
+        practicePlanStyle: session.practicePlanStyle,
+        calendarEventId: session.calendarEventId,
+        groupId: session.groupId,
+        groupName: session.groupName,
+        assignmentType: session.assignmentType,
+        sessionCompletedAt: session.completedAt,
+        sessionNotes: session.notes,
+        sourceFollowUps: session.followUps || [],
+      }))
+    )
+    .sort((a, b) => {
+      const dueA = a.dueDate || "9999-12-31";
+      const dueB = b.dueDate || "9999-12-31";
+      if (dueA !== dueB) {
+        return dueA.localeCompare(dueB);
+      }
+
+      return (b.createdAt || "").localeCompare(a.createdAt || "");
+    });
 }
 
 function compactPracticeSessionValue<T>(value: T): T {

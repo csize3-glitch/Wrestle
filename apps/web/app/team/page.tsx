@@ -4,13 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { db } from "@wrestlewell/firebase/client";
 import {
   listTeamMembers,
+  listWrestlers,
   regenerateCoachInviteCode,
   regenerateTeamCode,
   removeTeamMember,
+  updateParentLinkedWrestlers,
   updateTeamMemberRole,
   updateTeamName,
 } from "@wrestlewell/lib/index";
-import type { TeamMemberRecord, UserRole } from "@wrestlewell/types/index";
+import type { TeamMemberRecord, UserRole, WrestlerProfile } from "@wrestlewell/types/index";
 import { useAuthState } from "../auth-provider";
 import { RequireAuth } from "../require-auth";
 
@@ -32,9 +34,14 @@ function formatTeamActionError(error: unknown) {
   return baseMessage;
 }
 
+function getFullName(wrestler: Pick<WrestlerProfile, "firstName" | "lastName">) {
+  return `${wrestler.firstName} ${wrestler.lastName}`.trim() || "Unnamed Wrestler";
+}
+
 export default function TeamPage() {
   const { appUser, currentTeam, refreshAppState } = useAuthState();
   const [members, setMembers] = useState<TeamMemberRecord[]>([]);
+  const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
   const [teamName, setTeamName] = useState("");
   const [loading, setLoading] = useState(true);
   const [savingTeam, setSavingTeam] = useState(false);
@@ -54,6 +61,22 @@ export default function TeamPage() {
     () => members.filter((member) => member.role === "athlete").length,
     [members]
   );
+  const parentCount = useMemo(
+    () => members.filter((member) => member.role === "parent").length,
+    [members]
+  );
+  const parentMembers = useMemo(
+    () => members.filter((member) => member.role === "parent"),
+    [members]
+  );
+  const wrestlerNameMap = useMemo(
+    () =>
+      wrestlers.reduce<Record<string, string>>((map, wrestler) => {
+        map[wrestler.id] = getFullName(wrestler);
+        return map;
+      }, {}),
+    [wrestlers]
+  );
 
   useEffect(() => {
     setTeamName(currentTeam?.name || "");
@@ -69,7 +92,12 @@ export default function TeamPage() {
 
       try {
         setLoading(true);
-        setMembers(await listTeamMembers(db, { teamId: currentTeam.id, ownerUserId: currentTeam.ownerUserId }));
+        const [memberRows, wrestlerRows] = await Promise.all([
+          listTeamMembers(db, { teamId: currentTeam.id, ownerUserId: currentTeam.ownerUserId }),
+          listWrestlers(db, currentTeam.id),
+        ]);
+        setMembers(memberRows);
+        setWrestlers(wrestlerRows);
       } catch (nextError) {
         console.error("Failed to load team members:", nextError);
         setError(nextError instanceof Error ? nextError.message : "Failed to load team members.");
@@ -84,11 +112,17 @@ export default function TeamPage() {
   async function reloadTeamPage() {
     if (!currentTeam?.id) {
       setMembers([]);
+      setWrestlers([]);
       return;
     }
 
     await refreshAppState();
-    setMembers(await listTeamMembers(db, { teamId: currentTeam.id, ownerUserId: currentTeam.ownerUserId }));
+    const [memberRows, wrestlerRows] = await Promise.all([
+      listTeamMembers(db, { teamId: currentTeam.id, ownerUserId: currentTeam.ownerUserId }),
+      listWrestlers(db, currentTeam.id),
+    ]);
+    setMembers(memberRows);
+    setWrestlers(wrestlerRows);
   }
 
   async function handleCopy(field: "team" | "coach", value?: string) {
@@ -199,6 +233,45 @@ export default function TeamPage() {
     }
   }
 
+  function handleParentLinkToggle(
+    member: TeamMemberRecord,
+    wrestlerId: string,
+    checked: boolean
+  ) {
+    const nextIds = checked
+      ? Array.from(new Set([...(member.linkedWrestlerIds || []), wrestlerId]))
+      : (member.linkedWrestlerIds || []).filter((id) => id !== wrestlerId);
+
+    setMembers((prev) =>
+      prev.map((entry) =>
+        entry.id === member.id ? { ...entry, linkedWrestlerIds: nextIds } : entry
+      )
+    );
+  }
+
+  async function handleSaveParentLinks(member: TeamMemberRecord) {
+    if (member.role !== "parent") {
+      return;
+    }
+
+    setActiveMemberId(member.id);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const latestMember =
+        members.find((entry) => entry.id === member.id) || member;
+      await updateParentLinkedWrestlers(db, latestMember, latestMember.linkedWrestlerIds || []);
+      await reloadTeamPage();
+      setSuccess(`Updated linked wrestlers for ${member.displayName}.`);
+    } catch (nextError) {
+      console.error("Failed to update parent links:", nextError);
+      setError(formatTeamActionError(nextError));
+    } finally {
+      setActiveMemberId(null);
+    }
+  }
+
   return (
     <RequireAuth
       title="Team"
@@ -225,6 +298,10 @@ export default function TeamPage() {
               <div className="stat-card">
                 <span className="stat-card__label">Athletes</span>
                 <span className="stat-card__value">{athleteCount}</span>
+              </div>
+              <div className="stat-card">
+                <span className="stat-card__label">Parents</span>
+                <span className="stat-card__value">{parentCount}</span>
               </div>
               <div className="stat-card">
                 <span className="stat-card__label">Team</span>
@@ -402,7 +479,13 @@ export default function TeamPage() {
                             </p>
                             <div className="hero-actions" style={{ marginTop: 0 }}>
                               <span className="eyebrow" style={{ marginBottom: 0 }}>
-                                {member.isOwner ? "Head Coach" : member.role === "coach" ? "Coach" : "Athlete"}
+                                {member.isOwner
+                                  ? "Head Coach"
+                                  : member.role === "coach"
+                                    ? "Coach"
+                                    : member.role === "parent"
+                                      ? "Parent"
+                                      : "Athlete"}
                               </span>
                               {member.currentTeamId !== currentTeam?.id ? (
                                 <span className="eyebrow" style={{ marginBottom: 0, background: "rgba(15, 39, 72, 0.08)", color: "#0f2748" }}>
@@ -435,6 +518,14 @@ export default function TeamPage() {
                                 Make Athlete
                               </button>
                               <button
+                                className={member.role === "parent" ? "button-primary" : "button-secondary"}
+                                type="button"
+                                onClick={() => handleRoleChange(member, "parent")}
+                                disabled={memberBusy}
+                              >
+                                Make Parent
+                              </button>
+                              <button
                                 className="button-secondary"
                                 type="button"
                                 onClick={() => handleRemove(member)}
@@ -446,6 +537,153 @@ export default function TeamPage() {
                             </div>
                           )}
                         </div>
+                      </article>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+
+            <section className="content-card">
+              <h2 className="content-card__title">Parent links</h2>
+              <p className="content-card__copy">
+                Connect parent accounts to the right wrestlers so family check-in and safe schedule visibility work without hand-editing Firestore.
+              </p>
+
+              <div style={{ display: "grid", gap: 16, marginTop: 22 }}>
+                {parentMembers.length === 0 ? (
+                  <p style={{ margin: 0 }}>
+                    No parent accounts are on this team yet. Once a family member joins, you can link their wrestler access here.
+                  </p>
+                ) : (
+                  parentMembers.map((member) => {
+                    const memberBusy = activeMemberId === member.id;
+                    const linkedCount = (member.linkedWrestlerIds || []).length;
+
+                    return (
+                      <article
+                        key={`parent-links-${member.id}`}
+                        className="content-card"
+                        style={{
+                          padding: 20,
+                          borderRadius: 20,
+                          boxShadow: "none",
+                          display: "grid",
+                          gap: 16,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "flex-start",
+                            gap: 16,
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <div>
+                            <h3 className="content-card__title" style={{ marginBottom: 6 }}>
+                              {member.displayName}
+                            </h3>
+                            <p className="content-card__copy" style={{ marginBottom: 8 }}>
+                              {member.email || "No email on file"}
+                            </p>
+                            <div className="hero-actions" style={{ marginTop: 0 }}>
+                              <span className="eyebrow" style={{ marginBottom: 0 }}>
+                                {linkedCount} linked wrestler{linkedCount === 1 ? "" : "s"}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="hero-actions" style={{ marginTop: 0 }}>
+                            <button
+                              className="button-primary"
+                              type="button"
+                              onClick={() => handleSaveParentLinks(member)}
+                              disabled={memberBusy}
+                            >
+                              {memberBusy ? "Saving..." : "Save Links"}
+                            </button>
+                          </div>
+                        </div>
+
+                        {wrestlers.length === 0 ? (
+                          <p style={{ margin: 0 }}>No wrestlers have been created for this team yet.</p>
+                        ) : (
+                          <div
+                            style={{
+                              display: "grid",
+                              gap: 10,
+                              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                            }}
+                          >
+                            {wrestlers.map((wrestler) => {
+                              const checked = (member.linkedWrestlerIds || []).includes(wrestler.id);
+                              const isPrimaryForParent = Boolean(
+                                wrestlers.some(
+                                  (entry) =>
+                                    entry.ownerUserId === member.userId && entry.id === wrestler.id
+                                )
+                              );
+
+                              return (
+                                <label
+                                  key={`${member.id}-${wrestler.id}`}
+                                  style={{
+                                    display: "grid",
+                                    gap: 6,
+                                    padding: 14,
+                                    borderRadius: 16,
+                                    border: checked
+                                      ? "1px solid rgba(191, 16, 41, 0.35)"
+                                      : "1px solid rgba(15, 39, 72, 0.12)",
+                                    background: checked ? "rgba(191, 16, 41, 0.05)" : "#fff",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 10,
+                                      color: "#0f172a",
+                                      fontWeight: 800,
+                                    }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={(event) =>
+                                        handleParentLinkToggle(member, wrestler.id, event.target.checked)
+                                      }
+                                      disabled={memberBusy}
+                                    />
+                                    {getFullName(wrestler)}
+                                  </span>
+                                  <span style={{ color: "#64748b", fontSize: 14 }}>
+                                    {wrestler.weightClass || "Weight not set"}
+                                    {wrestler.styles.length ? ` · ${wrestler.styles.join(", ")}` : ""}
+                                  </span>
+                                  {isPrimaryForParent ? (
+                                    <span className="eyebrow" style={{ marginBottom: 0 }}>
+                                      Owned profile
+                                    </span>
+                                  ) : null}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {linkedCount > 0 ? (
+                          <p className="content-card__copy" style={{ margin: 0 }}>
+                            Linked now: {(member.linkedWrestlerIds || []).map((id) => wrestlerNameMap[id] || "Unknown wrestler").join(", ")}
+                          </p>
+                        ) : (
+                          <p className="content-card__copy" style={{ margin: 0 }}>
+                            No linked wrestlers yet.
+                          </p>
+                        )}
                       </article>
                     );
                   })

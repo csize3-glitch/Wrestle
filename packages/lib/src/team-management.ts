@@ -19,11 +19,14 @@ import {
 } from "@wrestlewell/types/index";
 
 function normalizeTeamMember(id: string, value: Record<string, unknown>): TeamMember {
+  const nextRole: UserRole =
+    value.role === "coach" || value.role === "parent" ? value.role : "athlete";
+
   return {
     id,
     teamId: typeof value.teamId === "string" ? value.teamId : "",
     userId: typeof value.userId === "string" ? value.userId : "",
-    role: value.role === "coach" ? "coach" : "athlete",
+    role: nextRole,
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
   };
@@ -61,6 +64,11 @@ export async function listTeamMembers(
         email: typeof userData.email === "string" ? userData.email : "",
         currentTeamId:
           typeof userData.currentTeamId === "string" ? userData.currentTeamId : undefined,
+        linkedWrestlerIds: Array.isArray(userData.linkedWrestlerIds)
+          ? userData.linkedWrestlerIds.filter(
+              (entry): entry is string => typeof entry === "string"
+            )
+          : [],
         isOwner: args.ownerUserId === member.userId,
       } satisfies TeamMemberRecord;
     })
@@ -70,7 +78,12 @@ export async function listTeamMembers(
       }
 
       if (a.role !== b.role) {
-        return a.role === "coach" ? -1 : 1;
+        const roleOrder: Record<UserRole, number> = {
+          coach: 0,
+          parent: 1,
+          athlete: 2,
+        };
+        return roleOrder[a.role] - roleOrder[b.role];
       }
 
       return a.displayName.localeCompare(b.displayName);
@@ -95,6 +108,17 @@ export async function updateTeamMemberRole(
   });
 
   await batch.commit();
+}
+
+export async function updateParentLinkedWrestlers(
+  db: Firestore,
+  member: TeamMemberRecord,
+  linkedWrestlerIds: string[]
+): Promise<void> {
+  await updateDoc(doc(db, COLLECTIONS.USERS, member.userId), {
+    linkedWrestlerIds,
+    updatedAt: serverTimestamp(),
+  });
 }
 
 export async function removeTeamMember(

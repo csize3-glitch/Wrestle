@@ -6,15 +6,18 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 import { auth, db } from "@wrestlewell/firebase/client";
 import {
   listCalendarEvents,
+  listPracticeAttendanceForEvent,
   listTeamAnnouncements,
   listTeamNotifications,
   listTournamentEntries,
   listTournaments,
   listWrestlers,
+  listWrestlersByIds,
   type CalendarEventRecord,
 } from "@wrestlewell/lib/index";
 import {
   COLLECTIONS,
+  type PracticeAttendanceRecord,
   type TeamAnnouncement,
   type TeamNotification,
   type Tournament,
@@ -98,6 +101,13 @@ const coachActionCards = [
     href: "/notifications",
     tone: "red",
     stat: "Notify",
+  },
+  {
+    title: "Follow-Ups",
+    subtitle: "Work open wrestler action items and close the loop fast.",
+    href: "/follow-ups",
+    tone: "white",
+    stat: "Board",
   },
 ];
 
@@ -327,6 +337,7 @@ export default function IndexScreen() {
   const [teamNotifications, setTeamNotifications] = useState<TeamNotification[]>([]);
   const [allTournamentEntries, setAllTournamentEntries] = useState<DashboardTournamentEntry[]>([]);
   const [recentPracticeSessions, setRecentPracticeSessions] = useState<PracticeSessionRecord[]>([]);
+  const [parentAttendanceByKey, setParentAttendanceByKey] = useState<Record<string, PracticeAttendanceRecord>>({});
   const [pendingRegistrations, setPendingRegistrations] = useState(0);
   const [confirmedTournamentEntries, setConfirmedTournamentEntries] = useState(0);
   const [dashboardLoading, setDashboardLoading] = useState(false);
@@ -510,7 +521,10 @@ export default function IndexScreen() {
     try {
       setDashboardLoading(true);
 
-      const wrestlerRows = await listWrestlers(db, currentTeam.id);
+      const wrestlerRows =
+        appUser.role === "parent"
+          ? await listWrestlersByIds(db, appUser.linkedWrestlerIds || [])
+          : await listWrestlers(db, currentTeam.id);
       const dashboardOwnWrestler =
         appUser.role === "athlete" && firebaseUser
           ? wrestlerRows.find((wrestler) => wrestler.ownerUserId === firebaseUser.uid) || null
@@ -611,6 +625,50 @@ export default function IndexScreen() {
     appUser?.role,
     appUser?.varkCompleted,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    async function loadParentAttendance() {
+      if (appUser?.role !== "parent" || !currentTeam?.id || linkedParentWrestlers.length === 0) {
+        setParentAttendanceByKey({});
+        return;
+      }
+
+      const todayEvents = calendarEvents.filter((event) => event.date === todayKey);
+      if (!todayEvents.length) {
+        setParentAttendanceByKey({});
+        return;
+      }
+
+      const pairs = linkedParentWrestlers.flatMap((wrestler) =>
+        todayEvents
+          .filter((event) => event.assignedWrestlerIds?.includes(wrestler.id) || event.assignmentType === "team" || event.groupId === wrestler.primaryTrainingGroupId || Boolean(wrestler.trainingGroupIds?.includes(event.groupId || "")))
+          .map((event) => ({ event, wrestler }))
+      );
+
+      if (!pairs.length) {
+        setParentAttendanceByKey({});
+        return;
+      }
+
+      const rows = await Promise.all(
+        pairs.map(({ event, wrestler }) =>
+          listPracticeAttendanceForEvent(db, currentTeam.id, event.id, wrestler.id)
+        )
+      );
+
+      const nextMap: Record<string, PracticeAttendanceRecord> = {};
+      pairs.forEach(({ event, wrestler }, index) => {
+        const entry = rows[index][0];
+        if (entry) {
+          nextMap[`${event.id}:${wrestler.id}`] = entry;
+        }
+      });
+
+      setParentAttendanceByKey(nextMap);
+    }
+
+    loadParentAttendance();
+  }, [appUser?.role, calendarEvents, currentTeam?.id, linkedParentWrestlers, todayKey]);
 
   return (
     <MobileScreenShell
@@ -1014,6 +1072,23 @@ export default function IndexScreen() {
                       <Text style={{ color: "#b7c9df", fontSize: 14, lineHeight: 20, marginTop: 5 }}>
                         {wrestler.weightClass || "Weight not set"} •{" "}
                         {wrestler.styles?.join(", ") || "Style not set"}
+                      </Text>
+                      <Text style={{ color: "#93c5fd", fontSize: 13, lineHeight: 19, marginTop: 8 }}>
+                        Today:{" "}
+                        {calendarEvents
+                          .filter(
+                            (event) =>
+                              event.date === todayKey &&
+                              (event.assignedWrestlerIds?.includes(wrestler.id) ||
+                                event.assignmentType === "team" ||
+                                event.groupId === wrestler.primaryTrainingGroupId ||
+                                wrestler.trainingGroupIds?.includes(event.groupId || ""))
+                          )
+                          .map((event) => {
+                            const attendance = parentAttendanceByKey[`${event.id}:${wrestler.id}`];
+                            return `${event.practicePlanTitle || "Practice"} (${attendance?.status?.replaceAll("_", " ") || "not checked in"})`;
+                          })
+                          .join(" • ") || "No visible practice today"}
                       </Text>
                     </View>
                   ))}

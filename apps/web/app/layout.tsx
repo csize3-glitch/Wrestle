@@ -11,6 +11,7 @@ const navigationItems = [
   { href: "/library", label: "Library" },
   { href: "/practice-plans", label: "Practice Plans" },
   { href: "/calendar", label: "Calendar" },
+  { href: "/follow-ups", label: "Follow-Ups" },
   { href: "/tournaments", label: "Tournaments" },
   { href: "/wrestlers", label: "Wrestlers" },
 ];
