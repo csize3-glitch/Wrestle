@@ -79,6 +79,24 @@ function openPracticePlan(event: CalendarEventRecord) {
   } as any);
 }
 
+function openQrCheckIn(event: CalendarEventRecord) {
+  router.push({
+    pathname: "/qr-checkin",
+    params: {
+      calendarEventId: event.id,
+      practicePlanId: event.practicePlanId,
+      title: event.practicePlanTitle || "Scheduled practice",
+      date: event.date,
+      assignmentType: event.assignmentType || "team",
+      groupId: event.groupId || "",
+      groupName: event.groupName || "",
+      assignedWrestlerIds: (event.assignedWrestlerIds || []).join(","),
+      totalSeconds: String(event.totalSeconds || 0),
+      totalMinutes: String(event.totalMinutes || 0),
+    },
+  } as any);
+}
+
 export default function CalendarScreen() {
   const {
     firebaseUser,
@@ -291,6 +309,7 @@ export default function CalendarScreen() {
     const todayKey = new Date().toISOString().split("T")[0];
     return upcomingEvents.filter((event) => event.date === todayKey);
   }, [upcomingEvents]);
+  const todayKey = useMemo(() => new Date().toISOString().split("T")[0], []);
 
   const parentTodayCheckInRows = useMemo(() => {
     if (appUser?.role !== "parent") {
@@ -834,16 +853,41 @@ export default function CalendarScreen() {
             <View
               style={{
                 marginTop: 14,
-                alignSelf: "flex-start",
-                paddingHorizontal: 16,
-                paddingVertical: 11,
-                borderRadius: 999,
-                backgroundColor: "#bf1029",
+                flexDirection: "row",
+                gap: 10,
+                flexWrap: "wrap",
               }}
             >
-              <Text style={{ color: "#fff", fontWeight: "900" }}>
-                Open Practice Plan
-              </Text>
+              <View
+                style={{
+                  alignSelf: "flex-start",
+                  paddingHorizontal: 16,
+                  paddingVertical: 11,
+                  borderRadius: 999,
+                  backgroundColor: "#bf1029",
+                }}
+              >
+                <Text style={{ color: "#fff", fontWeight: "900" }}>
+                  Open Practice Plan
+                </Text>
+              </View>
+
+              {appUser?.role === "coach" && event.date === todayKey ? (
+                <Pressable
+                  onPress={() => openQrCheckIn(event)}
+                  style={{
+                    alignSelf: "flex-start",
+                    paddingHorizontal: 16,
+                    paddingVertical: 11,
+                    borderRadius: 999,
+                    backgroundColor: "#ffffff",
+                  }}
+                >
+                  <Text style={{ color: "#061a33", fontWeight: "900" }}>
+                    QR Check-In Mode
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           </Pressable>
         ))}

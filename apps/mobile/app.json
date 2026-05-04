@@ -16,7 +16,13 @@
     "plugins": [
       "expo-video",
       "expo-router",
-      "expo-screen-orientation"
+      "expo-screen-orientation",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "WrestleWell uses the camera so coaches can scan athlete check-in QR codes at practice."
+        }
+      ]
     ],
     "ios": {
       "supportsTablet": true,

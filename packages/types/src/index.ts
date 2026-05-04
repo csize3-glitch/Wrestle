@@ -232,6 +232,13 @@ export interface PracticeAttendanceRecord {
   updatedAt: string;
 }
 
+export interface PracticeCheckInQrPayload {
+  type: "wrestlewell-athlete-checkin";
+  version: 1;
+  teamId: string;
+  wrestlerId: string;
+}
+
 export interface PracticeSessionWrestlerNote {
   wrestlerId: string;
   wrestlerName: string;

@@ -201,6 +201,35 @@ function getBlockDisplayTitle(block: PracticePlanBlockRecord | null, index?: num
   return typeof index === "number" ? `Block ${index + 1}` : "Untitled Block";
 }
 
+function openQrCheckInForPractice(args: {
+  planId: string;
+  calendarEventId: string;
+  title: string;
+  date: string;
+  assignmentType: "team" | "group" | "custom";
+  groupId?: string;
+  groupName?: string;
+  assignedWrestlerIds?: string[];
+  totalSeconds: number;
+  totalMinutes?: number;
+}) {
+  router.push({
+    pathname: "/qr-checkin",
+    params: {
+      calendarEventId: args.calendarEventId,
+      practicePlanId: args.planId,
+      title: args.title,
+      date: args.date,
+      assignmentType: args.assignmentType,
+      groupId: args.groupId || "",
+      groupName: args.groupName || "",
+      assignedWrestlerIds: (args.assignedWrestlerIds || []).join(","),
+      totalSeconds: String(args.totalSeconds || 0),
+      totalMinutes: String(args.totalMinutes || 0),
+    },
+  } as any);
+}
+
 function isLandscapeOrientation(orientation: ScreenOrientation.Orientation) {
   return (
     orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
@@ -1944,6 +1973,30 @@ export default function PracticePlansScreen() {
                   <Pressable onPress={openCompletionModal} style={styles.completePracticeButton}>
                     <Text style={styles.completePracticeButtonText}>MARK PRACTICE COMPLETE</Text>
                   </Pressable>
+
+                  {selectedCalendarEventId ? (
+                    <Pressable
+                      onPress={() =>
+                        openQrCheckInForPractice({
+                          planId: selectedPlan.id,
+                          calendarEventId: selectedCalendarEventId,
+                          title: selectedPlan.title || "Scheduled practice",
+                          date: selectedCalendarDate || new Date().toISOString().split("T")[0],
+                          assignmentType: selectedPlanAssignmentType || "team",
+                          groupId: selectedPlanGroupId || "",
+                          groupName: selectedPlanGroupName || "",
+                          assignedWrestlerIds: selectedPlanAssignedWrestlerIds || [],
+                          totalSeconds: getPlanSeconds(selectedPlan),
+                          totalMinutes: selectedPlan.totalMinutes,
+                        })
+                      }
+                      style={[styles.completePracticeButton, { backgroundColor: "#ffffff" }]}
+                    >
+                      <Text style={[styles.completePracticeButtonText, { color: "#061a33" }]}>
+                        OPEN QR CHECK-IN MODE
+                      </Text>
+                    </Pressable>
+                  ) : null}
 
                   <View style={styles.previewControlRow}>
                     <PillButton label="Restart" variant="white" onPress={restartCurrentBlock} />

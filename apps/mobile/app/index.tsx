@@ -131,6 +131,13 @@ const athleteActionCards = [
     stat: "Today",
   },
   {
+    title: "My Check-In QR",
+    subtitle: "Show your wrestler QR code to coaches for fast practice-day check-in.",
+    href: "/my-check-in-qr",
+    tone: "white",
+    stat: "QR",
+  },
+  {
     title: "Tournaments",
     subtitle: "Register interest and track event status.",
     href: "/tournaments",
@@ -752,6 +759,36 @@ export default function IndexScreen() {
             <WWStat label="Events" value={`${upcomingTournaments.length}`} tone="blue" />
             <WWStat label="Pending" value={`${pendingRegistrations}`} tone="red" />
           </View>
+        ) : null}
+
+        {signedIn && appUser?.role === "athlete" ? (
+          <WWCard>
+            <View style={{ gap: 12 }}>
+              <WWBadge label="PRACTICE-DAY QR" tone="white" />
+              <Text style={{ color: "#ffffff", fontSize: 22, fontWeight: "900" }}>
+                {ownWrestler
+                  ? "Keep your check-in code ready for the room."
+                  : "Set up your wrestler profile to unlock QR check-in."}
+              </Text>
+              <Text style={{ color: "#b7c9df", lineHeight: 22 }}>
+                {ownWrestler
+                  ? "Open your personal WrestleWell QR before practice so a coach can scan you in instantly."
+                  : "Your QR belongs to your wrestler profile, so create or connect your athlete profile first."}
+              </Text>
+              <Pressable
+                onPress={() => router.push("/my-check-in-qr")}
+                style={({ pressed }) => ({
+                  alignSelf: "flex-start",
+                  paddingHorizontal: 16,
+                  paddingVertical: 11,
+                  borderRadius: 999,
+                  backgroundColor: pressed ? "#e2e8f0" : "#ffffff",
+                })}
+              >
+                <Text style={{ color: "#061a33", fontWeight: "900" }}>Open My Check-In QR</Text>
+              </Pressable>
+            </View>
+          </WWCard>
         ) : null}
 
         {signedIn ? (

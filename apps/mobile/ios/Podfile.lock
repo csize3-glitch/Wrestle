@@ -206,6 +206,10 @@ PODS:
     - Yoga
   - ExpoAsset (12.0.13):
     - ExpoModulesCore
+  - ExpoCamera (17.0.10):
+    - ExpoModulesCore
+    - ZXingObjC/OneD
+    - ZXingObjC/PDF417
   - ExpoDevice (8.0.10):
     - ExpoModulesCore
   - ExpoFileSystem (19.0.22):
@@ -2114,6 +2118,11 @@ PODS:
     - ReactNativeDependencies
     - Yoga
   - Yoga (0.0.0)
+  - ZXingObjC/Core (3.6.9)
+  - ZXingObjC/OneD (3.6.9):
+    - ZXingObjC/Core
+  - ZXingObjC/PDF417 (3.6.9):
+    - ZXingObjC/Core
 
 DEPENDENCIES:
   - "EXApplication (from `../../../node_modules/.pnpm/expo-application@7.0.8_expo@54.0.34/node_modules/expo-application/ios`)"
@@ -2127,6 +2136,7 @@ DEPENDENCIES:
   - "expo-dev-menu (from `../../../node_modules/.pnpm/expo-dev-menu@7.0.19_expo@54.0.34/node_modules/expo-dev-menu`)"
   - "expo-dev-menu-interface (from `../../../node_modules/.pnpm/expo-dev-menu-interface@2.0.0_expo@54.0.34/node_modules/expo-dev-menu-interface/ios`)"
   - "ExpoAsset (from `../../../node_modules/.pnpm/expo-asset@12.0.13_expo@54.0.34_react-native@0.81.5_@babel+core@7.29.0_@types+react@19._0a12d72d8c06185b1290363858946921/node_modules/expo-asset/ios`)"
+  - "ExpoCamera (from `../../../node_modules/.pnpm/expo-camera@17.0.10_expo@54.0.34_react-native@0.81.5_@babel+core@7.29.0_@types+react@19.1.17_react@19.1.0__react@19.1.0/node_modules/expo-camera/ios`)"
   - "ExpoDevice (from `../../../node_modules/.pnpm/expo-device@8.0.10_expo@54.0.34/node_modules/expo-device/ios`)"
   - "ExpoFileSystem (from `../../../node_modules/.pnpm/expo-file-system@19.0.22_expo@54.0.34_react-native@0.81.5_@babel+core@7.29.0_@types+react@19.1.17_react@19.1.0_/node_modules/expo-file-system/ios`)"
   - "ExpoFont (from `../../../node_modules/.pnpm/expo-font@14.0.11_expo@54.0.34_react-native@0.81.5_@babel+core@7.29.0_@types+react@19.1.17_react@19.1.0__react@19.1.0/node_modules/expo-font/ios`)"
@@ -2214,6 +2224,10 @@ DEPENDENCIES:
   - "RNSVG (from `../../../node_modules/.pnpm/react-native-svg@15.12.1_react-native@0.81.5_@babel+core@7.29.0_@types+react@19.1.17_react@19.1.0__react@19.1.0/node_modules/react-native-svg`)"
   - "Yoga (from `../../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.0_@types+react@19.1.17_react@19.1.0/node_modules/react-native/ReactCommon/yoga`)"
 
+SPEC REPOS:
+  trunk:
+    - ZXingObjC
+
 EXTERNAL SOURCES:
   EXApplication:
     :path: "../../../node_modules/.pnpm/expo-application@7.0.8_expo@54.0.34/node_modules/expo-application/ios"
@@ -2237,6 +2251,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/.pnpm/expo-dev-menu-interface@2.0.0_expo@54.0.34/node_modules/expo-dev-menu-interface/ios"
   ExpoAsset:
     :path: "../../../node_modules/.pnpm/expo-asset@12.0.13_expo@54.0.34_react-native@0.81.5_@babel+core@7.29.0_@types+react@19._0a12d72d8c06185b1290363858946921/node_modules/expo-asset/ios"
+  ExpoCamera:
+    :path: "../../../node_modules/.pnpm/expo-camera@17.0.10_expo@54.0.34_react-native@0.81.5_@babel+core@7.29.0_@types+react@19.1.17_react@19.1.0__react@19.1.0/node_modules/expo-camera/ios"
   ExpoDevice:
     :path: "../../../node_modules/.pnpm/expo-device@8.0.10_expo@54.0.34/node_modules/expo-device/ios"
   ExpoFileSystem:
@@ -2421,6 +2437,7 @@ SPEC CHECKSUMS:
   expo-dev-menu: ffb77acaa6a91d260780ab72a7d236ece882c787
   expo-dev-menu-interface: 600df12ea01efecdd822daaf13cc0ac091775533
   ExpoAsset: 9e5a7c9c0a9fb83ad5b2bb365141f2bd7f289b66
+  ExpoCamera: 6a326deb45ba840749652e4c15198317aa78497e
   ExpoDevice: 6327c3c200816795708885adf540d26ecab83d1a
   ExpoFileSystem: ad991457efaa14253723f1dda997eac6024c700d
   ExpoFont: f543ce20a228dd702813668b1a07b46f51878d47
@@ -2506,6 +2523,7 @@ SPEC CHECKSUMS:
   RNScreens: d8d6f1792f6e7ac12b0190d33d8d390efc0c1845
   RNSVG: 31d6639663c249b7d5abc9728dde2041eb2a3c34
   Yoga: 5934998fbeaef7845dbf698f698518695ab4cd1a
+  ZXingObjC: 8898711ab495761b2dbbdec76d90164a6d7e14c5
 
 PODFILE CHECKSUM: f959c4a5c4c6042799ce36ee1ddf1d1f1511d494
 
