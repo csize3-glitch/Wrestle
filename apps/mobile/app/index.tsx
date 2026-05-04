@@ -1364,9 +1364,9 @@ export default function IndexScreen() {
         )}
 
         <View style={{ gap: 12 }}>
-          {actionCards.map((card) => (
+          {actionCards.map((card, index) => (
             <Pressable
-              key={card.href}
+              key={`${card.href}-${index}`}
               onPress={() => router.push(card.href as any)}
               style={({ pressed }) => ({
                 backgroundColor: pressed ? "#12345a" : "#0b2542",
