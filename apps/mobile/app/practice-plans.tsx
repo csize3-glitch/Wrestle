@@ -1974,7 +1974,7 @@ export default function PracticePlansScreen() {
                     <Text style={styles.completePracticeButtonText}>MARK PRACTICE COMPLETE</Text>
                   </Pressable>
 
-                  {selectedCalendarEventId ? (
+                  {selectedCalendarEventId && currentTeam?.practiceCheckInEnabled !== false ? (
                     <Pressable
                       onPress={() =>
                         openQrCheckInForPractice({

@@ -103,6 +103,24 @@ export default function MyCheckInQrScreen() {
         </View>
       ) : loading ? (
         <Text style={{ color: "#b7c9df" }}>Loading your wrestler profile...</Text>
+      ) : currentTeam?.practiceCheckInEnabled === false ? (
+        <View
+          style={{
+            borderRadius: 24,
+            padding: 18,
+            borderWidth: 1,
+            borderColor: "#21486e",
+            backgroundColor: "#0b2542",
+            gap: 10,
+          }}
+        >
+          <Text style={{ color: "#ffffff", fontSize: 20, fontWeight: "900" }}>
+            Check-in is off for this team
+          </Text>
+          <Text style={{ color: "#b7c9df", lineHeight: 22 }}>
+            Your QR becomes active again as soon as a coach turns practice check-in back on in team settings.
+          </Text>
+        </View>
       ) : !ownWrestler || !qrPayload ? (
         <View
           style={{
@@ -146,6 +164,22 @@ export default function MyCheckInQrScreen() {
               }}
             >
               <QRCode value={JSON.stringify(qrPayload)} size={210} />
+            </View>
+
+            <View
+              style={{
+                marginTop: 14,
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                borderRadius: 999,
+                backgroundColor: "rgba(191,16,41,0.16)",
+                borderWidth: 1,
+                borderColor: "rgba(248,113,113,0.35)",
+              }}
+            >
+              <Text style={{ color: "#fecaca", fontWeight: "900", fontSize: 12, letterSpacing: 0.8 }}>
+                READY TO SCAN
+              </Text>
             </View>
 
             <Text

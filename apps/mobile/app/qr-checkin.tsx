@@ -84,6 +84,23 @@ function isQrPayload(value: unknown): value is PracticeCheckInQrPayload {
   );
 }
 
+type ScanState =
+  | "ready"
+  | "scanning"
+  | "success"
+  | "already_checked_in"
+  | "invalid_qr"
+  | "wrong_team"
+  | "not_assigned"
+  | "error";
+
+type RecentScan = {
+  wrestlerId: string;
+  wrestlerName: string;
+  state: "success" | "already_checked_in";
+  timestamp: string;
+};
+
 export default function QrCheckInScreen() {
   const params = useLocalSearchParams<{
     calendarEventId?: string;
@@ -102,9 +119,10 @@ export default function QrCheckInScreen() {
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
   const [loadingWrestlers, setLoadingWrestlers] = useState(true);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
-  const [scanTone, setScanTone] = useState<"idle" | "success" | "error">("idle");
+  const [scanState, setScanState] = useState<ScanState>("ready");
   const [processingScan, setProcessingScan] = useState(false);
   const [lastScanKey, setLastScanKey] = useState("");
+  const [recentScans, setRecentScans] = useState<RecentScan[]>([]);
 
   const event = useMemo(() => buildEventFromParams(params), [params]);
 
@@ -135,34 +153,40 @@ export default function QrCheckInScreen() {
     }
 
     setProcessingScan(true);
+    setScanState("scanning");
     try {
       let parsed: unknown = null;
       try {
         parsed = JSON.parse(raw);
       } catch {
+        setScanState("invalid_qr");
         throw new Error("That code is not a WrestleWell check-in QR.");
       }
 
       if (!isQrPayload(parsed)) {
+        setScanState("invalid_qr");
         throw new Error("That QR code is not a valid WrestleWell athlete check-in code.");
       }
 
       if (parsed.teamId !== currentTeam.id) {
+        setScanState("wrong_team");
         throw new Error("This QR code belongs to a different team.");
       }
 
       const wrestler = wrestlers.find((entry) => entry.id === parsed.wrestlerId) || null;
       if (!wrestler) {
+        setScanState("error");
         throw new Error("That wrestler is not on this team roster.");
       }
 
       if (!calendarEventMatchesWrestler(event, wrestler)) {
+        setScanState("not_assigned");
         throw new Error("That wrestler is not assigned to this practice.");
       }
 
       const scanKey = `${event.id}:${wrestler.id}`;
       if (scanKey === lastScanKey) {
-        setScanTone("success");
+        setScanState("already_checked_in");
         setScanMessage(`${wrestler.firstName} ${wrestler.lastName} was already scanned just now.`);
         return;
       }
@@ -178,8 +202,17 @@ export default function QrCheckInScreen() {
 
       if (existing?.status === "present") {
         setLastScanKey(scanKey);
-        setScanTone("success");
+        setScanState("already_checked_in");
         setScanMessage(`${wrestlerName} is already checked in.`);
+        setRecentScans((prev) => [
+          {
+            wrestlerId: wrestler.id,
+            wrestlerName,
+            state: "already_checked_in" as const,
+            timestamp: new Date().toISOString(),
+          },
+          ...prev.filter((entry) => entry.wrestlerId !== wrestler.id),
+        ].slice(0, 3));
         return;
       }
 
@@ -200,11 +233,20 @@ export default function QrCheckInScreen() {
       });
 
       setLastScanKey(scanKey);
-      setScanTone("success");
+      setScanState("success");
       setScanMessage(`${wrestlerName} checked in.`);
+      setRecentScans((prev) => [
+        {
+          wrestlerId: wrestler.id,
+          wrestlerName,
+          state: "success" as const,
+          timestamp: new Date().toISOString(),
+        },
+        ...prev.filter((entry) => entry.wrestlerId !== wrestler.id),
+      ].slice(0, 3));
     } catch (error) {
       const message = error instanceof Error ? error.message : "The QR scan could not be completed.";
-      setScanTone("error");
+      setScanState((prev) => (prev === "invalid_qr" || prev === "wrong_team" || prev === "not_assigned" ? prev : "error"));
       setScanMessage(message);
     } finally {
       setTimeout(() => setProcessingScan(false), 900);
@@ -275,6 +317,24 @@ export default function QrCheckInScreen() {
           </Text>
           <Text style={{ color: "#b7c9df", lineHeight: 22 }}>
             Open QR Check-In Mode from a scheduled practice so WrestleWell knows which event to update.
+          </Text>
+        </View>
+      ) : currentTeam?.practiceCheckInEnabled === false ? (
+        <View
+          style={{
+            borderRadius: 24,
+            padding: 18,
+            borderWidth: 1,
+            borderColor: "#21486e",
+            backgroundColor: "#0b2542",
+            gap: 10,
+          }}
+        >
+          <Text style={{ color: "#ffffff", fontSize: 20, fontWeight: "900" }}>
+            Practice check-in is disabled
+          </Text>
+          <Text style={{ color: "#b7c9df", lineHeight: 22 }}>
+            A coach needs to re-enable practice check-in in team settings before QR scanning can be used at the room door.
           </Text>
         </View>
       ) : (
@@ -353,18 +413,36 @@ export default function QrCheckInScreen() {
               padding: 18,
               borderWidth: 1,
               borderColor:
-                scanTone === "error" ? "#7f1d1d" : scanTone === "success" ? "#166534" : "#21486e",
+                scanState === "error" || scanState === "invalid_qr" || scanState === "wrong_team" || scanState === "not_assigned"
+                  ? "#7f1d1d"
+                  : scanState === "success" || scanState === "already_checked_in"
+                    ? "#166534"
+                    : "#21486e",
               backgroundColor:
-                scanTone === "error" ? "#3f1118" : scanTone === "success" ? "#0f2f1b" : "#0b2542",
+                scanState === "error" || scanState === "invalid_qr" || scanState === "wrong_team" || scanState === "not_assigned"
+                  ? "#3f1118"
+                  : scanState === "success" || scanState === "already_checked_in"
+                    ? "#0f2f1b"
+                    : "#0b2542",
               gap: 10,
             }}
           >
             <Text style={{ color: "#ffffff", fontSize: 18, fontWeight: "900" }}>
-              {scanTone === "success"
-                ? "Check-in confirmed"
-                : scanTone === "error"
-                  ? "Scan issue"
-                  : "Ready to scan"}
+              {scanState === "scanning"
+                ? "Scanning..."
+                : scanState === "success"
+                  ? "Check-in confirmed"
+                  : scanState === "already_checked_in"
+                    ? "Already checked in"
+                    : scanState === "invalid_qr"
+                      ? "Invalid QR"
+                      : scanState === "wrong_team"
+                        ? "Wrong team"
+                        : scanState === "not_assigned"
+                          ? "Not assigned"
+                          : scanState === "error"
+                            ? "Scan issue"
+                            : "Ready to scan"}
             </Text>
             <Text style={{ color: "#dbeafe", lineHeight: 22 }}>
               {scanMessage ||
@@ -372,11 +450,59 @@ export default function QrCheckInScreen() {
             </Text>
           </View>
 
+          <View
+            style={{
+              borderRadius: 24,
+              padding: 18,
+              borderWidth: 1,
+              borderColor: "#21486e",
+              backgroundColor: "#0b2542",
+              gap: 10,
+            }}
+          >
+            <Text style={{ color: "#ffffff", fontSize: 18, fontWeight: "900" }}>
+              Recent scans
+            </Text>
+            {recentScans.length === 0 ? (
+              <Text style={{ color: "#b7c9df", lineHeight: 22 }}>
+                Successful practice-day scans will appear here so coaches can confirm who just checked in.
+              </Text>
+            ) : (
+              <View style={{ gap: 10 }}>
+                {recentScans.map((scan) => (
+                  <View
+                    key={`${scan.wrestlerId}-${scan.timestamp}`}
+                    style={{
+                      borderRadius: 18,
+                      padding: 14,
+                      backgroundColor: "#102f52",
+                      borderWidth: 1,
+                      borderColor: "#315c86",
+                    }}
+                  >
+                    <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>
+                      {scan.wrestlerName}
+                    </Text>
+                    <Text style={{ color: "#93c5fd", fontWeight: "800", marginTop: 4 }}>
+                      {scan.state === "success" ? "Present" : "Already present"}
+                    </Text>
+                    <Text style={{ color: "#b7c9df", marginTop: 6 }}>
+                      {new Date(scan.timestamp).toLocaleTimeString(undefined, {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+
           <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
             <Pressable
               onPress={() => {
                 setLastScanKey("");
-                setScanTone("idle");
+                setScanState("ready");
                 setScanMessage(null);
               }}
               style={{

@@ -872,7 +872,9 @@ export default function CalendarScreen() {
                 </Text>
               </View>
 
-              {appUser?.role === "coach" && event.date === todayKey ? (
+              {appUser?.role === "coach" &&
+              currentTeam?.practiceCheckInEnabled !== false &&
+              event.date === todayKey ? (
                 <Pressable
                   onPress={() => openQrCheckIn(event)}
                   style={{
