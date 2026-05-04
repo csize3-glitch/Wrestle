@@ -299,6 +299,39 @@ export async function listPracticeSessionsForWrestler(
   );
 }
 
+function compactPracticeSessionValue<T>(value: T): T {
+  if (value === undefined) {
+    return null as T;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .filter((entry) => entry !== undefined)
+      .map((entry) => compactPracticeSessionValue(entry)) as T;
+  }
+
+  if (value && typeof value === "object") {
+    const prototype = Object.getPrototypeOf(value);
+
+    // Preserve Firebase FieldValue/Timestamp and other class instances.
+    if (prototype !== Object.prototype && prototype !== null) {
+      return value;
+    }
+
+    const cleaned: Record<string, unknown> = {};
+
+    Object.entries(value as Record<string, unknown>).forEach(([key, entry]) => {
+      if (entry !== undefined) {
+        cleaned[key] = compactPracticeSessionValue(entry);
+      }
+    });
+
+    return cleaned as T;
+  }
+
+  return value;
+}
+
 export async function updatePracticeSessionFollowUpStatus(
   db: Firestore,
   input: {
@@ -308,19 +341,21 @@ export async function updatePracticeSessionFollowUpStatus(
     status: "open" | "done";
   }
 ): Promise<void> {
+  const nextFollowUps = input.followUps.map((followUp) =>
+    followUp.id === input.followUpId
+      ? {
+          ...followUp,
+          status: input.status,
+          completedAt:
+            input.status === "done"
+              ? followUp.completedAt || new Date().toISOString()
+              : "",
+        }
+      : followUp
+  );
+
   await updateDoc(doc(db, COLLECTIONS.PRACTICE_SESSIONS, input.sessionId), {
-    followUps: input.followUps.map((followUp) =>
-      followUp.id === input.followUpId
-        ? {
-            ...followUp,
-            status: input.status,
-            completedAt:
-              input.status === "done"
-                ? followUp.completedAt || new Date().toISOString()
-                : "",
-          }
-        : followUp
-    ),
+    followUps: compactPracticeSessionValue(nextFollowUps),
     updatedAt: serverTimestamp(),
   });
 }
