@@ -294,7 +294,12 @@ service cloud.firestore {
     }
 
     match /wrestlers/{wrestlerId} {
-      allow read: if signedIn() && canReadWrestler(wrestlerId);
+      allow read: if signedIn() &&
+        (
+          (isCoach() && sameTeam(resource.data.teamId)) ||
+          (currentRole() == "athlete" && sameTeam(resource.data.teamId)) ||
+          (currentRole() == "parent" && sameTeam(resource.data.teamId) && isLinkedParentWrestler(wrestlerId))
+        );
 
       allow create: if signedIn() &&
         (
