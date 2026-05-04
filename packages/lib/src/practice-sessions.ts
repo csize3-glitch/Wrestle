@@ -1,8 +1,11 @@
 import {
   collection,
+  doc,
   getDocs,
   orderBy,
   query,
+  serverTimestamp,
+  updateDoc,
   where,
   type Firestore,
 } from "firebase/firestore";
@@ -294,4 +297,30 @@ export async function listPracticeSessionsForWrestler(
       session.followUps?.some((followUp) => followUp.wrestlerId === wrestlerId) ||
       session.attendance?.some((entry) => entry.wrestlerId === wrestlerId)
   );
+}
+
+export async function updatePracticeSessionFollowUpStatus(
+  db: Firestore,
+  input: {
+    sessionId: string;
+    followUps: PracticeSessionFollowUp[];
+    followUpId: string;
+    status: "open" | "done";
+  }
+): Promise<void> {
+  await updateDoc(doc(db, COLLECTIONS.PRACTICE_SESSIONS, input.sessionId), {
+    followUps: input.followUps.map((followUp) =>
+      followUp.id === input.followUpId
+        ? {
+            ...followUp,
+            status: input.status,
+            completedAt:
+              input.status === "done"
+                ? followUp.completedAt || new Date().toISOString()
+                : "",
+          }
+        : followUp
+    ),
+    updatedAt: serverTimestamp(),
+  });
 }

@@ -281,6 +281,22 @@ export default function SettingsPage() {
           <p className="content-card__copy">
             Decide who can check in, whether attendance is required before closeout, and how much athletes and parents can see.
           </p>
+          <div
+            style={{
+              marginTop: 16,
+              padding: "14px 16px",
+              borderRadius: 16,
+              border: "1px solid #f0d7dc",
+              background: "#fff7f8",
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 800, color: "#9f1239", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+              Quick toggles
+            </div>
+            <div style={{ color: "#475467", fontSize: 14, lineHeight: 1.6 }}>
+              Practice check-in, Athlete check-in, and Parent check-in control who sees the mobile check-in cards on practice day.
+            </div>
+          </div>
 
           {!isOwner ? (
             <p className="content-card__copy" style={{ marginTop: 18 }}>
@@ -296,9 +312,9 @@ export default function SettingsPage() {
               }}
             >
               {[
-                ["practiceCheckInEnabled", "Practice-day check-in enabled"],
-                ["athleteCheckInEnabled", "Athletes can check themselves in"],
-                ["parentCheckInEnabled", "Parents can check in linked wrestlers"],
+                ["practiceCheckInEnabled", "Practice check-in"],
+                ["athleteCheckInEnabled", "Athlete check-in"],
+                ["parentCheckInEnabled", "Parent check-in"],
                 ["coachCanOverrideAttendance", "Coaches can override attendance"],
                 ["attendanceRequiredForCloseout", "Attendance required before closeout"],
                 ["showAttendanceToAthletes", "Show attendance status to athletes"],

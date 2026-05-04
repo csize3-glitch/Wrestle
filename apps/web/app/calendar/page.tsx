@@ -31,6 +31,7 @@ import {
   listTournaments,
   listWrestlers,
   sendTeamPushDelivery,
+  updatePracticeSessionFollowUpStatus,
 } from "@wrestlewell/lib/index";
 import { RequireAuth } from "../require-auth";
 import { useAuthState } from "../auth-provider";
@@ -96,6 +97,10 @@ type SessionFollowUpItem = PracticeSessionFollowUp & {
   sessionId: string;
   sessionTitle: string;
   sessionCompletedAt?: string;
+};
+
+type SelectedFollowUpDetail = SessionFollowUpItem & {
+  laneTitle: string;
 };
 
 type AssignmentType = "team" | "group" | "custom";
@@ -252,6 +257,10 @@ export default function CalendarPage() {
   const [viewAsWrestlerId, setViewAsWrestlerId] = useState("");
   const [weekOffset, setWeekOffset] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(1440);
+  const [selectedFollowUpDetail, setSelectedFollowUpDetail] = useState<SelectedFollowUpDetail | null>(
+    null
+  );
+  const [updatingFollowUpKey, setUpdatingFollowUpKey] = useState<string | null>(null);
 
   const isCoach = appUser?.role === "coach";
 
@@ -646,24 +655,60 @@ export default function CalendarPage() {
     return visibleCompletedPractices;
   }, [coachCalendarFilter, isCoach, visibleCompletedPractices]);
 
+  const groupedCompletedPractices = useMemo(() => {
+    const latestByEventId = new Map<string, CompletedPracticeSessionItem>();
+    const additionalByEventId = new Map<string, CompletedPracticeSessionItem[]>();
+    const standalone: CompletedPracticeSessionItem[] = [];
+
+    const sorted = filteredCompletedPractices
+      .slice()
+      .sort(
+        (a, b) =>
+          new Date(normalizeDateValue(b.completedAt || b.createdAt) || 0).getTime() -
+          new Date(normalizeDateValue(a.completedAt || a.createdAt) || 0).getTime()
+      );
+
+    for (const session of sorted) {
+      if (!session.calendarEventId) {
+        standalone.push(session);
+        continue;
+      }
+
+      if (!latestByEventId.has(session.calendarEventId)) {
+        latestByEventId.set(session.calendarEventId, session);
+        continue;
+      }
+
+      const extras = additionalByEventId.get(session.calendarEventId) || [];
+      extras.push(session);
+      additionalByEventId.set(session.calendarEventId, extras);
+    }
+
+    return {
+      deduped: [...latestByEventId.values(), ...standalone],
+      latestByEventId,
+      additionalByEventId,
+    };
+  }, [filteredCompletedPractices]);
+
   const linkedCompletedPracticeByEventId = useMemo(() => {
     const visibleEventIds = new Set(filteredEvents.map((event) => event.id));
     return Object.fromEntries(
-      filteredCompletedPractices
+      groupedCompletedPractices.deduped
         .filter(
           (session) => session.calendarEventId && visibleEventIds.has(session.calendarEventId)
         )
         .map((session) => [session.calendarEventId as string, session])
     ) as Record<string, CompletedPracticeSessionItem>;
-  }, [filteredCompletedPractices, filteredEvents]);
+  }, [filteredEvents, groupedCompletedPractices.deduped]);
 
   const standaloneCompletedPractices = useMemo(
     () =>
-      filteredCompletedPractices.filter(
+      groupedCompletedPractices.deduped.filter(
         (session) =>
           !session.calendarEventId || !linkedCompletedPracticeByEventId[session.calendarEventId]
       ),
-    [filteredCompletedPractices, linkedCompletedPracticeByEventId]
+    [groupedCompletedPractices.deduped, linkedCompletedPracticeByEventId]
   );
 
   function getResolvedAssignmentPreview(dateKey: string) {
@@ -855,7 +900,7 @@ export default function CalendarPage() {
         (!event.assignmentType && !event.groupId && !(event.assignedWrestlerIds || []).length)
     );
 
-    const legacyTeamCompleted = filteredCompletedPractices.filter(
+    const legacyTeamCompleted = groupedCompletedPractices.deduped.filter(
       (session) =>
         (session.assignmentType || "team") === "team" ||
         (!session.assignmentType && !session.groupId && !(session.assignedWrestlerIds || []).length)
@@ -880,7 +925,7 @@ export default function CalendarPage() {
         group.description?.trim() || "Training group review for the selected week.",
         "group",
         filteredEvents.filter((event) => event.groupId === group.id),
-        filteredCompletedPractices.filter((session) => session.groupId === group.id),
+        groupedCompletedPractices.deduped.filter((session) => session.groupId === group.id),
         `Open ${group.name} roster`
       );
 
@@ -893,14 +938,14 @@ export default function CalendarPage() {
       "Individually assigned practices and private work this week.",
       "custom",
       filteredEvents.filter((event) => event.assignmentType === "custom"),
-      filteredCompletedPractices.filter((session) => session.assignmentType === "custom"),
+      groupedCompletedPractices.deduped.filter((session) => session.assignmentType === "custom"),
       "Open wrestler assignments"
     );
 
     if (customCard) cards.push(customCard);
 
     return cards;
-  }, [activeTrainingGroups, filteredCompletedPractices, filteredEvents]);
+  }, [activeTrainingGroups, filteredEvents, groupedCompletedPractices.deduped]);
 
   async function assignPlanToDate(dateKey: string) {
     if (!currentTeam?.id) {
@@ -1005,6 +1050,66 @@ export default function CalendarPage() {
     } catch (error) {
       console.error("Failed to remove calendar event:", error);
       alert("Failed to remove calendar event.");
+    }
+  }
+
+  async function toggleFollowUpStatus(detail: SelectedFollowUpDetail) {
+    if (!isCoach) {
+      return;
+    }
+
+    const session = completedPractices.find((entry) => entry.id === detail.sessionId);
+    if (!session?.followUps?.length) {
+      alert("Could not find the saved follow-up for this practice.");
+      return;
+    }
+
+    const nextStatus = detail.status === "open" ? "done" : "open";
+    const nextFollowUps = session.followUps.map((followUp) =>
+      followUp.id === detail.id
+        ? {
+            ...followUp,
+            status: nextStatus,
+            completedAt: nextStatus === "done" ? new Date().toISOString() : "",
+          } satisfies PracticeSessionFollowUp
+        : followUp
+    );
+
+    const followUpKey = `${detail.sessionId}:${detail.id}`;
+    try {
+      setUpdatingFollowUpKey(followUpKey);
+      await updatePracticeSessionFollowUpStatus(db, {
+        sessionId: detail.sessionId,
+        followUps: session.followUps,
+        followUpId: detail.id,
+        status: nextStatus,
+      });
+
+      setCompletedPractices((prev) =>
+        prev.map((entry) =>
+          entry.id === detail.sessionId
+            ? {
+                ...entry,
+                followUps: nextFollowUps,
+              }
+            : entry
+        )
+      );
+
+      setSelectedFollowUpDetail((prev) =>
+        prev && prev.sessionId === detail.sessionId && prev.id === detail.id
+          ? {
+              ...prev,
+              status: nextStatus,
+              completedAt: nextStatus === "done" ? new Date().toISOString() : "",
+            }
+          : prev
+      );
+    } catch (error) {
+      console.error("Failed to update follow-up status:", error);
+      alert("Failed to update the follow-up status.");
+    } finally {
+      setUpdatingFollowUpKey(null);
     }
   }
 
@@ -1762,6 +1867,8 @@ export default function CalendarPage() {
                   {dayEvents.map((event) => (
                     (() => {
                       const linkedSession = linkedCompletedPracticeByEventId[event.id] || null;
+                      const additionalLinkedSessions =
+                        groupedCompletedPractices.additionalByEventId.get(event.id) || [];
                       const isCompleted = event.status === "completed" || Boolean(linkedSession);
                       const attendanceCounts =
                         linkedSession?.attendanceCounts || event.attendanceCounts;
@@ -1850,6 +1957,19 @@ export default function CalendarPage() {
                               {linkedWrestlerNoteCount} wrestler note
                               {linkedWrestlerNoteCount === 1 ? "" : "s"} · {linkedOpenFollowUps} open
                               follow-up{linkedOpenFollowUps === 1 ? "" : "s"}
+                            </div>
+                          ) : null}
+
+                          {additionalLinkedSessions.length > 0 ? (
+                            <div
+                              style={{
+                                fontSize: 12,
+                                color: "#9f1239",
+                                marginTop: 6,
+                                fontWeight: 700,
+                              }}
+                            >
+                              Additional saved closeouts: {additionalLinkedSessions.length}
                             </div>
                           ) : null}
 
@@ -2442,7 +2562,8 @@ export default function CalendarPage() {
                                   {session.practicePlanTitle || "Completed practice"}
                                 </div>
                                 <div style={{ color: "#666", fontSize: 13, marginBottom: 6 }}>
-                                  {formatCompletedAt(session.completedAt || session.createdAt)}
+                                  {formatCompletedAt(session.completedAt || session.createdAt)} ·{" "}
+                                  {session.calendarEventId ? "Scheduled practice closeout" : "Unscheduled practice closeout"}
                                 </div>
                                 <div style={{ color: "#8a6d00", fontSize: 13, marginBottom: 6, fontWeight: 700 }}>
                                   {formatAttendanceSummary(session.attendanceCounts)}
@@ -2515,13 +2636,23 @@ export default function CalendarPage() {
                               Follow-ups
                             </div>
                             {block.followUps.slice(0, 6).map((followUp) => (
-                              <div
+                              <button
                                 key={`${followUp.sessionId}-${followUp.id}`}
+                                type="button"
+                                onClick={() =>
+                                  setSelectedFollowUpDetail({
+                                    ...followUp,
+                                    laneTitle: block.title,
+                                  })
+                                }
                                 style={{
+                                  textAlign: "left",
+                                  cursor: "pointer",
                                   borderRadius: 8,
                                   border: "1px solid #eadf9a",
                                   padding: 10,
                                   background: "#ffffff",
+                                  width: "100%",
                                 }}
                               >
                                 <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
@@ -2551,7 +2682,10 @@ export default function CalendarPage() {
                                 ) : (
                                   <div style={{ color: "#666", fontSize: 14 }}>No extra detail added.</div>
                                 )}
-                              </div>
+                                <div style={{ color: "#0f3d68", fontSize: 13, fontWeight: 700, marginTop: 8 }}>
+                                  Open detail
+                                </div>
+                              </button>
                             ))}
                           </div>
                         ) : null}
@@ -2560,6 +2694,108 @@ export default function CalendarPage() {
                   );
                 })
               )}
+            </div>
+          </section>
+        ) : null}
+
+        {selectedFollowUpDetail ? (
+          <section
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(15, 23, 42, 0.42)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 20,
+              zIndex: 40,
+            }}
+            onClick={() => setSelectedFollowUpDetail(null)}
+          >
+            <div
+              style={{
+                width: "min(680px, 100%)",
+                borderRadius: 20,
+                background: "#ffffff",
+                border: "1px solid #e5e7eb",
+                boxShadow: "0 30px 80px rgba(15, 23, 42, 0.24)",
+                padding: 24,
+              }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", marginBottom: 18 }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: "#9f1239", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+                    Follow-up detail
+                  </div>
+                  <h3 style={{ margin: 0 }}>{selectedFollowUpDetail.title}</h3>
+                  <div style={{ color: "#667085", fontSize: 14, marginTop: 8, lineHeight: 1.6 }}>
+                    {selectedFollowUpDetail.laneTitle} · {selectedFollowUpDetail.sessionTitle}
+                    {selectedFollowUpDetail.wrestlerName ? ` · ${selectedFollowUpDetail.wrestlerName}` : ""}
+                  </div>
+                </div>
+                <button onClick={() => setSelectedFollowUpDetail(null)} style={{ padding: "8px 12px" }}>
+                  Close
+                </button>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 18 }}>
+                {[
+                  { label: "Status", value: selectedFollowUpDetail.status === "open" ? "Open" : "Closed" },
+                  { label: "Category", value: selectedFollowUpDetail.category },
+                  { label: "Due", value: selectedFollowUpDetail.dueDate || "No due date" },
+                  { label: "Saved", value: formatCompletedAt(selectedFollowUpDetail.sessionCompletedAt) },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    style={{
+                      borderRadius: 14,
+                      padding: 14,
+                      background: "#f8fafc",
+                      border: "1px solid #e5e7eb",
+                    }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 800, color: "#667085", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+                      {item.label}
+                    </div>
+                    <div style={{ fontWeight: 700, color: "#0f172a" }}>{item.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  borderRadius: 14,
+                  padding: 16,
+                  background: "#fffdf5",
+                  border: "1px solid #f3e8a8",
+                  whiteSpace: "pre-wrap",
+                  lineHeight: 1.6,
+                  color: "#344054",
+                  marginBottom: 18,
+                }}
+              >
+                {selectedFollowUpDetail.details || "No extra follow-up details were added yet."}
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ color: "#667085", fontSize: 14 }}>
+                  Review this item from the weekly closeout and keep statuses current for coaches.
+                </div>
+                {isCoach ? (
+                  <button
+                    onClick={() => toggleFollowUpStatus(selectedFollowUpDetail)}
+                    disabled={updatingFollowUpKey === `${selectedFollowUpDetail.sessionId}:${selectedFollowUpDetail.id}`}
+                    style={{ padding: "10px 14px" }}
+                  >
+                    {updatingFollowUpKey === `${selectedFollowUpDetail.sessionId}:${selectedFollowUpDetail.id}`
+                      ? "Saving..."
+                      : selectedFollowUpDetail.status === "open"
+                        ? "Mark Closed"
+                        : "Reopen Follow-Up"}
+                  </button>
+                ) : null}
+              </div>
             </div>
           </section>
         ) : null}
