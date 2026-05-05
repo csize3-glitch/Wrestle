@@ -228,9 +228,13 @@ function createTournamentCards(args: {
         const submittedCount = entries.filter((entry) => entry.status === "submitted").length;
         const confirmedCount = entries.filter((entry) => entry.status === "confirmed").length;
 
+        const latestEntryTimestamp = entries
+          .map((entry) => entry.updatedAt || entry.createdAt)
+          .sort((a, b) => dateTimeMs(b) - dateTimeMs(a))[0];
+
         return {
           id: `tournament-${tournament.id}`,
-          rawCreatedAt: tournament.eventDate,
+          rawCreatedAt: latestEntryTimestamp || tournament.updatedAt || tournament.createdAt || tournament.eventDate,
           kind: "tournament" as const,
           title: `${tournament.name} roster update`,
           body:
@@ -240,7 +244,7 @@ function createTournamentCards(args: {
           meta: tournament.eventDate
             ? `Tournament update • ${formatPracticeDate(tournament.eventDate)}`
             : "Tournament update",
-          isUnread: submittedCount > 0,
+          isUnread: isUnread(latestEntryTimestamp || tournament.updatedAt || tournament.createdAt, args.lastSeenAt),
           actionLabel: submittedCount > 0 ? "Review Registrations" : "Open Tournament",
           route: "/tournaments",
           params: { tournamentId: tournament.id },
@@ -274,23 +278,36 @@ function createTournamentCards(args: {
               tournamentId: tournament.id,
             };
 
+      const tournamentAlertTimestamp =
+        entry?.updatedAt || entry?.createdAt || tournament.updatedAt || tournament.createdAt;
+
+      const wrestlerName = entry?.wrestlerName || "Your wrestler";
+      const confirmedBody =
+        args.appRole === "parent"
+          ? `${wrestlerName}'s coach verified the registration. ${wrestlerName} is available on Match-Day.`
+          : "Your coach verified your registration. You are available on Match-Day.";
+
       return {
         id: `tournament-${tournament.id}`,
-        rawCreatedAt: tournament.eventDate,
+        rawCreatedAt: tournamentAlertTimestamp || tournament.eventDate,
         kind: "tournament" as const,
         title: `${tournament.name} registration`,
         body:
           entry?.status === "confirmed"
-            ? "Your coach verified your registration. You are available on Match-Day."
+            ? confirmedBody
             : entry?.status === "submitted"
-              ? "Your registration is submitted and waiting for coach verification."
-              : "You are listed on the WrestleWell roster for this tournament.",
+              ? args.appRole === "parent"
+                ? `${wrestlerName}'s registration is submitted and waiting for coach verification.`
+                : "Your registration is submitted and waiting for coach verification."
+              : args.appRole === "parent"
+                ? `${wrestlerName} is listed on the WrestleWell roster for this tournament.`
+                : "You are listed on the WrestleWell roster for this tournament.",
         meta: tournament.eventDate
           ? `Tournament update • ${formatPracticeDate(tournament.eventDate)}`
           : "Tournament update",
-        isUnread: entry?.status === "confirmed",
+        isUnread: isUnread(tournamentAlertTimestamp, args.lastSeenAt),
         actionLabel: entry?.status === "confirmed" ? "Open Match-Day" : "Open Tournament",
-        route: entry?.status === "confirmed" ? "/match-day" : "/tournaments",
+        route: entry?.status === "confirmed" && args.appRole !== "parent" ? "/match-day" : "/tournaments",
         relatedWrestlerName: entry?.wrestlerName,
         relatedStatus: entry?.status,
         params,
