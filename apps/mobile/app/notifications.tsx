@@ -99,12 +99,15 @@ function dateTimeMs(value: unknown) {
 }
 
 function isUnread(createdAt: unknown, lastSeenAt?: string) {
-  const createdMs = dateTimeMs(createdAt);
-  if (!createdMs) return false;
+  if (!createdAt) return false;
   if (!lastSeenAt) return true;
 
-  const seenMs = new Date(lastSeenAt).getTime();
-  if (Number.isNaN(seenMs)) return true;
+  const createdMs = dateTimeMs(createdAt);
+  const seenMs = dateTimeMs(lastSeenAt);
+
+  if (!createdMs || !seenMs) {
+    return false;
+  }
 
   return createdMs > seenMs;
 }
@@ -981,7 +984,7 @@ export default function NotificationsScreen() {
             }}
           >
             <Text style={{ color: "#ffffff", fontWeight: "900" }}>
-              {markingSeen ? "Updating..." : "Mark Seen"}
+              {markingSeen ? "Updating..." : "Mark All Read"}
             </Text>
           </Pressable>
         </View>
