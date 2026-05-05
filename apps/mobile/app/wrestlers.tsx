@@ -500,6 +500,13 @@ function MatchHistoryCard({ matches }: { matches: WrestlerMatch[] }) {
 
 export default function WrestlersScreen() {
   const { firebaseUser, appUser, currentTeam, loading: authLoading } = useMobileAuthState();
+  const isParent = appUser?.role === "parent";
+
+  useEffect(() => {
+    if (isParent) {
+      router.replace("/calendar" as any);
+    }
+  }, [isParent]);
   const params = useLocalSearchParams<{ wrestlerId?: string }>();
 
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
