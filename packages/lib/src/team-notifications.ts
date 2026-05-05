@@ -46,7 +46,9 @@ function normalizeTeamNotification(
     id,
     teamId: typeof value.teamId === "string" ? value.teamId : "",
     audienceRole:
-      value.audienceRole === "coach" || value.audienceRole === "athlete"
+      value.audienceRole === "coach" ||
+      value.audienceRole === "athlete" ||
+      value.audienceRole === "parent"
         ? value.audienceRole
         : undefined,
     title: typeof value.title === "string" ? value.title : "",
