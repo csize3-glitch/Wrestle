@@ -548,6 +548,12 @@ export default function MatSideScreen() {
     useMobileAuthState();
   const params = useLocalSearchParams<{ wrestlerId?: string }>();
 
+  useEffect(() => {
+    if (!authLoading && appUser && appUser.role !== "coach") {
+      router.replace("/calendar" as any);
+    }
+  }, [authLoading, appUser?.role]);
+
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
   const [wrestlerUsers, setWrestlerUsers] = useState<Record<string, AppUser>>({});
   const [wrestlerMatches, setWrestlerMatches] = useState<WrestlerMatch[]>([]);
