@@ -172,10 +172,18 @@ export default function TournamentsScreen() {
                   )
                 )
               ).flat()
-            : await listTournamentEntries(db, {
-                teamId: currentTeam.id,
-                tournamentId: tournament.id,
-              });
+            : appUser?.role === "athlete"
+              ? ownWrestler
+                ? await listTournamentEntries(db, {
+                    teamId: currentTeam.id,
+                    tournamentId: tournament.id,
+                    wrestlerId: ownWrestler.id,
+                  }).catch(() => [])
+                : []
+              : await listTournamentEntries(db, {
+                  teamId: currentTeam.id,
+                  tournamentId: tournament.id,
+                });
 
         return [tournament.id, entries] as const;
       })

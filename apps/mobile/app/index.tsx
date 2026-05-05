@@ -618,10 +618,18 @@ export default function IndexScreen() {
                     )
                   )
                 ).flat()
-              : await listTournamentEntries(db, {
-                  teamId: currentTeam.id,
-                  tournamentId: tournament.id,
-                });
+              : appUser.role === "athlete"
+                ? dashboardOwnWrestler
+                  ? await listTournamentEntries(db, {
+                      teamId: currentTeam.id,
+                      tournamentId: tournament.id,
+                      wrestlerId: dashboardOwnWrestler.id,
+                    }).catch(() => [])
+                  : []
+                : await listTournamentEntries(db, {
+                    teamId: currentTeam.id,
+                    tournamentId: tournament.id,
+                  });
 
           return entries.map((entry) => ({
             ...entry,
