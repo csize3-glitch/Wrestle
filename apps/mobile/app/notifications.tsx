@@ -12,6 +12,7 @@ import {
   listTournamentEntries,
   listTournaments,
   listWrestlers,
+  listWrestlersByIds,
   type CalendarEventRecord,
 } from "@wrestlewell/lib/index";
 import type {
@@ -317,13 +318,30 @@ export default function NotificationsScreen() {
       return;
     }
 
+    const isParent = appUser?.role === "parent";
+    const linkedWrestlerIds = appUser?.linkedWrestlerIds || [];
+
     const [announcementRows, notificationRows, eventRows, tournamentRows, wrestlerRows] =
       await Promise.all([
         listTeamAnnouncements(db, currentTeam.id),
         listTeamNotifications(db, currentTeam.id, appUser?.role),
-        listCalendarEvents(db, currentTeam.id),
+        listCalendarEvents(
+          db,
+          currentTeam.id,
+          isParent
+            ? {
+                id: "__parent_linked_filter__",
+                teamId: currentTeam.id,
+                firstName: "",
+                lastName: "",
+                ownerUserId: firebaseUser?.uid || "",
+                trainingGroupIds: [],
+                linkedWrestlerIds,
+              } as any
+            : undefined
+        ),
         listTournaments(db, currentTeam.id),
-        listWrestlers(db, currentTeam.id),
+        isParent ? listWrestlersByIds(db, linkedWrestlerIds) : listWrestlers(db, currentTeam.id),
       ]);
 
     setAnnouncements(announcementRows);
@@ -337,10 +355,17 @@ export default function NotificationsScreen() {
         async (tournament) =>
           [
             tournament.id,
-            await listTournamentEntries(db, {
-              teamId: currentTeam.id,
-              tournamentId: tournament.id,
-            }),
+            (
+              await Promise.all(
+                (isParent ? linkedWrestlerIds : [undefined]).map((wrestlerId) =>
+                  listTournamentEntries(db, {
+                    teamId: currentTeam.id,
+                    tournamentId: tournament.id,
+                    wrestlerId,
+                  } as any).catch(() => [])
+                )
+              )
+            ).flat(),
           ] as const
       )
     );

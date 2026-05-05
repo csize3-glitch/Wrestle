@@ -352,18 +352,38 @@ service cloud.firestore {
     }
 
     match /tournament_entries/{entryId} {
-      allow read: if signedIn() && sameTeam(resource.data.teamId);
+      allow read: if signedIn() &&
+        sameTeam(resource.data.teamId) &&
+        (
+          isCoach() ||
+          isOwnedWrestler(resource.data.wrestlerId) ||
+          isLinkedParentWrestler(resource.data.wrestlerId)
+        );
 
       allow create: if signedIn() &&
         (
           (isCoach() && request.resource.data.teamId == currentTeamId()) ||
-          isAthletePlannedTournamentCreate()
+          isAthletePlannedTournamentCreate() ||
+          (
+            currentRole() == "parent" &&
+            request.resource.data.teamId == currentTeamId() &&
+            isLinkedParentWrestler(request.resource.data.wrestlerId)
+          )
         );
 
       allow update: if signedIn() &&
         (
           (isCoach() && sameTeam(resource.data.teamId)) ||
-          isAthleteSubmittedTournamentUpdate()
+          isAthleteSubmittedTournamentUpdate() ||
+          (
+            currentRole() == "parent" &&
+            sameTeam(resource.data.teamId) &&
+            isLinkedParentWrestler(resource.data.wrestlerId) &&
+            request.resource.data.teamId == resource.data.teamId &&
+            request.resource.data.tournamentId == resource.data.tournamentId &&
+            request.resource.data.wrestlerId == resource.data.wrestlerId &&
+            request.resource.data.wrestlerName == resource.data.wrestlerName
+          )
         );
 
       allow delete: if signedIn() && isCoach() && sameTeam(resource.data.teamId);
