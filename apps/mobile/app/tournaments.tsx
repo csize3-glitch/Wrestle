@@ -18,6 +18,7 @@ import {
   listTournamentEntries,
   listTournaments,
   listWrestlers,
+  listWrestlersByIds,
   sendTeamPushDelivery,
   updateTournamentEntryStatus,
 } from "@wrestlewell/lib/index";
@@ -106,7 +107,9 @@ export default function TournamentsScreen() {
   const ownWrestler =
     appUser?.role === "athlete" && firebaseUser
       ? wrestlers.find((wrestler) => wrestler.ownerUserId === firebaseUser.uid) || null
-      : null;
+      : appUser?.role === "parent"
+        ? wrestlers[0] || null
+        : null;
 
   const visibleTournaments = useMemo(() => {
     const baseTournaments =
@@ -134,9 +137,16 @@ export default function TournamentsScreen() {
   }, [appUser?.role, entriesByTournament, focusedTournamentId, ownWrestler, tournaments]);
 
   async function refresh() {
+    const isParent = appUser?.role === "parent";
+    const linkedWrestlerIds = appUser?.linkedWrestlerIds || [];
+
     const [rows, wrestlerRows] = await Promise.all([
       listTournaments(db, currentTeam?.id),
-      currentTeam?.id ? listWrestlers(db, currentTeam.id) : Promise.resolve([]),
+      currentTeam?.id
+        ? isParent
+          ? listWrestlersByIds(db, linkedWrestlerIds)
+          : listWrestlers(db, currentTeam.id)
+        : Promise.resolve([]),
     ]);
 
     setTournaments(rows);
@@ -148,16 +158,27 @@ export default function TournamentsScreen() {
     }
 
     const entryRows = await Promise.all(
-      rows.map(
-        async (tournament) =>
-          [
-            tournament.id,
-            await listTournamentEntries(db, {
-              teamId: currentTeam.id,
-              tournamentId: tournament.id,
-            }),
-          ] as const
-      )
+      rows.map(async (tournament) => {
+        const entries =
+          isParent
+            ? (
+                await Promise.all(
+                  linkedWrestlerIds.map((wrestlerId) =>
+                    listTournamentEntries(db, {
+                      teamId: currentTeam.id,
+                      tournamentId: tournament.id,
+                      wrestlerId,
+                    }).catch(() => [])
+                  )
+                )
+              ).flat()
+            : await listTournamentEntries(db, {
+                teamId: currentTeam.id,
+                tournamentId: tournament.id,
+              });
+
+        return [tournament.id, entries] as const;
+      })
     );
 
     setEntriesByTournament(Object.fromEntries(entryRows));

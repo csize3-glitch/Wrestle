@@ -51,14 +51,19 @@ function normalizeTournamentEntry(
 
 export async function listTournamentEntries(
   db: Firestore,
-  args: { teamId: string; tournamentId: string }
+  args: { teamId: string; tournamentId: string; wrestlerId?: string }
 ): Promise<TournamentEntry[]> {
+  const filters = [
+    where("teamId", "==", args.teamId),
+    where("tournamentId", "==", args.tournamentId),
+  ];
+
+  if (args.wrestlerId) {
+    filters.push(where("wrestlerId", "==", args.wrestlerId));
+  }
+
   const snapshot = await getDocs(
-    query(
-      collection(db, COLLECTIONS.TOURNAMENT_ENTRIES),
-      where("teamId", "==", args.teamId),
-      where("tournamentId", "==", args.tournamentId)
-    )
+    query(collection(db, COLLECTIONS.TOURNAMENT_ENTRIES), ...filters)
   );
 
   return snapshot.docs

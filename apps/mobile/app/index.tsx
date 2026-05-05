@@ -605,10 +605,23 @@ export default function IndexScreen() {
 
       const entryBatches = await Promise.all(
         tournamentRows.map(async (tournament) => {
-          const entries = await listTournamentEntries(db, {
-            teamId: currentTeam.id,
-            tournamentId: tournament.id,
-          });
+          const entries =
+            appUser.role === "parent"
+              ? (
+                  await Promise.all(
+                    (appUser.linkedWrestlerIds || []).map((wrestlerId) =>
+                      listTournamentEntries(db, {
+                        teamId: currentTeam.id,
+                        tournamentId: tournament.id,
+                        wrestlerId,
+                      }).catch(() => [])
+                    )
+                  )
+                ).flat()
+              : await listTournamentEntries(db, {
+                  teamId: currentTeam.id,
+                  tournamentId: tournament.id,
+                });
 
           return entries.map((entry) => ({
             ...entry,
