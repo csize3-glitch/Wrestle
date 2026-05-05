@@ -112,16 +112,7 @@ export default function TournamentsScreen() {
         : null;
 
   const visibleTournaments = useMemo(() => {
-    const baseTournaments =
-      appUser?.role === "athlete" && ownWrestler
-        ? tournaments.filter((tournament) => {
-            const entries = entriesByTournament[tournament.id] || [];
-            return (
-              entries.length === 0 ||
-              entries.some((entry) => entry.wrestlerId === ownWrestler.id)
-            );
-          })
-        : tournaments;
+    const baseTournaments = tournaments;
 
     const sorted = baseTournaments.slice().sort(sortTournamentDate);
 
