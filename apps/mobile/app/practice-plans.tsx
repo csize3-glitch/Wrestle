@@ -317,6 +317,7 @@ export default function PracticePlansScreen() {
   const announcedCountdownRef = useRef<string | null>(null);
 
   const isCoach = appUser?.role === "coach";
+  const isParent = appUser?.role === "parent";
   const isLandscape = timerFullscreen && (orientationLandscape || width > height);
 
   const ownWrestler =
@@ -338,6 +339,12 @@ export default function PracticePlansScreen() {
     () => (inlineVideoUrl ? getYouTubeEmbedUrl(inlineVideoUrl) : null),
     [inlineVideoUrl]
   );
+
+  useEffect(() => {
+    if (isParent) {
+      router.replace("/calendar" as any);
+    }
+  }, [isParent]);
 
   const directVideoUrl = inlineVideoUrl && !youtubeEmbedUrl ? inlineVideoUrl : null;
   const routeAssignedWrestlerIds = useMemo(
@@ -499,23 +506,33 @@ export default function PracticePlansScreen() {
 
   useEffect(() => {
     async function loadWrestlers() {
-      if (!currentTeam?.id) {
+      if (!currentTeam?.id || isParent) {
         setWrestlers([]);
         return;
       }
 
       try {
-        setWrestlers(await listWrestlers(db, currentTeam.id));
+        const rows = await listWrestlers(db, currentTeam.id);
+        setWrestlers(
+          appUser?.role === "parent"
+            ? rows.filter((wrestler) => (appUser.linkedWrestlerIds || []).includes(wrestler.id))
+            : rows
+        );
       } catch (error) {
         console.error("Failed to load wrestlers for practice plan assignments:", error);
       }
     }
 
     loadWrestlers();
-  }, [currentTeam?.id]);
+  }, [currentTeam?.id, isParent]);
 
   useEffect(() => {
     async function load() {
+      if (isParent) {
+        setLoading(false);
+        return;
+      }
+
       try {
         await refreshPlans();
       } catch (error) {
@@ -526,7 +543,7 @@ export default function PracticePlansScreen() {
     }
 
     load();
-  }, [appUser?.role, currentTeam?.id, ownWrestler?.id, params.planId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [appUser?.role, currentTeam?.id, isParent, ownWrestler?.id, params.planId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!selectedPlanId) {

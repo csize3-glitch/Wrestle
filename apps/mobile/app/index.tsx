@@ -165,25 +165,32 @@ const athleteActionCards = [
 
 const parentActionCards = [
   {
-    title: "Today’s Check-In",
-    subtitle: "Open calendar and check in linked wrestlers for practice.",
+    title: "Schedule & Check-In",
+    subtitle: "See today’s practices and check in linked wrestlers.",
     href: "/calendar",
     tone: "green",
     stat: "Today",
   },
   {
-    title: "Team Alerts",
-    subtitle: "Read safe team announcements and reminder updates.",
+    title: "Attendance",
+    subtitle: "Review recent check-ins, absences, and late arrivals.",
+    href: "/parent-attendance",
+    tone: "blue",
+    stat: "History",
+  },
+  {
+    title: "Tournaments",
+    subtitle: "Review upcoming tournaments for linked wrestlers.",
+    href: "/tournaments",
+    tone: "orange",
+    stat: "Events",
+  },
+  {
+    title: "Alerts",
+    subtitle: "Read parent-safe team announcements and reminders.",
     href: "/notifications",
     tone: "red",
     stat: "Inbox",
-  },
-  {
-    title: "Linked Wrestlers",
-    subtitle: "See linked athletes and their upcoming practice schedule.",
-    href: "/calendar",
-    tone: "blue",
-    stat: "Family",
   },
 ];
 
@@ -448,6 +455,27 @@ export default function IndexScreen() {
       return {
         label: "Start WrestleWellIQ",
         href: "/vark-questionnaire",
+      };
+    }
+
+    if (appUser?.role === "parent") {
+      if (nextPractice) {
+        return {
+          label: "Open Family Schedule",
+          href: "/calendar",
+        };
+      }
+
+      if (nextTournament) {
+        return {
+          label: "Open Tournaments",
+          href: "/tournaments",
+        };
+      }
+
+      return {
+        label: "Open Attendance",
+        href: "/parent-attendance",
       };
     }
 

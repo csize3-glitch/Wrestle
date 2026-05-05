@@ -194,6 +194,53 @@ export async function listPracticeAttendanceForEvent(
     .sort((a, b) => a.wrestlerName.localeCompare(b.wrestlerName));
 }
 
+export async function listPracticeAttendanceForWrestlers(
+  db: Firestore,
+  teamId: string,
+  wrestlerIds: string[]
+): Promise<PracticeAttendanceRecord[]> {
+  const uniqueIds = Array.from(
+    new Set(
+      wrestlerIds
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (!uniqueIds.length) {
+    return [];
+  }
+
+  const snapshots = await Promise.all(
+    uniqueIds.map((wrestlerId) =>
+      getDocs(
+        query(
+          collection(db, COLLECTIONS.PRACTICE_ATTENDANCE),
+          where("teamId", "==", teamId),
+          where("wrestlerId", "==", wrestlerId)
+        )
+      )
+    )
+  );
+
+  return snapshots
+    .flatMap((snapshot) =>
+      snapshot.docs.map((docSnapshot) =>
+        normalizePracticeAttendance(
+          docSnapshot.id,
+          docSnapshot.data() as Record<string, unknown>
+        )
+      )
+    )
+    .sort((a, b) => {
+      if (a.date !== b.date) {
+        return b.date.localeCompare(a.date);
+      }
+
+      return a.wrestlerName.localeCompare(b.wrestlerName);
+    });
+}
+
 type UpsertAttendanceInput = {
   teamId: string;
   calendarEventId: string;
