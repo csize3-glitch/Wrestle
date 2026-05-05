@@ -1,11 +1,14 @@
 import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, Text, TextInput, View } from "react-native";
+import { Alert, Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@wrestlewell/firebase/client";
 import {
   createTeamAnnouncement,
   listCalendarEvents,
+  listPracticeAttendanceForWrestlers,
+  listPracticeSessionFollowUps,
+  listPracticeSessionsForWrestler,
   listTeamAnnouncements,
   listTeamNotifications,
   sendTeamPushDelivery,
@@ -16,6 +19,8 @@ import {
   type CalendarEventRecord,
 } from "@wrestlewell/lib/index";
 import type {
+  PracticeAttendanceRecord,
+  PracticeSession,
   TeamAnnouncement,
   TeamNotification,
   Tournament,
@@ -27,7 +32,13 @@ import { useMobileAuthState } from "../components/auth-provider";
 import { MobileScreenShell } from "../components/mobile-screen-shell";
 import { useNotificationsState } from "../components/notifications-provider";
 
-type NotificationKind = "announcement" | "practice" | "tournament";
+type NotificationKind =
+  | "announcement"
+  | "practice"
+  | "tournament"
+  | "attendance"
+  | "followup"
+  | "note";
 
 type NotificationCard = {
   id: string;
@@ -40,6 +51,9 @@ type NotificationCard = {
   actionLabel: string;
   route: string;
   params?: Record<string, string>;
+  relatedWrestlerName?: string;
+  relatedContext?: string;
+  relatedStatus?: string;
 };
 
 function normalizeDateValue(value: unknown): string {
@@ -126,9 +140,41 @@ function formatAnnouncementDate(value: unknown) {
   });
 }
 
+function formatAttendanceStatus(status: PracticeAttendanceRecord["status"]) {
+  switch (status) {
+    case "late":
+      return "Late";
+    case "absent":
+      return "Absent";
+    case "injured":
+      return "Injured";
+    case "excused":
+      return "Excused";
+    case "not_sure":
+      return "Not Sure";
+    case "not_checked_in":
+      return "Not Checked In";
+    default:
+      return "Present";
+  }
+}
+
+function getRoleEmptyState(role?: string) {
+  if (role === "coach") {
+    return "No alerts yet. Athlete check-ins, registrations, follow-ups, and team announcements will appear here.";
+  }
+
+  if (role === "parent") {
+    return "No alerts yet. Linked wrestler schedule changes, attendance updates, tournament reminders, and coach-shared notes will appear here.";
+  }
+
+  return "No alerts yet. Your schedule changes, tournament reminders, attendance updates, and coach-shared notes will appear here.";
+}
+
 function createPracticeCards(args: {
   events: CalendarEventRecord[];
   lastSeenAt?: string;
+  role?: "coach" | "athlete" | "parent";
 }): NotificationCard[] {
   const todayKey = new Date().toISOString().split("T")[0];
 
@@ -148,17 +194,25 @@ function createPracticeCards(args: {
         )}.`,
       meta: `Practice reminder • ${formatPracticeDate(event.date)}`,
       isUnread: false,
-      actionLabel: event.practicePlanId ? "Open Practice" : "Open Calendar",
-      route: event.practicePlanId ? "/practice-plans" : "/calendar",
-      params: event.practicePlanId ? { planId: event.practicePlanId } : undefined,
+      actionLabel: "Open Calendar",
+      route: "/calendar",
+      params: undefined,
+      relatedContext:
+        args.role === "coach"
+          ? event.assignmentType === "group" && event.groupName
+            ? event.groupName
+            : event.assignmentType === "custom"
+              ? "Custom assignment"
+              : "Team-wide"
+          : undefined,
     }));
 }
 
 function createTournamentCards(args: {
   tournaments: Tournament[];
   entriesByTournament: Record<string, TournamentEntry[]>;
-  appRole: "coach" | "athlete";
-  athleteOwnedWrestlerId?: string;
+  appRole: "coach" | "athlete" | "parent";
+  visibleWrestlerIds?: string[];
   lastSeenAt?: string;
 }): NotificationCard[] {
   if (args.appRole === "coach") {
@@ -186,26 +240,36 @@ function createTournamentCards(args: {
           isUnread: submittedCount > 0,
           actionLabel: submittedCount > 0 ? "Review Registrations" : "Open Tournament",
           route: "/tournaments",
+          params: { tournamentId: tournament.id },
         };
       });
   }
 
-  if (!args.athleteOwnedWrestlerId) {
+  if (!args.visibleWrestlerIds?.length) {
     return [];
   }
 
   return args.tournaments
     .filter((tournament) =>
       (args.entriesByTournament[tournament.id] || []).some(
-        (entry) => entry.wrestlerId === args.athleteOwnedWrestlerId
+        (entry) => args.visibleWrestlerIds?.includes(entry.wrestlerId)
       )
     )
     .sort((a, b) => (a.eventDate || "9999-12-31").localeCompare(b.eventDate || "9999-12-31"))
     .slice(0, 6)
     .map((tournament) => {
-      const entry = (args.entriesByTournament[tournament.id] || []).find(
-        (row) => row.wrestlerId === args.athleteOwnedWrestlerId
+      const entry = (args.entriesByTournament[tournament.id] || []).find((row) =>
+        args.visibleWrestlerIds?.includes(row.wrestlerId)
       );
+      const params: Record<string, string> =
+        entry?.status === "confirmed" && entry
+          ? {
+              tournamentId: tournament.id,
+              wrestlerId: entry.wrestlerId,
+            }
+          : {
+              tournamentId: tournament.id,
+            };
 
       return {
         id: `tournament-${tournament.id}`,
@@ -224,13 +288,9 @@ function createTournamentCards(args: {
         isUnread: entry?.status === "confirmed",
         actionLabel: entry?.status === "confirmed" ? "Open Match-Day" : "Open Tournament",
         route: entry?.status === "confirmed" ? "/match-day" : "/tournaments",
-        params:
-          entry?.status === "confirmed"
-            ? {
-                tournamentId: tournament.id,
-                wrestlerId: entry.wrestlerId,
-              }
-            : undefined,
+        relatedWrestlerName: entry?.wrestlerName,
+        relatedStatus: entry?.status,
+        params,
       };
     });
 }
@@ -247,7 +307,7 @@ function createAnnouncementCards(args: {
     body: item.body,
     meta: `Coach announcement • ${formatAnnouncementDate(item.createdAt)}`,
     isUnread: isUnread(item.createdAt, args.lastSeenAt),
-    actionLabel: "View Alert",
+    actionLabel: "Mark Read",
     route: "/notifications",
   }));
 }
@@ -255,6 +315,7 @@ function createAnnouncementCards(args: {
 function createTeamNotificationCards(args: {
   items: TeamNotification[];
   lastSeenAt?: string;
+  wrestlerNameById?: Record<string, string>;
 }): NotificationCard[] {
   return args.items.slice(0, 10).map((item) => {
     const isTournamentRegistration = item.type === "tournament_registration";
@@ -271,13 +332,130 @@ function createTeamNotificationCards(args: {
       isUnread: isUnread(item.createdAt, args.lastSeenAt),
       actionLabel: isTournamentRegistration ? "Review Tournament" : "View Alert",
       route: isTournamentRegistration ? "/tournaments" : "/notifications",
+      relatedContext: item.type === "tournament_registration" ? "Registration update" : undefined,
       params:
         isTournamentRegistration && item.tournamentId
           ? {
               tournamentId: item.tournamentId,
             }
           : undefined,
+      relatedWrestlerName: item.wrestlerId
+        ? args.wrestlerNameById?.[item.wrestlerId]
+        : undefined,
     };
+  });
+}
+
+function createAttendanceCards(args: {
+  rows: PracticeAttendanceRecord[];
+  lastSeenAt?: string;
+  role?: "coach" | "athlete" | "parent";
+}): NotificationCard[] {
+  return args.rows
+    .filter((row) => (args.role === "coach" ? true : row.status !== "not_checked_in"))
+    .sort((a, b) => dateTimeMs(b.updatedAt || b.checkedInAt || b.createdAt) - dateTimeMs(a.updatedAt || a.checkedInAt || a.createdAt))
+    .slice(0, 8)
+    .map((row) => ({
+      id: `attendance-${row.id}`,
+      rawCreatedAt: row.updatedAt || row.checkedInAt || row.createdAt,
+      kind: "attendance" as const,
+      title:
+        args.role === "coach"
+          ? `${row.wrestlerName} marked ${formatAttendanceStatus(row.status).toLowerCase()}`
+          : row.status === "present"
+            ? "Check-in confirmed"
+            : `Attendance update: ${formatAttendanceStatus(row.status)}`,
+      body:
+        args.role === "coach"
+          ? `${row.wrestlerName} was marked ${formatAttendanceStatus(row.status).toLowerCase()} for ${formatPracticeDate(row.date)} practice.`
+          : row.status === "present"
+            ? `${row.wrestlerName} is checked in for ${formatPracticeDate(row.date)} practice.`
+            : `${row.wrestlerName} is marked ${formatAttendanceStatus(row.status).toLowerCase()} for ${formatPracticeDate(row.date)} practice.`,
+      meta: `Attendance • ${formatAnnouncementDate(row.updatedAt || row.checkedInAt || row.createdAt)}`,
+      isUnread: isUnread(row.updatedAt || row.checkedInAt || row.createdAt, args.lastSeenAt),
+      actionLabel: "Open Attendance",
+      route: args.role === "parent" ? "/parent-attendance" : "/calendar",
+      relatedWrestlerName: row.wrestlerName,
+      relatedStatus: formatAttendanceStatus(row.status),
+    }));
+}
+
+function createWrestlerNoteCards(args: {
+  sessions: PracticeSession[];
+  role: "athlete" | "parent";
+  wrestlerIds: string[];
+  lastSeenAt?: string;
+}): NotificationCard[] {
+  return args.sessions
+    .flatMap((session) =>
+      (session.wrestlerNotes || [])
+        .filter(
+          (note) =>
+            args.wrestlerIds.includes(note.wrestlerId) &&
+            (args.role === "athlete"
+              ? note.visibility === "athlete_visible"
+              : note.visibility === "parent_visible")
+        )
+        .map((note, index) => ({
+          id: `note-${session.id}-${note.wrestlerId}-${index}`,
+          rawCreatedAt: note.createdAt || session.completedAt || session.createdAt,
+          kind: "note" as const,
+          title: `Coach note for ${note.wrestlerName}`,
+          body: note.note,
+          meta: `Coach note • ${formatAnnouncementDate(note.createdAt || session.completedAt || session.createdAt)}`,
+          isUnread: isUnread(note.createdAt || session.completedAt || session.createdAt, args.lastSeenAt),
+          actionLabel: "Open Calendar",
+          route: "/calendar",
+          relatedWrestlerName: note.wrestlerName,
+          relatedContext: session.practicePlanTitle || "Practice closeout",
+        }))
+    )
+    .sort((a, b) => dateTimeMs(b.rawCreatedAt) - dateTimeMs(a.rawCreatedAt))
+    .slice(0, 8);
+}
+
+function createCoachFollowUpCards(args: {
+  followUps: Awaited<ReturnType<typeof listPracticeSessionFollowUps>>;
+  lastSeenAt?: string;
+}): NotificationCard[] {
+  return args.followUps
+    .filter((followUp) => followUp.status === "open")
+    .sort((a, b) => {
+      const dueA = a.dueDate || "9999-12-31";
+      const dueB = b.dueDate || "9999-12-31";
+      if (dueA !== dueB) {
+        return dueA.localeCompare(dueB);
+      }
+      return dateTimeMs(b.createdAt) - dateTimeMs(a.createdAt);
+    })
+    .slice(0, 8)
+    .map((followUp) => ({
+      id: `followup-${followUp.sessionId}-${followUp.id}`,
+      rawCreatedAt: followUp.createdAt || followUp.sessionCompletedAt,
+      kind: "followup" as const,
+      title: followUp.title,
+      body: followUp.details || "Open coach follow-up from a recent practice closeout.",
+      meta: followUp.dueDate
+        ? `Follow-up due ${formatDateForDue(followUp.dueDate)}`
+        : `Follow-up • ${formatAnnouncementDate(followUp.createdAt || followUp.sessionCompletedAt)}`,
+      isUnread: isUnread(followUp.createdAt || followUp.sessionCompletedAt, args.lastSeenAt),
+      actionLabel: "Open Follow-Up",
+      route: "/follow-ups",
+      relatedWrestlerName: followUp.wrestlerName,
+      relatedContext: followUp.practicePlanTitle || "Practice closeout",
+      relatedStatus: followUp.status,
+    }));
+}
+
+function formatDateForDue(value?: string) {
+  if (!value) return "soon";
+
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
   });
 }
 
@@ -299,13 +477,22 @@ export default function NotificationsScreen() {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [entriesByTournament, setEntriesByTournament] = useState<Record<string, TournamentEntry[]>>({});
   const [wrestlers, setWrestlers] = useState<WrestlerProfile[]>([]);
+  const [attendanceRows, setAttendanceRows] = useState<PracticeAttendanceRecord[]>([]);
+  const [visibleSessions, setVisibleSessions] = useState<PracticeSession[]>([]);
+  const [coachFollowUps, setCoachFollowUps] = useState<Awaited<ReturnType<typeof listPracticeSessionFollowUps>>>([]);
   const [loading, setLoading] = useState(true);
   const [markingSeen, setMarkingSeen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [selectedNotification, setSelectedNotification] = useState<NotificationCard | null>(null);
+  const [lastSeenAt, setLastSeenAt] = useState(appUser?.lastSeenNotificationsAt || "");
 
   const isCoach = appUser?.role === "coach";
+
+  useEffect(() => {
+    setLastSeenAt(appUser?.lastSeenNotificationsAt || "");
+  }, [appUser?.lastSeenNotificationsAt]);
 
   async function refresh() {
     if (!currentTeam?.id) {
@@ -315,37 +502,58 @@ export default function NotificationsScreen() {
       setTournaments([]);
       setEntriesByTournament({});
       setWrestlers([]);
+      setAttendanceRows([]);
+      setVisibleSessions([]);
+      setCoachFollowUps([]);
       return;
     }
 
     const isParent = appUser?.role === "parent";
     const linkedWrestlerIds = appUser?.linkedWrestlerIds || [];
 
-    const [announcementRows, notificationRows, eventRows, tournamentRows, wrestlerRows] =
+    const [announcementRows, notificationRows, tournamentRows, wrestlerRows] =
       await Promise.all([
         listTeamAnnouncements(db, currentTeam.id),
         listTeamNotifications(db, currentTeam.id, appUser?.role),
-        listCalendarEvents(
-          db,
-          currentTeam.id,
-          isParent
-            ? {
-                id: "__parent_linked_filter__",
-                teamId: currentTeam.id,
-                firstName: "",
-                lastName: "",
-                ownerUserId: firebaseUser?.uid || "",
-                trainingGroupIds: [],
-                linkedWrestlerIds,
-              } as any
-            : undefined
-        ),
         listTournaments(db, currentTeam.id),
         isParent ? listWrestlersByIds(db, linkedWrestlerIds) : listWrestlers(db, currentTeam.id),
       ]);
 
+    const athleteOwnedWrestler =
+      appUser?.role === "athlete" && firebaseUser
+        ? wrestlerRows.find((wrestler) => wrestler.ownerUserId === firebaseUser.uid) || null
+        : null;
+    const visibleWrestlerIds =
+      appUser?.role === "athlete"
+        ? athleteOwnedWrestler
+          ? [athleteOwnedWrestler.id]
+          : []
+        : isParent
+          ? linkedWrestlerIds
+          : wrestlerRows.map((wrestler) => wrestler.id);
+
+    const eventRows =
+      appUser?.role === "athlete"
+        ? athleteOwnedWrestler
+          ? await listCalendarEvents(db, currentTeam.id, athleteOwnedWrestler)
+          : []
+        : isParent
+          ? Array.from(
+              new Map(
+                (
+                  await Promise.all(
+                    wrestlerRows.map((wrestler) =>
+                      listCalendarEvents(db, currentTeam.id, wrestler)
+                    )
+                  )
+                )
+                  .flat()
+                  .map((event) => [event.id, event] as const)
+              ).values()
+            )
+        : await listCalendarEvents(db, currentTeam.id);
+
     setAnnouncements(announcementRows);
-    setTeamNotifications(notificationRows);
     setEvents(eventRows);
     setTournaments(tournamentRows);
     setWrestlers(wrestlerRows);
@@ -357,7 +565,7 @@ export default function NotificationsScreen() {
             tournament.id,
             (
               await Promise.all(
-                (isParent ? linkedWrestlerIds : [undefined]).map((wrestlerId) =>
+                ((appUser?.role === "coach" ? [undefined] : visibleWrestlerIds.length ? visibleWrestlerIds : [undefined]) as Array<string | undefined>).map((wrestlerId) =>
                   listTournamentEntries(db, {
                     teamId: currentTeam.id,
                     tournamentId: tournament.id,
@@ -371,6 +579,59 @@ export default function NotificationsScreen() {
     );
 
     setEntriesByTournament(Object.fromEntries(entryRows));
+
+    const filteredNotificationRows = notificationRows.filter((item) => {
+      if (appUser?.role === "coach") {
+        return true;
+      }
+
+      if (!item.wrestlerId) {
+        return true;
+      }
+
+      return visibleWrestlerIds.includes(item.wrestlerId);
+    });
+
+    setTeamNotifications(filteredNotificationRows);
+
+    if (appUser?.role === "coach") {
+      const [followUpRows, attendanceRows] = await Promise.all([
+        listPracticeSessionFollowUps(db, currentTeam.id),
+        listPracticeAttendanceForWrestlers(db, currentTeam.id, wrestlerRows.map((wrestler) => wrestler.id)),
+      ]);
+      setCoachFollowUps(followUpRows);
+      setAttendanceRows(attendanceRows);
+      setVisibleSessions([]);
+      return;
+    }
+
+    if (!visibleWrestlerIds.length) {
+      setAttendanceRows([]);
+      setVisibleSessions([]);
+      setCoachFollowUps([]);
+      return;
+    }
+
+    const [attendanceForVisibleWrestlers, sessionsForVisibleWrestlers] = await Promise.all([
+      listPracticeAttendanceForWrestlers(db, currentTeam.id, visibleWrestlerIds),
+      Promise.all(
+        visibleWrestlerIds.map((wrestlerId) =>
+          listPracticeSessionsForWrestler(db, currentTeam.id, wrestlerId)
+        )
+      ).then((batches) =>
+        Array.from(
+          new Map(
+            batches
+              .flat()
+              .map((session) => [session.id, session] as const)
+          ).values()
+        )
+      ),
+    ]);
+
+    setAttendanceRows(attendanceForVisibleWrestlers);
+    setVisibleSessions(sessionsForVisibleWrestlers);
+    setCoachFollowUps([]);
   }
 
   useEffect(() => {
@@ -399,28 +660,65 @@ export default function NotificationsScreen() {
         : null,
     [appUser?.role, firebaseUser, wrestlers]
   );
+  const wrestlerNameById = useMemo(
+    () =>
+      wrestlers.reduce<Record<string, string>>((map, wrestler) => {
+        map[wrestler.id] = `${wrestler.firstName} ${wrestler.lastName}`.trim();
+        return map;
+      }, {}),
+    [wrestlers]
+  );
+  const visibleWrestlerIds = useMemo(() => {
+    if (appUser?.role === "athlete") {
+      return athleteOwnedWrestler ? [athleteOwnedWrestler.id] : [];
+    }
+
+    if (appUser?.role === "parent") {
+      return appUser.linkedWrestlerIds || [];
+    }
+
+    return wrestlers.map((wrestler) => wrestler.id);
+  }, [appUser?.linkedWrestlerIds, appUser?.role, athleteOwnedWrestler, wrestlers]);
 
   const notificationCards = useMemo(() => {
     const cards = [
       ...createAnnouncementCards({
         items: announcements,
-        lastSeenAt: appUser?.lastSeenNotificationsAt,
+        lastSeenAt,
       }),
       ...createTeamNotificationCards({
         items: teamNotifications,
-        lastSeenAt: appUser?.lastSeenNotificationsAt,
+        lastSeenAt,
+        wrestlerNameById,
       }),
       ...createPracticeCards({
         events,
-        lastSeenAt: appUser?.lastSeenNotificationsAt,
+        lastSeenAt,
+        role: appUser?.role,
       }),
       ...createTournamentCards({
         tournaments,
         entriesByTournament,
-        appRole: appUser?.role === "coach" ? "coach" : "athlete",
-        athleteOwnedWrestlerId: athleteOwnedWrestler?.id,
-        lastSeenAt: appUser?.lastSeenNotificationsAt,
+        appRole: appUser?.role === "coach" ? "coach" : appUser?.role === "parent" ? "parent" : "athlete",
+        visibleWrestlerIds,
+        lastSeenAt,
       }),
+      ...createAttendanceCards({
+        rows: attendanceRows,
+        lastSeenAt,
+        role: appUser?.role,
+      }),
+      ...(appUser?.role === "coach"
+        ? createCoachFollowUpCards({
+            followUps: coachFollowUps,
+            lastSeenAt,
+          })
+        : createWrestlerNoteCards({
+            sessions: visibleSessions,
+            role: appUser?.role === "parent" ? "parent" : "athlete",
+            wrestlerIds: visibleWrestlerIds,
+            lastSeenAt,
+          })),
     ];
 
     return cards
@@ -437,13 +735,18 @@ export default function NotificationsScreen() {
       .slice(0, 24);
   }, [
     announcements,
-    appUser?.lastSeenNotificationsAt,
     appUser?.role,
-    athleteOwnedWrestler?.id,
+    attendanceRows,
+    coachFollowUps,
     entriesByTournament,
     events,
+    lastSeenAt,
+    teamNotifications,
     teamNotifications,
     tournaments,
+    visibleSessions,
+    visibleWrestlerIds,
+    wrestlerNameById,
   ]);
 
   const unreadCount = notificationCards.filter((card) => card.isUnread).length;
@@ -498,25 +801,67 @@ export default function NotificationsScreen() {
 
     try {
       setMarkingSeen(true);
+      const seenAt = new Date().toISOString();
 
       await updateDoc(doc(db, COLLECTIONS.USERS, firebaseUser.uid), {
-        lastSeenNotificationsAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        lastSeenNotificationsAt: seenAt,
+        updatedAt: seenAt,
       });
 
-      await refreshAppState();
-      await refresh();
+      setLastSeenAt(seenAt);
+      setSelectedNotification((prev) =>
+        prev ? { ...prev, isUnread: false } : prev
+      );
 
-      Alert.alert("Alerts updated", "Notifications are marked as seen.");
+      try {
+        await refreshAppState();
+      } catch (refreshError) {
+        console.warn("Marked alerts read, but app state refresh failed:", refreshError);
+      }
+
+      Alert.alert("Alerts updated", "Alerts are marked as read.");
     } catch (error) {
       console.error("Failed to mark notifications seen:", error);
-      Alert.alert("Update failed", "Could not mark notifications as seen.");
+      Alert.alert("Update failed", "Could not mark alerts as read.");
     } finally {
       setMarkingSeen(false);
     }
   }
 
-  function openCard(card: NotificationCard) {
+  async function markSingleRead(card?: NotificationCard | null) {
+    if (!firebaseUser?.uid || !card?.isUnread) {
+      return;
+    }
+
+    try {
+      setMarkingSeen(true);
+      const seenAt = new Date().toISOString();
+
+      await updateDoc(doc(db, COLLECTIONS.USERS, firebaseUser.uid), {
+        lastSeenNotificationsAt: seenAt,
+        updatedAt: seenAt,
+      });
+
+      setLastSeenAt(seenAt);
+
+      try {
+        await refreshAppState();
+      } catch (refreshError) {
+        console.warn("Marked alert read, but app state refresh failed:", refreshError);
+      }
+
+      setSelectedNotification((prev) =>
+        prev?.id === card.id ? { ...prev, isUnread: false } : prev
+      );
+    } catch (error) {
+      console.error("Failed to mark notification read:", error);
+      Alert.alert("Update failed", "Could not mark this alert as read.");
+    } finally {
+      setMarkingSeen(false);
+    }
+  }
+
+  function openRelatedCard(card: NotificationCard) {
     if (card.params) {
       router.push({
         pathname: card.route,
@@ -619,7 +964,12 @@ export default function NotificationsScreen() {
           </Pressable>
 
           <Pressable
-            onPress={markAllSeen}
+            onPress={() => {
+              markAllSeen().catch((error) => {
+                console.error("Failed to mark alerts seen:", error);
+                Alert.alert("Update failed", "Could not mark alerts as read.");
+              });
+            }}
             disabled={markingSeen}
             style={{
               alignSelf: "flex-start",
@@ -777,7 +1127,7 @@ export default function NotificationsScreen() {
           }}
         >
           <Text style={{ fontSize: 16, lineHeight: 22, color: "#b7c9df" }}>
-            No notifications yet. Team announcements, practice reminders, and tournament updates will show here.
+            {getRoleEmptyState(appUser?.role)}
           </Text>
         </View>
       ) : null}
@@ -786,7 +1136,7 @@ export default function NotificationsScreen() {
         {notificationCards.map((item) => (
           <Pressable
             key={item.id}
-            onPress={() => openCard(item)}
+            onPress={() => setSelectedNotification(item)}
             style={({ pressed }) => ({
               borderWidth: 1,
               borderColor: item.isUnread ? "#bf1029" : pressed ? "#ffffff" : "#21486e",
@@ -855,8 +1205,28 @@ export default function NotificationsScreen() {
                   {item.body}
                 </Text>
 
+                {item.relatedWrestlerName || item.relatedContext || item.relatedStatus ? (
+                  <View style={{ gap: 4, marginTop: 10 }}>
+                    {item.relatedWrestlerName ? (
+                      <Text style={{ color: "#b7c9df", fontSize: 13 }}>
+                        Wrestler: {item.relatedWrestlerName}
+                      </Text>
+                    ) : null}
+                    {item.relatedContext ? (
+                      <Text style={{ color: "#b7c9df", fontSize: 13 }}>
+                        Context: {item.relatedContext}
+                      </Text>
+                    ) : null}
+                    {item.relatedStatus ? (
+                      <Text style={{ color: "#93c5fd", fontSize: 13, fontWeight: "800" }}>
+                        Status: {item.relatedStatus}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
+
                 <Text style={{ color: "#93c5fd", fontSize: 14, fontWeight: "900", marginTop: 12 }}>
-                  {item.actionLabel} →
+                  View detail →
                 </Text>
               </View>
 
@@ -877,6 +1247,116 @@ export default function NotificationsScreen() {
           </Pressable>
         ))}
       </View>
+
+      <Modal visible={Boolean(selectedNotification)} transparent animationType="slide">
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(2, 6, 23, 0.84)",
+            justifyContent: "flex-end",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#0b2542",
+              borderTopLeftRadius: 28,
+              borderTopRightRadius: 28,
+              padding: 20,
+              gap: 14,
+              borderWidth: 1,
+              borderColor: "#21486e",
+            }}
+          >
+            {selectedNotification ? (
+              <>
+                <Text style={{ color: "#93c5fd", fontWeight: "900", fontSize: 13 }}>
+                  {selectedNotification.meta}
+                </Text>
+                <Text style={{ color: "#ffffff", fontSize: 24, fontWeight: "900" }}>
+                  {selectedNotification.title}
+                </Text>
+                <Text style={{ color: "#dbeafe", lineHeight: 23, fontSize: 15 }}>
+                  {selectedNotification.body}
+                </Text>
+
+                {selectedNotification.relatedWrestlerName ? (
+                  <Text style={{ color: "#b7c9df", fontSize: 14 }}>
+                    Wrestler: {selectedNotification.relatedWrestlerName}
+                  </Text>
+                ) : null}
+                {selectedNotification.relatedContext ? (
+                  <Text style={{ color: "#b7c9df", fontSize: 14 }}>
+                    Related item: {selectedNotification.relatedContext}
+                  </Text>
+                ) : null}
+                {selectedNotification.relatedStatus ? (
+                  <Text style={{ color: "#93c5fd", fontSize: 14, fontWeight: "800" }}>
+                    Status: {selectedNotification.relatedStatus}
+                  </Text>
+                ) : null}
+
+                <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", marginTop: 6 }}>
+                  {selectedNotification.route !== "/notifications" ? (
+                    <Pressable
+                      onPress={() => {
+                        if (!selectedNotification) return;
+                        openRelatedCard(selectedNotification);
+                      }}
+                      style={{
+                        paddingHorizontal: 16,
+                        paddingVertical: 12,
+                        borderRadius: 18,
+                        backgroundColor: "#bf1029",
+                      }}
+                    >
+                      <Text style={{ color: "#ffffff", fontWeight: "900" }}>
+                        {selectedNotification.actionLabel}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+
+                  <Pressable
+                    onPress={() => {
+                      markSingleRead(selectedNotification).catch((error) => {
+                        console.error("Failed to mark alert read:", error);
+                        Alert.alert("Update failed", "Could not mark this alert as read.");
+                      });
+                    }}
+                    disabled={!selectedNotification.isUnread || markingSeen}
+                    style={{
+                      paddingHorizontal: 16,
+                      paddingVertical: 12,
+                      borderRadius: 18,
+                      backgroundColor: "#102f52",
+                      borderWidth: 1,
+                      borderColor: "#315c86",
+                      opacity: !selectedNotification.isUnread || markingSeen ? 0.6 : 1,
+                    }}
+                  >
+                    <Text style={{ color: "#ffffff", fontWeight: "900" }}>
+                      {markingSeen ? "Saving..." : "Mark Read"}
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => setSelectedNotification(null)}
+                    style={{
+                      paddingHorizontal: 16,
+                      paddingVertical: 12,
+                      borderRadius: 18,
+                      backgroundColor: "#102f52",
+                      borderWidth: 1,
+                      borderColor: "#315c86",
+                    }}
+                  >
+                    <Text style={{ color: "#ffffff", fontWeight: "900" }}>Close</Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
     </MobileScreenShell>
   );
 }
