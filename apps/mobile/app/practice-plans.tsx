@@ -317,6 +317,12 @@ export default function PracticePlansScreen() {
   const announcedCountdownRef = useRef<string | null>(null);
 
   const isCoach = appUser?.role === "coach";
+
+  useEffect(() => {
+    if (!authLoading && appUser && appUser.role !== "coach") {
+      router.replace("/calendar" as any);
+    }
+  }, [authLoading, appUser?.role]);
   const isParent = appUser?.role === "parent";
   const isLandscape = timerFullscreen && (orientationLandscape || width > height);
 

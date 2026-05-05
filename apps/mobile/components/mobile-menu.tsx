@@ -18,8 +18,8 @@ const coachMenuItems: MenuItem[] = [
 
 const athleteMenuItems: MenuItem[] = [
   { label: "Home", icon: "WW", href: "/" },
-  { label: "Plans", icon: "PL", href: "/practice-plans" },
   { label: "Schedule", icon: "SC", href: "/calendar" },
+  { label: "Events", icon: "EV", href: "/tournaments" },
   { label: "Profile", icon: "PR", href: "/wrestlers" },
   { label: "Alerts", icon: "AL", href: "/notifications" },
 ];

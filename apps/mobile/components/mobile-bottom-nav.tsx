@@ -18,8 +18,8 @@ const coachNavItems: NavItem[] = [
 
 const athleteNavItems: NavItem[] = [
   { label: "Home", href: "/", icon: "⌂" },
-  { label: "Practice", href: "/practice-plans", icon: "⏱" },
   { label: "Calendar", href: "/calendar", icon: "▦" },
+  { label: "Events", href: "/tournaments", icon: "★" },
   { label: "Profile", href: "/wrestlers", icon: "◉" },
   { label: "Alerts", href: "/notifications", icon: "!" },
 ];
