@@ -1,17 +1,47 @@
 import { router, usePathname } from "expo-router";
 import { Pressable, Text, View } from "react-native";
+import { useMobileAuthState } from "./auth-provider";
 
-const menuItems = [
+type MenuItem = {
+  label: string;
+  icon: string;
+  href: string;
+};
+
+const coachMenuItems: MenuItem[] = [
   { label: "Home", icon: "WW", href: "/" },
   { label: "Plans", icon: "PL", href: "/practice-plans" },
   { label: "Schedule", icon: "SC", href: "/calendar" },
-  { label: "Roster", icon: "RT", href: "/wrestlers" },
   { label: "Mat", icon: "MS", href: "/mat-side" },
   { label: "Alerts", icon: "AL", href: "/notifications" },
 ];
 
+const athleteMenuItems: MenuItem[] = [
+  { label: "Home", icon: "WW", href: "/" },
+  { label: "Plans", icon: "PL", href: "/practice-plans" },
+  { label: "Schedule", icon: "SC", href: "/calendar" },
+  { label: "Profile", icon: "PR", href: "/wrestlers" },
+  { label: "Alerts", icon: "AL", href: "/notifications" },
+];
+
+const parentMenuItems: MenuItem[] = [
+  { label: "Home", icon: "WW", href: "/" },
+  { label: "Schedule", icon: "SC", href: "/calendar" },
+  { label: "Attend", icon: "AT", href: "/parent-attendance" },
+  { label: "Events", icon: "EV", href: "/tournaments" },
+  { label: "Alerts", icon: "AL", href: "/notifications" },
+];
+
+function getMenuItems(role?: string | null) {
+  if (role === "parent") return parentMenuItems;
+  if (role === "athlete") return athleteMenuItems;
+  return coachMenuItems;
+}
+
 export function MobileMenu() {
   const pathname = usePathname();
+  const { appUser } = useMobileAuthState();
+  const menuItems = getMenuItems(appUser?.role);
 
   return (
     <View

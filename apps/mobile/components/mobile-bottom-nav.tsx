@@ -1,36 +1,47 @@
 import { router, usePathname } from "expo-router";
 import { Pressable, Text, View } from "react-native";
+import { useMobileAuthState } from "./auth-provider";
 
-const navItems = [
-  {
-    label: "Home",
-    href: "/",
-    icon: "⌂",
-  },
-  {
-    label: "Practice",
-    href: "/practice-plans",
-    icon: "⏱",
-  },
-  {
-    label: "Calendar",
-    href: "/calendar",
-    icon: "▦",
-  },
-  {
-    label: "Roster",
-    href: "/wrestlers",
-    icon: "◉",
-  },
-  {
-    label: "Alerts",
-    href: "/notifications",
-    icon: "!",
-  },
+type NavItem = {
+  label: string;
+  href: string;
+  icon: string;
+};
+
+const coachNavItems: NavItem[] = [
+  { label: "Home", href: "/", icon: "⌂" },
+  { label: "Practice", href: "/practice-plans", icon: "⏱" },
+  { label: "Calendar", href: "/calendar", icon: "▦" },
+  { label: "Mat", href: "/mat-side", icon: "◉" },
+  { label: "Alerts", href: "/notifications", icon: "!" },
 ];
+
+const athleteNavItems: NavItem[] = [
+  { label: "Home", href: "/", icon: "⌂" },
+  { label: "Practice", href: "/practice-plans", icon: "⏱" },
+  { label: "Calendar", href: "/calendar", icon: "▦" },
+  { label: "Profile", href: "/wrestlers", icon: "◉" },
+  { label: "Alerts", href: "/notifications", icon: "!" },
+];
+
+const parentNavItems: NavItem[] = [
+  { label: "Home", href: "/", icon: "⌂" },
+  { label: "Calendar", href: "/calendar", icon: "▦" },
+  { label: "Attend", href: "/parent-attendance", icon: "✓" },
+  { label: "Events", href: "/tournaments", icon: "★" },
+  { label: "Alerts", href: "/notifications", icon: "!" },
+];
+
+function getNavItems(role?: string | null) {
+  if (role === "parent") return parentNavItems;
+  if (role === "athlete") return athleteNavItems;
+  return coachNavItems;
+}
 
 export function MobileBottomNav() {
   const pathname = usePathname();
+  const { appUser } = useMobileAuthState();
+  const navItems = getNavItems(appUser?.role);
 
   return (
     <View
