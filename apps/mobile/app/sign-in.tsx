@@ -270,6 +270,7 @@ export default function SignInScreen() {
                   placeholder="coach@example.com"
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  testID="login-email-input"
                 />
 
                 <Field
@@ -278,9 +279,12 @@ export default function SignInScreen() {
                   onChangeText={setPassword}
                   placeholder="Password"
                   secureTextEntry
+                  testID="login-password-input"
                 />
 
                 <Pressable
+                  testID="login-submit-button"
+                  accessibilityLabel="login-submit-button"
                   onPress={handleSubmit}
                   disabled={submitting}
                   style={({ pressed }) => ({
@@ -357,6 +361,7 @@ function Field({
   secureTextEntry,
   keyboardType,
   autoCapitalize = "sentences",
+  testID,
 }: {
   label: string;
   value: string;
@@ -365,12 +370,15 @@ function Field({
   secureTextEntry?: boolean;
   keyboardType?: "default" | "email-address";
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  testID?: string;
 }) {
   return (
     <View>
       <Text style={stylesLabel}>{label}</Text>
 
       <TextInput
+        testID={testID}
+        accessibilityLabel={testID}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
