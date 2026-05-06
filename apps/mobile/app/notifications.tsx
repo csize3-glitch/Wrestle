@@ -307,7 +307,7 @@ function createTournamentCards(args: {
           : "Tournament update",
         isUnread: isUnread(tournamentAlertTimestamp, args.lastSeenAt),
         actionLabel: entry?.status === "confirmed" ? "Open Match-Day" : "Open Tournament",
-        route: entry?.status === "confirmed" && args.appRole !== "parent" ? "/match-day" : "/tournaments",
+        route: entry?.status === "confirmed" ? "/match-day" : "/tournaments",
         relatedWrestlerName: entry?.wrestlerName,
         relatedStatus: entry?.status,
         params,

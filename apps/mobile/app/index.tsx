@@ -770,7 +770,9 @@ export default function IndexScreen() {
             {signedIn
               ? dashboardLoading
                 ? "Updating your live team dashboard..."
-                : "Your mat room dashboard is live. Jump into today’s work below."
+                : appUser?.role === "parent"
+                  ? "Your family dashboard is live. Jump into today’s updates below."
+                  : "Your mat room dashboard is live. Jump into today’s work below."
               : "Jump into the tools coaches and athletes need during the week and on match day."}
           </Text>
 

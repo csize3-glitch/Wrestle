@@ -209,6 +209,42 @@ export async function listWrestlersByIds(
     });
 }
 
+export async function listWrestlersByOwnerUserId(
+  db: Firestore,
+  ownerUserId: string,
+  teamId?: string
+): Promise<WrestlerProfile[]> {
+  const normalizedOwnerUserId = ownerUserId.trim();
+  const normalizedTeamId = teamId?.trim();
+
+  if (!normalizedOwnerUserId) {
+    return [];
+  }
+
+  const filters = [where("ownerUserId", "==", normalizedOwnerUserId)];
+
+  if (normalizedTeamId) {
+    filters.push(where("teamId", "==", normalizedTeamId));
+  }
+
+  const snapshot = await getDocs(
+    query(collection(db, COLLECTIONS.WRESTLERS), ...filters)
+  );
+
+  return snapshot.docs
+    .map((wrestlerDoc) =>
+      normalizeWrestlerRecord(wrestlerDoc.id, wrestlerDoc.data() as Record<string, unknown>)
+    )
+    .sort((a, b) => {
+      const lastNameCompare = a.lastName.localeCompare(b.lastName);
+      if (lastNameCompare !== 0) {
+        return lastNameCompare;
+      }
+
+      return a.firstName.localeCompare(b.firstName);
+    });
+}
+
 export async function createWrestler(db: Firestore, input: WrestlerInput): Promise<string> {
   const wrestlerRef = await addDoc(collection(db, COLLECTIONS.WRESTLERS), {
     ...buildWrestlerPayload(input),

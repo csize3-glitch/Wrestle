@@ -19,6 +19,8 @@ import {
   listTournamentMatches,
   listTournaments,
   listWrestlers,
+  listWrestlersByIds,
+  listWrestlersByOwnerUserId,
   mergeMatSideSummaryWithProfile,
   parseBracketTextToMatches,
   saveTournamentMatchToWrestlerHistory,
@@ -272,6 +274,7 @@ function CurrentMatchCard({
   onOpenWrestler,
   onComplete,
   onNext,
+  canManage,
 }: {
   match: TournamentMatch | null;
   wrestlerName: string;
@@ -279,6 +282,7 @@ function CurrentMatchCard({
   onOpenWrestler: () => void;
   onComplete: () => void;
   onNext: () => void;
+  canManage: boolean;
 }) {
   if (!match) {
     return (
@@ -321,15 +325,15 @@ function CurrentMatchCard({
 
       <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
         <Pill label="Open Wrestler" onPress={onOpenWrestler} />
-        <Pill label="Complete Match" active onPress={onComplete} />
-        <Pill label="Next Match" onPress={onNext} />
+        {canManage ? <Pill label="Complete Match" active onPress={onComplete} /> : null}
+        {canManage ? <Pill label="Next Match" onPress={onNext} /> : null}
       </View>
     </View>
   );
 }
 
 export default function MatchDayScreen() {
-  const { firebaseUser, appUser, currentTeam, loading: authLoading } = useMobileAuthState();
+  const { firebaseUser, appUser, currentTeam } = useMobileAuthState();
   const params = useLocalSearchParams<{ tournamentId?: string; wrestlerId?: string }>();
 
   const [loading, setLoading] = useState(true);
@@ -363,6 +367,8 @@ export default function MatchDayScreen() {
   const [showCompletedMatches, setShowCompletedMatches] = useState(false);
 
   const isCoach = appUser?.role === "coach";
+  const isParent = appUser?.role === "parent";
+  const canManageMatches = isCoach;
 
   const sortedTournaments = useMemo(() => {
     const todayKey = new Date().toISOString().split("T")[0];
@@ -389,7 +395,7 @@ export default function MatchDayScreen() {
   );
 
   const matchDayRoster = useMemo((): MatchDayWrestler[] => {
-    if (confirmedEntries.length > 0) {
+    if (isCoach && confirmedEntries.length > 0) {
       const resolvedRoster = confirmedEntries
         .map<MatchDayWrestler | null>((entry) => {
           const wrestler = teamRoster.find((row) => row.id === entry.wrestlerId);
@@ -416,7 +422,7 @@ export default function MatchDayScreen() {
     }
 
     return teamRoster.slice().sort((a, b) => getFullName(a).localeCompare(getFullName(b)));
-  }, [confirmedEntries, teamRoster]);
+  }, [confirmedEntries, isCoach, teamRoster]);
 
   const selectedIndex = useMemo(
     () => matchDayRoster.findIndex((wrestler) => wrestler.id === selectedWrestlerId),
@@ -555,7 +561,72 @@ export default function MatchDayScreen() {
 
   const activeStylePlan = resolvedSummary?.stylePlans?.[activeStyle] || null;
 
-  async function refreshMatches(tournamentId = selectedTournamentId) {
+  async function loadVisibleRoster(): Promise<WrestlerProfile[]> {
+    if (!currentTeam?.id || !appUser || !firebaseUser) {
+      return [];
+    }
+
+    if (isCoach) {
+      return listWrestlers(db, currentTeam.id);
+    }
+
+    if (isParent) {
+      return listWrestlersByIds(db, appUser.linkedWrestlerIds || []);
+    }
+
+    const linkedIds = appUser.linkedWrestlerIds || [];
+    if (linkedIds.length > 0) {
+      return listWrestlersByIds(db, linkedIds);
+    }
+
+    return listWrestlersByOwnerUserId(db, firebaseUser.uid, currentTeam.id);
+  }
+
+  function resolveAllowedWrestlerId(
+    rosterRows: WrestlerProfile[],
+    preferredWrestlerId?: string | null
+  ): string | null {
+    if (!rosterRows.length) {
+      return null;
+    }
+
+    const requestedWrestlerId = typeof params.wrestlerId === "string" ? params.wrestlerId : null;
+    const nextPreferred = requestedWrestlerId || preferredWrestlerId || selectedWrestlerId || null;
+
+    if (nextPreferred && rosterRows.some((wrestler) => wrestler.id === nextPreferred)) {
+      return nextPreferred;
+    }
+
+    return rosterRows[0].id;
+  }
+
+  async function loadEntriesForRole(
+    tournamentId: string,
+    wrestlerId: string | null
+  ): Promise<TournamentEntry[]> {
+    if (!currentTeam?.id) {
+      return [];
+    }
+
+    if (isCoach) {
+      return listTournamentEntries(db, {
+        teamId: currentTeam.id,
+        tournamentId,
+      });
+    }
+
+    if (!wrestlerId) {
+      return [];
+    }
+
+    return listTournamentEntries(db, {
+      teamId: currentTeam.id,
+      tournamentId,
+      wrestlerId,
+    });
+  }
+
+  async function refreshMatches(tournamentId = selectedTournamentId, wrestlerId = selectedWrestlerId) {
     if (!currentTeam?.id || !tournamentId) {
       setMatches([]);
       return;
@@ -567,6 +638,7 @@ export default function MatchDayScreen() {
         await listTournamentMatches(db, {
           teamId: currentTeam.id,
           tournamentId,
+          wrestlerId: isCoach ? undefined : wrestlerId || undefined,
         })
       );
     } catch (error) {
@@ -593,7 +665,7 @@ export default function MatchDayScreen() {
 
       const [tournamentRows, rosterRows] = await Promise.all([
         listTournaments(db, currentTeam.id),
-        listWrestlers(db, currentTeam.id),
+        loadVisibleRoster(),
       ]);
 
       setTournaments(tournamentRows);
@@ -615,16 +687,15 @@ export default function MatchDayScreen() {
         null;
 
       const nextTournamentId = requestedTournamentId || selectedTournamentId || nextTournament?.id || null;
+      const nextWrestlerId = resolveAllowedWrestlerId(rosterRows);
       setSelectedTournamentId(nextTournamentId);
+      setSelectedWrestlerId(nextWrestlerId);
 
       if (nextTournamentId) {
-        const entryRows = await listTournamentEntries(db, {
-          teamId: currentTeam.id,
-          tournamentId: nextTournamentId,
-        });
+        const entryRows = await loadEntriesForRole(nextTournamentId, nextWrestlerId);
 
         setEntries(entryRows);
-        await refreshMatches(nextTournamentId);
+        await refreshMatches(nextTournamentId, nextWrestlerId);
       } else {
         setEntries([]);
         setMatches([]);
@@ -637,7 +708,7 @@ export default function MatchDayScreen() {
     }
   }
 
-  async function loadEntriesForTournament(tournamentId: string) {
+  async function loadEntriesForTournament(tournamentId: string, wrestlerId = selectedWrestlerId) {
     if (!currentTeam?.id) return;
 
     try {
@@ -647,15 +718,12 @@ export default function MatchDayScreen() {
       setMatFilter("");
       setShowCompletedMatches(false);
 
-      const entryRows = await listTournamentEntries(db, {
-        teamId: currentTeam.id,
-        tournamentId,
-      });
+      const entryRows = await loadEntriesForRole(tournamentId, wrestlerId);
 
       setEntries(entryRows);
-      setSelectedWrestlerId(null);
+      setSelectedWrestlerId(wrestlerId);
       setSummary(null);
-      await refreshMatches(tournamentId);
+      await refreshMatches(tournamentId, wrestlerId);
     } catch (error) {
       console.error("Failed to load tournament entries:", error);
       Alert.alert("Tournament error", "Could not load verified wrestlers for this tournament.");
@@ -674,21 +742,14 @@ export default function MatchDayScreen() {
       return;
     }
 
-    const requestedWrestlerId = typeof params.wrestlerId === "string" ? params.wrestlerId : null;
-
     setSelectedWrestlerId((prev) => {
-      const preferred = requestedWrestlerId || prev;
-      if (preferred && matchDayRoster.some((wrestler) => wrestler.id === preferred)) {
-        return preferred;
-      }
-
-      return matchDayRoster[0].id;
+      return resolveAllowedWrestlerId(matchDayRoster, prev);
     });
   }, [matchDayRoster, params.wrestlerId]);
 
   useEffect(() => {
     async function loadSummary() {
-      if (!selectedWrestlerId) {
+      if (isParent || !selectedWrestlerId) {
         setSummary(null);
         return;
       }
@@ -704,7 +765,7 @@ export default function MatchDayScreen() {
     }
 
     loadSummary();
-  }, [selectedWrestlerId]);
+  }, [isParent, selectedWrestlerId]);
 
   useEffect(() => {
     if (!selectedWrestler) {
@@ -727,16 +788,25 @@ export default function MatchDayScreen() {
     setMatchForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  async function handleSelectWrestler(wrestlerId: string) {
+    setSelectedWrestlerId(wrestlerId);
+    if (!selectedTournamentId) {
+      return;
+    }
+
+    await loadEntriesForTournament(selectedTournamentId, wrestlerId);
+  }
+
   function goToPreviousWrestler() {
     if (!matchDayRoster.length) return;
     const nextIndex = selectedIndex <= 0 ? matchDayRoster.length - 1 : selectedIndex - 1;
-    setSelectedWrestlerId(matchDayRoster[nextIndex].id);
+    void handleSelectWrestler(matchDayRoster[nextIndex].id);
   }
 
   function goToNextWrestler() {
     if (!matchDayRoster.length) return;
     const nextIndex = selectedIndex >= matchDayRoster.length - 1 ? 0 : selectedIndex + 1;
-    setSelectedWrestlerId(matchDayRoster[nextIndex].id);
+    void handleSelectWrestler(matchDayRoster[nextIndex].id);
   }
 
   function openAddMatch() {
@@ -776,7 +846,7 @@ export default function MatchDayScreen() {
   }
 
   async function moveToNextMatch() {
-    if (!currentMatch) return;
+    if (!isCoach || !currentMatch) return;
 
     const activeQueue = [...onDeckMatches, ...upcomingMatches];
     const currentIndex = activeQueue.findIndex((match) => match.id === currentMatch.id);
@@ -1011,7 +1081,7 @@ export default function MatchDayScreen() {
     }
   }
 
-  if (!authLoading && (!firebaseUser || !appUser)) {
+  if (!firebaseUser || !appUser) {
     return (
       <MobileScreenShell
         title="Match-Day"
@@ -1038,7 +1108,9 @@ export default function MatchDayScreen() {
       subtitle={
         isCoach
           ? "Verified tournament roster, match queue, bracket import, and mat-side strategy."
-          : "Your match-day prep view from the tournament roster."
+          : isParent
+            ? "Read-only tournament bouts and live queue for your linked wrestlers."
+            : "Your match-day prep view from the tournament roster."
       }
     >
       <Modal visible={matchModalVisible} animationType="slide" onRequestClose={() => setMatchModalVisible(false)}>
@@ -1194,28 +1266,40 @@ export default function MatchDayScreen() {
         <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
           <Pill label={loading ? "Refreshing..." : "Refresh Match-Day"} active onPress={refreshMatchDay} />
           {isCoach ? <Pill label="Import Bracket" onPress={() => setBracketModalVisible(true)} /> : null}
+          {isCoach ? <Pill label="Add Match" active onPress={openAddMatch} /> : null}
         </View>
 
-        <CurrentMatchCard
-          match={currentMatch}
-          wrestlerName={getFullName(currentMatchWrestler)}
-          entryLabel={currentMatchEntryLabel}
-          onOpenWrestler={() => {
-            if (!currentMatch) return;
-            setSelectedWrestlerId(currentMatch.wrestlerId);
-          }}
-          onComplete={() => {
-            if (!currentMatch) return;
-            setSelectedWrestlerId(currentMatch.wrestlerId);
-            openCompleteMatch(currentMatch);
-          }}
-          onNext={moveToNextMatch}
-        />
+        {isCoach ? (
+          <Text style={{ color: "#b7c9df", fontSize: 14, lineHeight: 20 }}>
+            Bracket templates coming next: 128, 64, 32, 16, 8, 4, double elimination.
+          </Text>
+        ) : null}
+
+        {!isParent ? (
+          <CurrentMatchCard
+            match={currentMatch}
+            wrestlerName={getFullName(currentMatchWrestler)}
+            entryLabel={currentMatchEntryLabel}
+            onOpenWrestler={() => {
+              if (!currentMatch) return;
+              void handleSelectWrestler(currentMatch.wrestlerId);
+            }}
+            onComplete={() => {
+              if (!currentMatch) return;
+              setSelectedWrestlerId(currentMatch.wrestlerId);
+              openCompleteMatch(currentMatch);
+            }}
+            onNext={moveToNextMatch}
+            canManage={canManageMatches}
+          />
+        ) : null}
 
         {!isCoach ? (
           <View style={cardStyle}>
             <Text style={{ color: "#b7c9df", fontSize: 15, lineHeight: 22 }}>
-              Athletes can view match-day prep. Coaches manage tournament verification, match queue, and mat-side notes.
+              {isParent
+                ? "Families can follow linked wrestlers in real time here. Match edits, imports, and queue controls stay with coaches."
+                : "Athletes can view their own match-day prep here. Match queue edits, imports, and tournament controls stay with coaches."}
             </Text>
           </View>
         ) : null}
@@ -1258,6 +1342,44 @@ export default function MatchDayScreen() {
             </ScrollView>
           )}
         </View>
+
+        {isParent && matchDayRoster.length > 1 ? (
+          <View style={cardStyle}>
+            <Text style={sectionTitleStyle}>Linked Wrestler</Text>
+            <Text style={mutedTextStyle}>
+              Choose which linked wrestler’s posted bouts you want to follow.
+            </Text>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 14 }}>
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                {matchDayRoster.map((wrestler) => {
+                  const active = wrestler.id === selectedWrestlerId;
+                  return (
+                    <Pressable
+                      key={wrestler.id}
+                      onPress={() => void handleSelectWrestler(wrestler.id)}
+                      style={{
+                        minWidth: 190,
+                        borderWidth: 1,
+                        borderColor: active ? "#bf1029" : "#315c86",
+                        borderRadius: 18,
+                        padding: 13,
+                        backgroundColor: active ? "#431407" : "#102f52",
+                      }}
+                    >
+                      <Text style={{ color: "#ffffff", fontSize: 16, fontWeight: "900" }}>
+                        {getFullName(wrestler) || "Linked wrestler"}
+                      </Text>
+                      <Text style={{ color: "#b7c9df", fontSize: 14, marginTop: 6 }}>
+                        {[wrestler.weightClass, wrestler.styles?.[0]].filter(Boolean).join(" • ") || "Details pending"}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </View>
+        ) : null}
 
         <View style={cardStyle}>
           <Text style={sectionTitleStyle}>Live Match Queue</Text>
@@ -1359,7 +1481,9 @@ export default function MatchDayScreen() {
 
           {matches.length === 0 ? (
             <Text style={[mutedTextStyle, { marginTop: 10 }]}>
-              No matches added yet. Use Add Match for the selected wrestler or Import Bracket.
+              {isCoach
+                ? "No matches added yet. Use Add Match for the selected wrestler or Import Bracket."
+                : "No matches are posted yet for the selected wrestler."}
             </Text>
           ) : visibleQueueMatches.length === 0 ? (
             <Text style={[mutedTextStyle, { marginTop: 10 }]}>
@@ -1381,7 +1505,7 @@ export default function MatchDayScreen() {
                 return (
                   <Pressable
                     key={match.id}
-                    onPress={() => setSelectedWrestlerId(match.wrestlerId)}
+                    onPress={() => void handleSelectWrestler(match.wrestlerId)}
                     style={{
                       borderWidth: isOnDeck ? 2 : 1,
                       borderColor: isOnDeck ? "#bf1029" : active ? "#bf1029" : "#315c86",
@@ -1449,6 +1573,71 @@ export default function MatchDayScreen() {
           )}
         </View>
 
+        {isParent ? (
+          <View style={cardStyle}>
+            <Text style={sectionTitleStyle}>Linked Wrestler Bouts</Text>
+            <Text style={mutedTextStyle}>
+              {selectedWrestler
+                ? `${getFullName(selectedWrestler)} • read-only tournament view`
+                : "Select a linked wrestler"}
+            </Text>
+
+            {selectedWrestlerMatches.length === 0 ? (
+              <Text style={[mutedTextStyle, { marginTop: 12 }]}>
+                No bouts are posted yet for this wrestler.
+              </Text>
+            ) : (
+              <View style={{ gap: 10, marginTop: 12 }}>
+                {selectedWrestlerMatches.map((match) => (
+                  <View
+                    key={`parent-${match.id}`}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: "#315c86",
+                      borderRadius: 18,
+                      padding: 13,
+                      backgroundColor: "#102f52",
+                    }}
+                  >
+                    <Text style={{ color: "#ffffff", fontSize: 16, fontWeight: "900" }}>
+                      {match.boutNumber ? `Bout ${match.boutNumber}` : "Bout TBD"}
+                    </Text>
+                    <Text style={{ color: "#b7c9df", fontSize: 14, marginTop: 5, lineHeight: 20 }}>
+                      {[match.roundName, match.matNumber ? `Mat ${match.matNumber}` : ""]
+                        .filter(Boolean)
+                        .join(" • ") || "Round and mat pending"}
+                    </Text>
+                    <Text style={{ color: "#dbeafe", fontSize: 15, marginTop: 6, lineHeight: 20 }}>
+                      {match.opponentName || "Opponent TBD"}
+                      {match.opponentTeam ? ` • ${match.opponentTeam}` : ""}
+                    </Text>
+                    <Text style={{ color: "#93c5fd", fontSize: 13, fontWeight: "900", marginTop: 8 }}>
+                      Status: {match.status.toUpperCase()}
+                    </Text>
+                    {match.result || match.score || match.method ? (
+                      <Text style={{ color: "#b7c9df", fontSize: 14, marginTop: 6, lineHeight: 20 }}>
+                        {[
+                          match.result ? `Result: ${match.result}` : "",
+                          match.score,
+                          match.method,
+                        ]
+                          .filter(Boolean)
+                          .join(" • ")}
+                      </Text>
+                    ) : null}
+                    {match.notes ? (
+                      <Text style={{ color: "#dbeafe", fontSize: 14, marginTop: 6, lineHeight: 20 }}>
+                        {match.notes}
+                      </Text>
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        ) : null}
+
+        {!isParent ? (
         <View style={cardStyle}>
           <Text style={sectionTitleStyle}>Verified Going Roster</Text>
 
@@ -1481,7 +1670,7 @@ export default function MatchDayScreen() {
                   return (
                     <Pressable
                       key={wrestler.id}
-                      onPress={() => setSelectedWrestlerId(wrestler.id)}
+                      onPress={() => void handleSelectWrestler(wrestler.id)}
                       style={{
                         width: 190,
                         borderWidth: 1,
@@ -1511,8 +1700,9 @@ export default function MatchDayScreen() {
             </ScrollView>
           )}
         </View>
+        ) : null}
 
-        {selectedWrestler && resolvedSummary ? (
+        {!isParent && selectedWrestler && resolvedSummary ? (
           <View style={{ ...cardStyle, borderRadius: 26, padding: 18 }}>
             <Text style={{ color: "#93c5fd", fontSize: 12, fontWeight: "900", letterSpacing: 1 }}>
               ACTIVE WRESTLER
@@ -1532,15 +1722,17 @@ export default function MatchDayScreen() {
               <Pill label="Previous" onPress={goToPreviousWrestler} />
               <Pill label="Next Wrestler" active onPress={goToNextWrestler} />
               {isCoach ? <Pill label="Add Match" active onPress={openAddMatch} /> : null}
-              <Pill
-                label="Full Mat-Side"
-                onPress={() =>
-                  router.push({
-                    pathname: "/mat-side",
-                    params: { wrestlerId: selectedWrestler.id },
-                  } as any)
-                }
-              />
+              {!isParent ? (
+                <Pill
+                  label="Full Mat-Side"
+                  onPress={() =>
+                    router.push({
+                      pathname: "/mat-side",
+                      params: { wrestlerId: selectedWrestler.id },
+                    } as any)
+                  }
+                />
+              ) : null}
             </View>
 
             <View style={{ marginTop: 16 }}>
@@ -1572,7 +1764,11 @@ export default function MatchDayScreen() {
                   return (
                     <Pressable
                       key={match.id}
-                      onPress={() => openEditMatch(match)}
+                      onPress={() => {
+                        if (isCoach) {
+                          openEditMatch(match);
+                        }
+                      }}
                       style={{
                         borderWidth: 1,
                         borderColor: "#315c86",

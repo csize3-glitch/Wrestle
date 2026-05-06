@@ -1,0 +1,16 @@
+appId: com.example.wrestlewell
+name: Parent Smoke Example
+---
+- launchApp
+- tapOn:
+    id: login-email-input
+- inputText: ${PARENT_EMAIL}
+- tapOn:
+    id: login-password-input
+- inputText: ${PARENT_PASSWORD}
+- tapOn:
+    id: login-submit-button
+- assertVisible: Schedule
+- assertVisible: Attend
+- assertVisible: Events
+- assertVisible: Alerts
