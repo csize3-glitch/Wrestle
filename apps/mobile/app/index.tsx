@@ -820,8 +820,8 @@ export default function IndexScreen() {
             }}
           >
             <MiniStat label="Mode" value={appUser?.role || "Guest"} />
-            <MiniStat label="Roster" value={signedIn ? `${roster.length}` : "Preview"} />
-            <MiniStat label="Mat-Side" value="Ready" />
+            <MiniStat label={appUser?.role === "parent" ? "Linked" : "Roster"} value={signedIn ? `${roster.length}` : "Preview"} />
+            <MiniStat label={appUser?.role === "parent" ? "Family" : "Mat-Side"} value={appUser?.role === "parent" ? "Ready" : "Ready"} />
           </View>
 
           <Pressable
@@ -861,7 +861,7 @@ export default function IndexScreen() {
 
         {signedIn ? (
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-            <WWStat label="Roster" value={`${roster.length}`} tone="orange" />
+            <WWStat label={appUser?.role === "parent" ? "Linked" : "Roster"} value={`${roster.length}`} tone="orange" />
             <WWStat label="Practices" value={`${upcomingPractices.length}`} tone="green" />
             <WWStat label="Events" value={`${upcomingTournaments.length}`} tone="blue" />
             <WWStat label="Pending" value={`${pendingRegistrations}`} tone="red" />
