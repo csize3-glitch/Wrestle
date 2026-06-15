@@ -32,6 +32,29 @@ const parentMenuItems: MenuItem[] = [
   { label: "Alerts", icon: "AL", href: "/notifications" },
 ];
 
+function getMenuTestId(href: string) {
+  switch (href) {
+    case "/":
+      return "nav-home";
+    case "/practice-plans":
+      return "nav-plans";
+    case "/calendar":
+      return "nav-schedule";
+    case "/parent-attendance":
+      return "nav-attend";
+    case "/tournaments":
+      return "nav-events";
+    case "/wrestlers":
+      return "nav-profile";
+    case "/mat-side":
+      return "nav-mat";
+    case "/notifications":
+      return "nav-alerts";
+    default:
+      return undefined;
+  }
+}
+
 function getMenuItems(role?: string | null) {
   if (role === "parent") return parentMenuItems;
   if (role === "athlete") return athleteMenuItems;
@@ -65,10 +88,13 @@ export function MobileMenu() {
           const active =
             pathname === item.href ||
             (item.href !== "/" && pathname.startsWith(item.href));
+          const testID = getMenuTestId(item.href);
 
           return (
             <Pressable
               key={item.href}
+              testID={testID}
+              accessibilityLabel={testID}
               onPress={() => router.push(item.href as any)}
               style={({ pressed }) => ({
                 flex: 1,

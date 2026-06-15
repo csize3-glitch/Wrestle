@@ -20,3 +20,7 @@ service-account.json
 # Large local YouTube scrape files
 /data/youtube-library/usa-wrestling-videos.jsonl
 .maestro/
+.env.uat.local
+test-results/
+playwright-report/
+.uat-mobile-resolved/

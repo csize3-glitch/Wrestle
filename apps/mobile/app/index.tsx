@@ -82,6 +82,20 @@ const coachActionCards = [
     stat: "Team",
   },
   {
+    title: "Athlete Reflections",
+    subtitle: "Read journal entries athletes chose to share.",
+    href: "/coach-journal",
+    tone: "white",
+    stat: "Shared",
+  },
+  {
+    title: "Shared Goals",
+    subtitle: "Review goals athletes chose to share.",
+    href: "/coach-goals",
+    tone: "green",
+    stat: "Goals",
+  },
+  {
     title: "Calendar",
     subtitle: "See upcoming practices and assigned plans.",
     href: "/calendar",
@@ -127,11 +141,25 @@ const athleteActionCards = [
     stat: "Ready",
   },
   {
+    title: "Goals",
+    subtitle: "Set practice, session, and year goals.",
+    href: "/goals",
+    tone: "green",
+    stat: "Focus",
+  },
+  {
     title: "My Profile",
     subtitle: "Update weight, styles, goals, strengths, and warm-up routine.",
     href: "/wrestlers",
     tone: "orange",
     stat: "Me",
+  },
+  {
+    title: "Journal",
+    subtitle: "Track practice thoughts, mindset, goals, and recovery notes.",
+    href: "/journal",
+    tone: "green",
+    stat: "Reflect",
   },
   {
     title: "Calendar",
@@ -258,6 +286,26 @@ function formatEventDate(value?: string) {
     month: "short",
     day: "numeric",
   });
+}
+
+function getActionCardTestId(href: string) {
+  if (href === "/coach-journal") {
+    return "open-coach-journal-button";
+  }
+
+  if (href === "/coach-goals") {
+    return "open-coach-goals-button";
+  }
+
+  if (href === "/goals") {
+    return "open-goals-button";
+  }
+
+  if (href === "/journal") {
+    return "open-journal-button";
+  }
+
+  return undefined;
 }
 
 function formatDurationLabel(totalSeconds: number) {
@@ -843,6 +891,8 @@ export default function IndexScreen() {
 
           {signedIn ? (
             <Pressable
+              testID="mobile-sign-out-button"
+              accessibilityLabel="mobile-sign-out-button"
               onPress={handleSignOut}
               style={({ pressed }) => ({
                 marginTop: 12,
@@ -963,6 +1013,7 @@ export default function IndexScreen() {
                   }
                   badge="Match-Day"
                   tone="red"
+                  testID="open-match-day-button"
                   onPress={() =>
                     nextTournament
                       ? router.push({
@@ -1418,6 +1469,8 @@ export default function IndexScreen() {
           {actionCards.map((card, index) => (
             <Pressable
               key={`${card.href}-${index}`}
+              testID={getActionCardTestId(card.href)}
+              accessibilityLabel={getActionCardTestId(card.href)}
               onPress={() => router.push(card.href as any)}
               style={({ pressed }) => ({
                 backgroundColor: pressed ? "#12345a" : "#0b2542",
@@ -1518,16 +1571,20 @@ function CommandRow({
   subtitle,
   badge,
   tone,
+  testID,
   onPress,
 }: {
   title: string;
   subtitle: string;
   badge: string;
   tone: "blue" | "red" | "green" | "orange";
+  testID?: string;
   onPress: () => void;
 }) {
   return (
     <Pressable
+      testID={testID}
+      accessibilityLabel={testID}
       onPress={onPress}
       style={({ pressed }) => ({
         borderWidth: 1,

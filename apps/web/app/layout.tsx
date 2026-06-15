@@ -35,7 +35,24 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 <div className="site-header__actions">
                   <nav className="site-nav" aria-label="Primary">
                     {navigationItems.map((item) => (
-                      <Link key={item.href} href={item.href} className="site-nav__link">
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        className="site-nav__link"
+                        data-testid={
+                          item.href === "/practice-plans"
+                            ? "web-nav-practice-plans"
+                            : item.href === "/calendar"
+                              ? "web-nav-calendar"
+                              : item.href === "/team"
+                                ? "web-nav-team"
+                                : item.href === "/wrestlers"
+                                  ? "web-nav-wrestlers"
+                                  : item.href === "/tournaments"
+                                    ? "web-nav-tournaments"
+                                    : undefined
+                        }
+                      >
                         {item.label}
                       </Link>
                     ))}

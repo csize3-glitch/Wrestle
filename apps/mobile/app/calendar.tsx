@@ -1,6 +1,6 @@
 import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Alert, Pressable, Text, View } from "react-native";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@wrestlewell/firebase/client";
 import {
@@ -577,6 +577,26 @@ export default function CalendarScreen() {
                                     updatedAt: new Date().toISOString(),
                                   },
                                 }));
+
+                                Alert.alert(
+                                  "Check-in saved",
+                                  "What is one goal for today’s practice?",
+                                  [
+                                    { text: "Skip", style: "cancel" },
+                                    {
+                                      text: "Set Goal",
+                                      onPress: () =>
+                                        router.push({
+                                          pathname: "/goals",
+                                          params: {
+                                            createPracticeGoal: "1",
+                                            practiceEventId: event.id,
+                                            practiceAttendanceId: attendanceId,
+                                          },
+                                        } as any),
+                                    },
+                                  ]
+                                );
 
                               } catch (error: any) {
                                 console.error("Failed to save check-in:", error);

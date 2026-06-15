@@ -271,6 +271,82 @@ service cloud.firestore {
       allow delete: if signedIn() && isCoach() && sameTeam(resource.data.teamId);
     }
 
+    match /athlete_journal_entries/{entryId} {
+      allow read: if signedIn() &&
+        (
+          (
+            currentRole() == "athlete" &&
+            resource.data.createdByUserId == request.auth.uid &&
+            resource.data.wrestlerId != null &&
+            isOwnedWrestler(resource.data.wrestlerId)
+          ) ||
+          (
+            isCoach() &&
+            sameTeam(resource.data.teamId) &&
+            resource.data.coachVisible == true
+          )
+        );
+
+      allow create: if signedIn() &&
+        currentRole() == "athlete" &&
+        request.resource.data.teamId == currentTeamId() &&
+        request.resource.data.createdByUserId == request.auth.uid &&
+        request.resource.data.wrestlerId != null &&
+        isOwnedWrestler(request.resource.data.wrestlerId);
+
+      allow update: if signedIn() &&
+        currentRole() == "athlete" &&
+        resource.data.createdByUserId == request.auth.uid &&
+        request.resource.data.createdByUserId == resource.data.createdByUserId &&
+        request.resource.data.teamId == resource.data.teamId &&
+        request.resource.data.wrestlerId == resource.data.wrestlerId &&
+        isOwnedWrestler(resource.data.wrestlerId);
+
+      allow delete: if signedIn() &&
+        currentRole() == "athlete" &&
+        resource.data.createdByUserId == request.auth.uid &&
+        resource.data.wrestlerId != null &&
+        isOwnedWrestler(resource.data.wrestlerId);
+    }
+
+    match /athlete_goals/{goalId} {
+      allow read: if signedIn() &&
+        (
+          (
+            currentRole() == "athlete" &&
+            resource.data.createdByUserId == request.auth.uid &&
+            resource.data.wrestlerId != null &&
+            isOwnedWrestler(resource.data.wrestlerId)
+          ) ||
+          (
+            isCoach() &&
+            sameTeam(resource.data.teamId) &&
+            resource.data.coachVisible == true
+          )
+        );
+
+      allow create: if signedIn() &&
+        currentRole() == "athlete" &&
+        request.resource.data.teamId == currentTeamId() &&
+        request.resource.data.createdByUserId == request.auth.uid &&
+        request.resource.data.wrestlerId != null &&
+        isOwnedWrestler(request.resource.data.wrestlerId);
+
+      allow update: if signedIn() &&
+        currentRole() == "athlete" &&
+        resource.data.createdByUserId == request.auth.uid &&
+        request.resource.data.createdByUserId == resource.data.createdByUserId &&
+        request.resource.data.teamId == resource.data.teamId &&
+        request.resource.data.wrestlerId == resource.data.wrestlerId &&
+        isOwnedWrestler(resource.data.wrestlerId);
+
+      allow delete: if signedIn() &&
+        currentRole() == "athlete" &&
+        resource.data.createdByUserId == request.auth.uid &&
+        resource.data.wrestlerId != null &&
+        isOwnedWrestler(resource.data.wrestlerId);
+    }
+
     match /training_groups/{groupId} {
       allow read: if signedIn() && sameTeam(resource.data.teamId);
 

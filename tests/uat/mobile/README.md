@@ -1,10 +1,13 @@
 # WrestleWell Mobile UAT
 
-Add Maestro flows here for role-based smoke coverage.
+Add Maestro flow templates here for role-based smoke coverage.
 
 Suggested committed flows:
-- `coach-smoke.example.yaml`
-- `athlete-smoke.example.yaml`
-- `parent-smoke.example.yaml`
+- `coach-smoke.template.yaml`
+- `athlete-smoke.template.yaml`
+- `parent-smoke.template.yaml`
 
-Use placeholders or environment variables for credentials. Do not commit real passwords or local personal accounts.
+The committed templates use placeholder tokens such as `__UAT_PARENT_EMAIL__`.
+`scripts/run-uat-mobile.sh` resolves them into ignored local files under `.uat-mobile-resolved/`.
+
+Do not commit real passwords or local personal accounts.

@@ -596,6 +596,7 @@ export default function HomePage() {
                   <label className="field-label">
                     Email
                     <input
+                      data-testid="web-login-email"
                       value={form.email}
                       onChange={(e) => updateField("email", e.target.value)}
                       placeholder="coach@wrestlewell.com"
@@ -605,6 +606,7 @@ export default function HomePage() {
                   <label className="field-label">
                     Password
                     <input
+                      data-testid="web-login-password"
                       type="password"
                       value={form.password}
                       onChange={(e) => updateField("password", e.target.value)}
@@ -664,7 +666,12 @@ export default function HomePage() {
                 {error ? <p style={{ color: "#911022", margin: 0 }}>{error}</p> : null}
 
                 <div className="hero-actions" style={{ marginTop: 4 }}>
-                  <button className="button-primary" onClick={handleSubmit} disabled={busy}>
+                  <button
+                    className="button-primary"
+                    data-testid="web-login-submit"
+                    onClick={handleSubmit}
+                    disabled={busy}
+                  >
                     {busy
                       ? "Working..."
                       : mode === "sign_in"

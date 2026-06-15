@@ -12,6 +12,7 @@
     "import:library": "tsx scripts/import-library-from-excel.ts ./data/wrestling_youtube_drills_all_styles_expanded.xlsx"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "eas-cli": "^18.8.0",
     "firebase-tools": "^15.15.0",
     "tsx": "^4.20.6",

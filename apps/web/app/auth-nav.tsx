@@ -97,7 +97,11 @@ export function AuthNav() {
         <span>{currentTeam?.name || (appUser ? appUser.role : "Finish setup")}</span>
       </div>
 
-      <button className="site-auth-pill site-auth-pill--ghost" onClick={() => signOut()}>
+      <button
+        className="site-auth-pill site-auth-pill--ghost"
+        data-testid="web-sign-out-button"
+        onClick={() => signOut()}
+      >
         Sign Out
       </button>
     </div>

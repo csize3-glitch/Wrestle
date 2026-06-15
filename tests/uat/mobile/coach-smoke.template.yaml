@@ -1,0 +1,136 @@
+appId: __UAT_MOBILE_APP_ID__
+name: Coach Smoke
+---
+- stopApp
+- launchApp
+
+# Close Expo login/web modal if it appears.
+- tapOn:
+    point: "10%,13%"
+    optional: true
+- tapOn:
+    text: "×"
+    optional: true
+- tapOn:
+    text: "Done"
+    optional: true
+- waitForAnimationToEnd
+
+# Close Expo dev menu if it is open.
+- tapOn:
+    point: "90%,10%"
+    optional: true
+- tapOn:
+    text: "×"
+    optional: true
+- tapOn:
+    text: "Go home"
+    optional: true
+- tapOn:
+    text: "Continue"
+    optional: true
+- tapOn:
+    text: "OK"
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    text: "http://localhost:8081"
+    optional: true
+
+- waitForAnimationToEnd
+
+- tapOn:
+    text: "Continue"
+    optional: true
+
+- openLink: "wrestlewell://uat-reset"
+- waitForAnimationToEnd
+
+- tapOn:
+    text: "OK"
+    optional: true
+
+- tapOn:
+    text: "Log In"
+    optional: true
+
+- extendedWaitUntil:
+    visible:
+      id: "login-email-input"
+    timeout: 25000
+
+- tapOn:
+    id: "login-email-input"
+- eraseText
+- inputText: "__UAT_COACH_EMAIL__"
+- hideKeyboard
+- waitForAnimationToEnd
+- tapOn:
+    id: "login-password-input"
+- eraseText
+- inputText: "__UAT_COACH_PASSWORD__"
+- hideKeyboard
+- waitForAnimationToEnd
+- tapOn:
+    id: "login-submit-button"
+
+- tapOn:
+    text: "Not Now"
+    optional: true
+- tapOn:
+    text: "OK"
+    optional: true
+
+- extendedWaitUntil:
+    visible:
+      id: "open-match-day-button"
+    timeout: 25000
+
+- assertVisible:
+    id: "open-match-day-button"
+
+- assertVisible:
+    id: "open-coach-journal-button"
+
+- assertVisible:
+    id: "open-coach-goals-button"
+
+# Athlete Reflections
+- openLink: "wrestlewell://coach-journal"
+- waitForAnimationToEnd
+- assertVisible: "Athlete Reflections"
+
+# Shared Goals
+- openLink: "wrestlewell://coach-goals"
+- waitForAnimationToEnd
+- assertVisible:
+    id: "coach-goals-screen"
+
+# Plans
+- tapOn:
+    id: "nav-plans"
+- waitForAnimationToEnd
+- assertVisible: "Practice Plans"
+
+# Calendar
+- tapOn:
+    id: "nav-schedule"
+- waitForAnimationToEnd
+- assertVisible: "Calendar"
+
+# Match-Day / Mat
+- tapOn:
+    id: "nav-mat"
+- waitForAnimationToEnd
+- assertVisible: "Mat-Side"
+
+# Alerts
+- tapOn:
+    id: "nav-alerts"
+- waitForAnimationToEnd
+- assertVisible: "Alert Inbox"
+
+# Manual follow-up if stable:
+# - open Match-Day
+# - confirm Add Match and Import Bracket are visible

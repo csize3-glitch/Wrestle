@@ -171,14 +171,18 @@ function Pill({
   active,
   onPress,
   disabled,
+  testID,
 }: {
   label: string;
   active?: boolean;
   onPress: () => void;
   disabled?: boolean;
+  testID?: string;
 }) {
   return (
     <Pressable
+      testID={testID}
+      accessibilityLabel={testID}
       onPress={onPress}
       disabled={disabled}
       style={({ pressed }) => ({
@@ -1265,8 +1269,8 @@ export default function MatchDayScreen() {
       <View style={{ gap: 14 }}>
         <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
           <Pill label={loading ? "Refreshing..." : "Refresh Match-Day"} active onPress={refreshMatchDay} />
-          {isCoach ? <Pill label="Import Bracket" onPress={() => setBracketModalVisible(true)} /> : null}
-          {isCoach ? <Pill label="Add Match" active onPress={openAddMatch} /> : null}
+          {isCoach ? <Pill testID="import-bracket-button" label="Import Bracket" onPress={() => setBracketModalVisible(true)} /> : null}
+          {isCoach ? <Pill testID="add-match-button" label="Add Match" active onPress={openAddMatch} /> : null}
         </View>
 
         {isCoach ? (

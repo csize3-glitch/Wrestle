@@ -263,6 +263,105 @@ export interface PracticeSessionFollowUp {
   completedAt?: string;
 }
 
+export type AthleteJournalMood =
+  | "Great"
+  | "Good"
+  | "Okay"
+  | "Frustrated"
+  | "Tired"
+  | "Injured"
+  | "Nervous"
+  | "Confident";
+
+export type AthleteJournalTag =
+  | "Practice"
+  | "Tournament"
+  | "Weight"
+  | "Mindset"
+  | "Technique"
+  | "Recovery"
+  | "Goal";
+
+export interface AthleteJournalEntry {
+  id: string;
+  teamId: string;
+  wrestlerId: string;
+  createdByUserId: string;
+  title: string;
+  body: string;
+  mood: AthleteJournalMood;
+  practiceDate: string;
+  tags: AthleteJournalTag[];
+  coachVisible: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AthleteGoalType = "practice_check_in" | "session" | "year";
+
+export type AthleteGoalStatus = "active" | "completed" | "archived";
+
+export type AthleteGoalSessionName = "Spring" | "Summer" | "Fall" | "Winter";
+
+export interface AthleteGoal {
+  id: string;
+  teamId: string;
+  wrestlerId: string;
+  createdByUserId: string;
+  type: AthleteGoalType;
+  title: string;
+  description?: string;
+  status: AthleteGoalStatus;
+  sessionName?: AthleteGoalSessionName;
+  seasonYear?: number;
+  practiceEventId?: string;
+  practiceAttendanceId?: string;
+  coachVisible: boolean;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
+export const ATHLETE_JOURNAL_MOODS: AthleteJournalMood[] = [
+  "Great",
+  "Good",
+  "Okay",
+  "Frustrated",
+  "Tired",
+  "Injured",
+  "Nervous",
+  "Confident",
+];
+
+export const ATHLETE_JOURNAL_TAGS: AthleteJournalTag[] = [
+  "Practice",
+  "Tournament",
+  "Weight",
+  "Mindset",
+  "Technique",
+  "Recovery",
+  "Goal",
+];
+
+export const ATHLETE_GOAL_TYPES: AthleteGoalType[] = [
+  "practice_check_in",
+  "session",
+  "year",
+];
+
+export const ATHLETE_GOAL_STATUSES: AthleteGoalStatus[] = [
+  "active",
+  "completed",
+  "archived",
+];
+
+export const ATHLETE_GOAL_SESSION_NAMES: AthleteGoalSessionName[] = [
+  "Spring",
+  "Summer",
+  "Fall",
+  "Winter",
+];
+
 export interface MatSideSummary {
   wrestlerId: string;
   quickReminders: string[];
@@ -481,6 +580,8 @@ export const COLLECTIONS = {
   PRACTICE_BLOCKS: "practice_blocks",
   PRACTICE_SESSIONS: "practice_sessions",
   PRACTICE_ATTENDANCE: "practice_attendance",
+  ATHLETE_JOURNAL_ENTRIES: "athlete_journal_entries",
+  ATHLETE_GOALS: "athlete_goals",
   CALENDAR_EVENTS: "calendar_events",
   TRAINING_GROUPS: "training_groups",
   WRESTLERS: "wrestlers",

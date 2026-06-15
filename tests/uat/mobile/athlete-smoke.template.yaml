@@ -1,0 +1,266 @@
+appId: __UAT_MOBILE_APP_ID__
+name: Athlete Smoke
+---
+- stopApp
+- launchApp
+
+# Close Expo login/web modal if it appears.
+- tapOn:
+    point: "10%,13%"
+    optional: true
+- tapOn:
+    text: "×"
+    optional: true
+- tapOn:
+    text: "Done"
+    optional: true
+- waitForAnimationToEnd
+
+# Close Expo dev menu if it is open.
+- tapOn:
+    point: "90%,10%"
+    optional: true
+- tapOn:
+    text: "×"
+    optional: true
+- tapOn:
+    text: "Go home"
+    optional: true
+- tapOn:
+    text: "Continue"
+    optional: true
+- tapOn:
+    text: "OK"
+    optional: true
+- waitForAnimationToEnd
+
+- tapOn:
+    text: "http://localhost:8081"
+    optional: true
+
+- waitForAnimationToEnd
+
+- tapOn:
+    text: "Continue"
+    optional: true
+
+- openLink: "wrestlewell://uat-reset"
+- waitForAnimationToEnd
+
+- tapOn:
+    text: "OK"
+    optional: true
+
+- tapOn:
+    text: "Log In"
+    optional: true
+
+- extendedWaitUntil:
+    visible:
+      id: "login-email-input"
+    timeout: 25000
+
+- tapOn:
+    id: "login-email-input"
+- eraseText
+- inputText: "__UAT_ATHLETE_EMAIL__"
+- hideKeyboard
+- waitForAnimationToEnd
+- tapOn:
+    id: "login-password-input"
+- eraseText
+- inputText: "__UAT_ATHLETE_PASSWORD__"
+- hideKeyboard
+- waitForAnimationToEnd
+- tapOn:
+    id: "login-submit-button"
+
+- tapOn:
+    text: "Not Now"
+    optional: true
+- tapOn:
+    text: "OK"
+    optional: true
+
+- extendedWaitUntil:
+    visible:
+      id: "nav-events"
+    timeout: 25000
+
+- assertVisible:
+    id: "nav-events"
+
+- assertVisible:
+    id: "open-goals-button"
+
+- openLink: "wrestlewell://goals"
+- waitForAnimationToEnd
+- assertVisible: "Athlete Goals"
+
+# Session goal create
+- tapOn: "Add Session Goal"
+- waitForAnimationToEnd
+- tapOn:
+    id: "goal-title-input"
+- eraseText
+- inputText: "UAT Session Goal __UAT_TIMESTAMP__"
+- hideKeyboard
+- tapOn:
+    id: "goal-description-input"
+- inputText: "Win more live goes this session __UAT_TIMESTAMP__"
+- hideKeyboard
+- tapOn:
+    id: "goal-session-summer-button"
+    optional: true
+- tapOn:
+    id: "goal-session-fall-button"
+    optional: true
+- tapOn:
+    id: "goal-coach-visible-toggle"
+- scroll
+- waitForAnimationToEnd
+- tapOn:
+    id: "goal-save-button"
+- waitForAnimationToEnd
+- assertVisible: "UAT Session Goal __UAT_TIMESTAMP__"
+
+# Year goal create
+- tapOn: "Add Year Goal"
+- waitForAnimationToEnd
+- tapOn:
+    id: "goal-type-year-button"
+- tapOn:
+    id: "goal-title-input"
+- eraseText
+- inputText: "UAT Year Goal __UAT_TIMESTAMP__"
+- hideKeyboard
+- tapOn:
+    id: "goal-description-input"
+- inputText: "Podium at the state qualifier __UAT_TIMESTAMP__"
+- hideKeyboard
+- scroll
+- waitForAnimationToEnd
+- tapOn:
+    id: "goal-save-button"
+- waitForAnimationToEnd
+- assertVisible: "UAT Year Goal __UAT_TIMESTAMP__"
+
+# Complete one goal if visible
+- tapOn:
+    id: "goal-complete-button"
+    optional: true
+
+- openLink: "wrestlewell://journal"
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible:
+      id: "journal-create-button"
+    timeout: 15000
+
+# Journal create
+- openLink: "wrestlewell://journal"
+- waitForAnimationToEnd
+- waitForAnimationToEnd
+- tapOn:
+    id: "journal-create-button"
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible:
+      id: "journal-title-input"
+    timeout: 15000
+- tapOn:
+    id: "journal-title-input"
+- eraseText
+- inputText: "UAT Journal __UAT_TIMESTAMP__"
+- tapOn:
+    id: "journal-mood-confident-button"
+- tapOn:
+    id: "journal-tag-practice-button"
+- tapOn:
+    id: "journal-tag-mindset-button"
+- hideKeyboard
+- scroll
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible:
+      id: "journal-body-input"
+    timeout: 15000
+- tapOn:
+    id: "journal-body-input"
+- inputText: "UAT journal body __UAT_TIMESTAMP__"
+- hideKeyboard
+- tapOn:
+    text: "Great"
+- tapOn:
+    text: "Goal"
+- scroll
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible:
+      id: "journal-coach-visible-toggle"
+    timeout: 15000
+- tapOn:
+    id: "journal-coach-visible-toggle"
+- scroll
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible:
+      id: "journal-save-button"
+    timeout: 15000
+- tapOn:
+    id: "journal-save-button"
+- waitForAnimationToEnd
+- assertVisible: "UAT Journal __UAT_TIMESTAMP__"
+
+# Journal edit
+- tapOn: "Edit"
+- waitForAnimationToEnd
+- tapOn:
+    id: "journal-title-input"
+- eraseText
+- inputText: "UAT Journal Updated __UAT_TIMESTAMP__"
+- hideKeyboard
+- scroll
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible:
+      id: "journal-save-button"
+    timeout: 15000
+- tapOn:
+    id: "journal-save-button"
+- waitForAnimationToEnd
+- assertVisible: "UAT Journal Updated __UAT_TIMESTAMP__"
+
+# Journal cleanup
+- tapOn: "Delete"
+- tapOn:
+    text: "Delete"
+    optional: true
+
+# Schedule
+- tapOn:
+    id: "nav-schedule"
+- waitForAnimationToEnd
+- assertVisible: "Calendar"
+
+# Events
+- tapOn:
+    id: "nav-events"
+- waitForAnimationToEnd
+- assertVisible: "Tournaments"
+
+# Profile
+- tapOn:
+    id: "nav-profile"
+- waitForAnimationToEnd
+- assertVisible: "Wrestlers"
+
+# Alerts
+- tapOn:
+    id: "nav-alerts"
+- waitForAnimationToEnd
+- assertVisible: "Alert Inbox"
+
+# Manual follow-up if stable:
+# - open Match-Day from tournament context
+# - confirm no permission errors and only own wrestler context
