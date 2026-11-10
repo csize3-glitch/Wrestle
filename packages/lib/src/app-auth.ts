@@ -25,6 +25,7 @@ import {
   type VarkProfile,
   type VarkStyle,
 } from "@wrestlewell/types/index";
+import { makeTeamMembershipId } from "./team-memberships";
 
 export type AuthAccountInput = {
   displayName: string;
@@ -333,7 +334,13 @@ async function createAccountRecords(
   } satisfies Omit<AppUser, "id" | "createdAt" | "updatedAt"> & Record<string, unknown>);
 
   if (teamId) {
-    const memberRef = doc(collection(db, COLLECTIONS.TEAM_MEMBERS));
+    const membershipId = makeTeamMembershipId(teamId, args.uid);
+    const memberRef = doc(
+      db,
+      COLLECTIONS.TEAM_MEMBERS,
+      membershipId
+    );
+
     batch.set(memberRef, {
       teamId,
       userId: args.uid,
