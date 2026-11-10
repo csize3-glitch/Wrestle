@@ -32,3 +32,6 @@ playwright-report/
 # Local source-code backups
 *.before-*
 *.backup-*
+
+# Local Firestore migration snapshots
+firestore-membership-backup-*.json
