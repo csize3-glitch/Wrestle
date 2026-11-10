@@ -106,6 +106,49 @@ function normalizeTeamMember(id: string, value: Record<string, unknown>): TeamMe
   };
 }
 
+function selectPreferredTeamMemberships(
+  members: TeamMember[]
+): TeamMember[] {
+  const preferredByPair = new Map<string, TeamMember>();
+
+  for (const member of members) {
+    if (!member.teamId || !member.userId) {
+      continue;
+    }
+
+    const pairKey = `${member.teamId}_${member.userId}`;
+    const existing = preferredByPair.get(pairKey);
+
+    if (!existing) {
+      preferredByPair.set(pairKey, member);
+      continue;
+    }
+
+    const memberIsDeterministic =
+      member.id === pairKey;
+
+    const existingIsDeterministic =
+      existing.id === pairKey;
+
+    if (
+      memberIsDeterministic &&
+      !existingIsDeterministic
+    ) {
+      preferredByPair.set(pairKey, member);
+      continue;
+    }
+
+    if (
+      member.status === "active" &&
+      existing.status !== "active"
+    ) {
+      preferredByPair.set(pairKey, member);
+    }
+  }
+
+  return Array.from(preferredByPair.values());
+}
+
 export async function listTeamMembers(
   db: Firestore,
   args: { teamId: string; ownerUserId?: string }
@@ -114,8 +157,13 @@ export async function listTeamMembers(
     query(collection(db, COLLECTIONS.TEAM_MEMBERS), where("teamId", "==", args.teamId))
   );
 
-  const members = snapshot.docs.map((memberDoc) =>
-    normalizeTeamMember(memberDoc.id, memberDoc.data() as Record<string, unknown>)
+  const members = selectPreferredTeamMemberships(
+    snapshot.docs.map((memberDoc) =>
+      normalizeTeamMember(
+        memberDoc.id,
+        memberDoc.data() as Record<string, unknown>
+      )
+    )
   );
 
   const userSnapshots = await Promise.all(
