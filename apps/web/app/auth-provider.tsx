@@ -3,7 +3,12 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { auth, db } from "@wrestlewell/firebase/client";
-import { getAppUser, getTeam, signOutAccount } from "@wrestlewell/lib/index";
+import {
+  getActiveTeamId,
+  getAppUser,
+  getTeam,
+  signOutAccount,
+} from "@wrestlewell/lib/index";
 import type { AppUser, Team } from "@wrestlewell/types/index";
 
 type AuthContextValue = {
@@ -35,8 +40,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const nextAppUser = await getAppUser(db, nextUser.uid);
     setAppUser(nextAppUser);
 
-    if (nextAppUser?.currentTeamId) {
-      setCurrentTeam(await getTeam(db, nextAppUser.currentTeamId));
+    const activeTeamId = getActiveTeamId(nextAppUser);
+
+    if (activeTeamId) {
+      setCurrentTeam(await getTeam(db, activeTeamId));
     } else {
       setCurrentTeam(null);
     }
