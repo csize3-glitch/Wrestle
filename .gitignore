@@ -35,3 +35,8 @@ playwright-report/
 
 # Local Firestore migration snapshots
 firestore-membership-backup-*.json
+
+# Firebase local emulator logs
+firebase-debug.log
+firestore-debug.log
+*-debug.log
