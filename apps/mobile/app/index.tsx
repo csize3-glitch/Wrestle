@@ -1,4 +1,5 @@
 import { router } from "expo-router";
+import { AskWrestleWell } from "../components/ask-wrestlewell"; // WW_PHASE3_ASSISTANT
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
 import { signOut } from "firebase/auth";
@@ -777,6 +778,25 @@ export default function IndexScreen() {
       }
       eyebrow={signedIn ? "WRESTLEWELL LIVE" : "WRESTLEWELL"}
     >
+      {signedIn && isCoach ? (
+        <View style={{ marginBottom: 16, gap: 10 }}>
+          <Text style={{ color: "#ffffff", fontSize: 20, fontWeight: "900" }}>Quick Actions</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            {[
+              { label: "Find Athlete", href: "/wrestlers" },
+              { label: "Mat-Side", href: "/mat-side" },
+              { label: "Match Day", href: "/match-day" },
+            ].map((action) => (
+              <Pressable key={action.href} accessibilityRole="button"
+                onPress={() => router.push(action.href as any)}
+                style={{ flexGrow: 1, flexBasis: "44%", minHeight: 66, justifyContent: "center", padding: 14, borderRadius: 16, borderWidth: 1, borderColor: "#315c86", backgroundColor: "#102f52" }}>
+                <Text style={{ color: "#ffffff", fontSize: 16, fontWeight: "900" }}>{action.label}</Text>
+              </Pressable>
+            ))}
+            <View style={{ flexGrow: 1, flexBasis: "44%" }}><AskWrestleWell teamId={currentTeam?.id} /></View>
+          </View>
+        </View>
+      ) : null}
       <View style={{ gap: 14 }}>
         <WWCard
           style={{

@@ -1,5 +1,7 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { AskWrestleWell } from "../components/ask-wrestlewell"; // WW_PHASE3_ASSISTANT
+import { useEffect, useMemo, useRef, useState } from "react";
+import * as Speech from "expo-speech"; // WW_PHASE4_READ_ALOUD
 import {
   Alert,
   Modal,
@@ -546,7 +548,7 @@ function ActionPill({
 export default function MatSideScreen() {
   const { firebaseUser, appUser, currentTeam, loading: authLoading } =
     useMobileAuthState();
-  const params = useLocalSearchParams<{ wrestlerId?: string }>();
+  const params = useLocalSearchParams<{ wrestlerId?: string; askView?: string; askToken?: string; askRead?: string }>();
 
   useEffect(() => {
     if (!authLoading && appUser && appUser.role !== "coach") {
@@ -562,9 +564,31 @@ export default function MatSideScreen() {
   const [loadingPracticeContext, setLoadingPracticeContext] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeStyle, setActiveStyle] = useState<WrestlingStyle>("Folkstyle");
+  const [showRoster, setShowRoster] = useState(false);
+  const [showFullAnalysis, setShowFullAnalysis] = useState(false);
+  const [quickNotesView, setQuickNotesView] = useState<"three" | "tournament" | null>(null);
   const [summary, setSummary] = useState<MatSideSummary | null>(null);
   const [practiceContextSessions, setPracticeContextSessions] = useState<PracticeSession[]>([]);
   const [loadingSummary, setLoadingSummary] = useState(false);
+  const spokenCommandToken = useRef<string | null>(null);
+  const [, setSpeaking] = useState(false);
+  function stopReading() {
+    void Speech.stop();
+    setSpeaking(false);
+  }
+  function readText(text: string) {
+    stopReading();
+    if (!text.trim()) return;
+    setSpeaking(true);
+    Speech.speak(text.slice(0, 3500), {
+      language: "en-US", rate: 0.9,
+      onDone: () => setSpeaking(false),
+      onStopped: () => setSpeaking(false),
+      onError: () => setSpeaking(false),
+    });
+  }
+  useEffect(() => () => { void Speech.stop(); }, []);
+
 
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editForm, setEditForm] = useState<MatSideEditForm>(createEmptyEditForm);
@@ -711,6 +735,16 @@ export default function MatSideScreen() {
     refreshPracticeContext(selectedId);
   }, [currentTeam?.id, selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (!params.askToken || !params.wrestlerId || selectedId !== params.wrestlerId) return;
+    if (params.askView === "three" || params.askView === "tournament") {
+      setQuickNotesView(params.askView);
+    } else {
+      setQuickNotesView(null);
+    }
+    setShowFullAnalysis(false);
+  }, [params.askToken, params.askView, params.wrestlerId, selectedId]);
+
   const selectedWrestler = useMemo(
     () =>
       wrestlers.find((wrestler: WrestlerProfile) => wrestler.id === selectedId) ||
@@ -731,6 +765,51 @@ export default function MatSideScreen() {
 
     return mergeMatSideSummaryWithProfile(selectedWrestler, summary);
   }, [selectedWrestler, summary]);
+
+  function readMatSideSummary() {
+    if (!selectedWrestler || !resolvedSummary) return;
+    const name = `${selectedWrestler.firstName} ${selectedWrestler.lastName}`;
+    const sections = [
+      ["Coaching cues", [...(activeStylePlan?.quickReminders || []), ...(resolvedSummary.quickReminders || [])]],
+      ["Strengths", resolvedSummary.strengths || []],
+      ["Focus areas", [...(activeStylePlan?.focusPoints || []), ...(resolvedSummary.weaknesses || [])]],
+    ] as const;
+    readText(`${name}. Mat-Side Summary. ` + sections.map(([title, items]) =>
+      `${title}. ${items.length ? items.join(". ") : "No notes recorded"}.`
+    ).join(" "));
+  }
+
+  function readMatchNotes(view: "three" | "tournament") {
+    if (!selectedWrestler) return;
+    const latest = wrestlerMatches[0];
+    const matches = view === "three" ? wrestlerMatches.slice(0, 3) : latest
+      ? wrestlerMatches.filter((match) => match.eventName === latest.eventName && match.matchDate === latest.matchDate)
+      : [];
+    if (!matches.length) {
+      readText(`No completed matches found for ${selectedWrestler.firstName}.`);
+      return;
+    }
+    const title = view === "three" ? "last three matches" : "last tournament";
+    readText(`${selectedWrestler.firstName}'s notes from the ${title}. ` + matches.map((match, index) =>
+      `Match ${index + 1}, against ${match.opponentName || "unknown opponent"}. ${match.notes?.trim() || "No coaching note recorded"}.`
+    ).join(" "));
+  }
+
+  useEffect(() => {
+    if (!params.askToken || params.askRead !== "yes" || !selectedWrestler ||
+        selectedWrestler.id !== params.wrestlerId || spokenCommandToken.current === params.askToken) return;
+    if (params.askView === "three" || params.askView === "tournament") {
+      if (loadingMatches) return;
+      spokenCommandToken.current = params.askToken;
+      readMatchNotes(params.askView);
+    } else {
+      if (loadingSummary) return;
+      spokenCommandToken.current = params.askToken;
+      readMatSideSummary();
+    }
+  }, [params.askToken, params.askRead, params.askView, params.wrestlerId,
+      selectedWrestler, resolvedSummary, wrestlerMatches, loadingMatches, loadingSummary]);
+
 
   useEffect(() => {
     if (!selectedWrestler) {
@@ -1031,6 +1110,14 @@ export default function MatSideScreen() {
       {firebaseUser && appUser && wrestlers.length > 0 ? (
         <View style={{ gap: 14 }}>
           {isCoach ? (
+            <Pressable accessibilityRole="button" onPress={() => setShowRoster((current) => !current)}
+              style={{ backgroundColor: "#102f52", borderWidth: 1, borderColor: "#315c86", borderRadius: 14, padding: 14 }}>
+              <Text style={{ color: "#ffffff", fontWeight: "900" }}>
+                {showRoster ? "Hide athlete list ▲" : "Change athlete ▼"}
+              </Text>
+            </Pressable>
+          ) : null}
+          {isCoach && showRoster ? (
             <View
               style={{
                 borderWidth: 1,
@@ -1062,7 +1149,7 @@ export default function MatSideScreen() {
                   return (
                     <Pressable
                       key={wrestler.id}
-                      onPress={() => setSelectedId(wrestler.id)}
+                      onPress={() => { setSelectedId(wrestler.id); setShowRoster(false); setShowFullAnalysis(false); }}
                       style={{
                         borderWidth: 1,
                         borderColor: isActive ? "#ffffff" : "#315c86",
@@ -1137,6 +1224,102 @@ export default function MatSideScreen() {
                   .join(" • ") || "Add more wrestler details on the web app."}
               </Text>
 
+              <View style={{ marginTop: 14, gap: 10 }}>
+                <AskWrestleWell teamId={currentTeam?.id} selectedAthlete={selectedWrestler} />
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Read Mat-Side Summary aloud"
+                    onPress={readMatSideSummary} style={{ flex: 1, padding: 12, borderRadius: 12, backgroundColor: "#163d62" }}>
+                    <Text style={{ color: "#ffffff", fontWeight: "800", textAlign: "center" }}>🔊 Read Summary</Text>
+                  </Pressable>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Stop reading"
+                    onPress={stopReading} style={{ flex: 1, padding: 12, borderRadius: 12, backgroundColor: "#3c3043" }}>
+                    <Text style={{ color: "#ffffff", fontWeight: "800", textAlign: "center" }}>■ Stop</Text>
+                  </Pressable>
+                </View>
+                <Text style={{ color: "#ffffff", fontSize: 18, fontWeight: "900" }}>AT A GLANCE</Text>
+                {[
+                  { title: "Coaching cues", items: [...(activeStylePlan?.quickReminders || []), ...(resolvedSummary.quickReminders || [])] },
+                  { title: "Strengths", items: resolvedSummary.strengths || [] },
+                  { title: "Focus areas", items: [...(activeStylePlan?.focusPoints || []), ...(resolvedSummary.weaknesses || [])] },
+                ].map((section) => (
+                  <View key={section.title} style={{ borderRadius: 12, padding: 12, backgroundColor: "#102f52" }}>
+                    <Text style={{ color: "#ffffff", fontWeight: "900", marginBottom: 5 }}>{section.title}</Text>
+                    {(section.items.length ? section.items.slice(0, 2) : ["No notes added yet."]).map((item, i) => (
+                      <Text key={`${section.title}-${i}`} style={{ color: "#d5e3f5", lineHeight: 20 }}>• {item}</Text>
+                    ))}
+                  </View>
+                ))}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Open selected wrestler in Match Day"
+                  onPress={() =>
+                    router.push({
+                      pathname: "/match-day",
+                      params: { wrestlerId: selectedWrestler.id },
+                    })
+                  }
+                  style={{ padding: 14, borderRadius: 12, backgroundColor: "#bf1029" }}
+                >
+                  <Text style={{ color: "#ffffff", fontWeight: "900", textAlign: "center" }}>
+                    Open Match →
+                  </Text>
+                </Pressable>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => setQuickNotesView((current) => current === "three" ? null : "three")}
+                    style={{ flex: 1, padding: 12, borderRadius: 12, backgroundColor: "#163d62" }}
+                  >
+                    <Text style={{ color: "#ffffff", fontWeight: "800", textAlign: "center" }}>Last 3 Notes</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => setQuickNotesView((current) => current === "tournament" ? null : "tournament")}
+                    style={{ flex: 1, padding: 12, borderRadius: 12, backgroundColor: "#163d62" }}
+                  >
+                    <Text style={{ color: "#ffffff", fontWeight: "800", textAlign: "center" }}>Last Tournament</Text>
+                  </Pressable>
+                </View>
+                {quickNotesView ? (
+                  <View style={{ borderRadius: 12, backgroundColor: "#102f52", padding: 12, gap: 9 }}>
+                    <Text style={{ color: "#ffffff", fontWeight: "900" }}>
+                      {quickNotesView === "three" ? "Last 3 matches" : "Most recent tournament with recorded matches"}
+                    </Text>
+                    <Pressable accessibilityRole="button" accessibilityLabel="Read displayed match notes aloud"
+                      onPress={() => readMatchNotes(quickNotesView)} disabled={loadingMatches}
+                      style={{ padding: 10, borderRadius: 10, backgroundColor: "#163d62", opacity: loadingMatches ? 0.5 : 1 }}>
+                      <Text style={{ color: "#ffffff", fontWeight: "800", textAlign: "center" }}>🔊 Read These Notes</Text>
+                    </Pressable>
+                    {loadingMatches ? <Text style={{ color: "#d5e3f5" }}>Loading matches...</Text> : null}
+                    {!loadingMatches && (() => {
+                      const recent = wrestlerMatches.slice(0, 3);
+                      const latest = wrestlerMatches[0];
+                      const tournamentMatches = latest
+                        ? wrestlerMatches.filter((m) => m.eventName === latest.eventName && m.matchDate === latest.matchDate)
+                        : [];
+                      const shown = quickNotesView === "three" ? recent : tournamentMatches;
+                      return shown.length ? shown.map((m) => (
+                        <View key={m.id} style={{ borderTopWidth: 1, borderTopColor: "#315c86", paddingTop: 8 }}>
+                          <Text style={{ color: "#ffffff", fontWeight: "800" }}>
+                            {m.result === "win" ? "W" : "L"} vs {m.opponentName || "Unknown"} • {m.eventName || "Match"}
+                          </Text>
+                          <Text style={{ color: "#d5e3f5", marginTop: 3 }}>
+                            {m.notes?.trim() || "No coaching note recorded."}
+                          </Text>
+                        </View>
+                      )) : <Text style={{ color: "#d5e3f5" }}>No completed matches in history yet.</Text>;
+                    })()}
+                  </View>
+                ) : null}
+                <Pressable accessibilityRole="button" onPress={() => setShowFullAnalysis((current) => !current)}
+                  style={{ padding: 14, borderRadius: 12, backgroundColor: "#ffffff" }}>
+                  <Text style={{ color: "#061a33", fontWeight: "900", textAlign: "center" }}>
+                    {showFullAnalysis ? "Hide full analysis ▲" : "View full analysis ▼"}
+                  </Text>
+                </Pressable>
+              </View>
+              {showFullAnalysis ? (
+                <>
               <WrestleWellIQMatSideCard summary={selectedWrestleWellIQ} />
 
               {selectedWrestler.styles.length > 0 ? (
@@ -1354,6 +1537,8 @@ export default function MatSideScreen() {
                   </View>
                 )}
               </View>
+              </>
+              ) : null}
             </View>
           ) : null}
         </View>

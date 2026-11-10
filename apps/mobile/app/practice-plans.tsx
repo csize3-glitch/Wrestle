@@ -1845,7 +1845,6 @@ export default function PracticePlansScreen() {
               player={directVideoPlayer}
               style={styles.videoFrame}
               nativeControls
-              allowsFullscreen
               contentFit="contain"
             />
           ) : (

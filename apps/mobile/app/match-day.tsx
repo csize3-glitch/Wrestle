@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type Ref } from "react";
 import {
   Alert,
   Modal,
@@ -7,6 +7,7 @@ import {
   ScrollView,
   Text,
   TextInput,
+  type TextInput as TextInputType,
   View,
 } from "react-native";
 import { db } from "@wrestlewell/firebase/client";
@@ -206,17 +207,20 @@ function Field({
   onChangeText,
   placeholder,
   multiline,
+  inputRef,
 }: {
   label: string;
   value: string;
   onChangeText: (value: string) => void;
   placeholder?: string;
   multiline?: boolean;
+  inputRef?: Ref<TextInputType>;
 }) {
   return (
     <View style={{ gap: 6 }}>
       <Text style={{ color: "#ffffff", fontWeight: "900" }}>{label}</Text>
       <TextInput
+        ref={inputRef}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -357,6 +361,7 @@ export default function MatchDayScreen() {
   const [matchModalVisible, setMatchModalVisible] = useState(false);
   const [editingMatchId, setEditingMatchId] = useState<string | null>(null);
   const [matchForm, setMatchForm] = useState<MatchFormState>(createEmptyMatchForm);
+  const matchNotesInputRef = useRef<TextInputType>(null);
   const [savingMatch, setSavingMatch] = useState(false);
   const [deletingMatchId, setDeletingMatchId] = useState<string | null>(null);
 
@@ -948,7 +953,7 @@ export default function MatchDayScreen() {
       if (matchForm.status === "completed" && savedMatchId) {
         const completedMatch = updatedMatches.find((match) => match.id === savedMatchId);
 
-        if (completedMatch && !(completedMatch as any).historySaved) {
+        if (completedMatch) {
           await saveTournamentMatchToWrestlerHistory(db, completedMatch);
 
           const refreshedMatches = await listTournamentMatches(db, {
@@ -1171,7 +1176,35 @@ export default function MatchDayScreen() {
             </View>
           </View>
 
-          <Field label="Notes" value={matchForm.notes} onChangeText={(value) => updateMatchForm("notes", value)} multiline />
+          <View style={{ gap: 8 }}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Dictate match note using iPhone keyboard"
+              onPress={() => matchNotesInputRef.current?.focus()}
+              style={({ pressed }) => ({
+                alignSelf: "flex-start",
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: "#315c86",
+                backgroundColor: pressed ? "#173b67" : "#102f52",
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+              })}
+            >
+              <Text style={{ color: "#ffffff", fontWeight: "900" }}>🎙 Dictate Note (iPhone Keyboard)</Text>
+            </Pressable>
+            <Text style={{ color: "#b7c9df", fontSize: 13, lineHeight: 19 }}>
+              Tap Dictate, then tap the microphone on your iPhone keyboard and speak.
+              Review the words below before saving this match. You can also type.
+            </Text>
+            <Field
+              label="Match Notes"
+              value={matchForm.notes}
+              onChangeText={(value) => updateMatchForm("notes", value)}
+              multiline
+              inputRef={matchNotesInputRef}
+            />
+          </View>
 
           <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
             <Pill

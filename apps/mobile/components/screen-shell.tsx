@@ -34,7 +34,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#eef3fb",
   },
   background: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     overflow: "hidden",
     backgroundColor: "#eef3fb",
   },

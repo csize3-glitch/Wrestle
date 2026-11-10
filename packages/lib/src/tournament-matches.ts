@@ -566,9 +566,12 @@ export async function saveTournamentMatchToWrestlerHistory(
   const historyId = `tm_${match.id}`;
   const historyRef = doc(db, COLLECTIONS.WRESTLER_MATCHES, historyId);
 
+  const existingHistory = await getDoc(historyRef);
+
   await setDoc(
     historyRef,
     {
+      ...(!existingHistory.exists() ? { createdAt: serverTimestamp() } : {}),
       teamId: match.teamId,
       wrestlerId: match.wrestlerId,
       eventName,
@@ -589,7 +592,6 @@ export async function saveTournamentMatchToWrestlerHistory(
       roundName: match.roundName || "",
       opponentTeam: match.opponentTeam || "",
 
-      createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     },
     { merge: true }
