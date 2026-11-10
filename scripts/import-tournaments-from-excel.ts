@@ -2,25 +2,16 @@ import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import * as XLSX from "xlsx";
-import { cert, getApps, initializeApp } from "firebase-admin/app";
+import { applicationDefault, getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { COLLECTIONS } from "../packages/types/src/index";
 
 function initFirebaseAdmin() {
   if (getApps().length) return getFirestore();
 
-  const serviceAccountPath =
-    process.env.FIREBASE_SERVICE_ACCOUNT_PATH ||
-    path.resolve(process.cwd(), "service-account.json");
-
-  if (!fs.existsSync(serviceAccountPath)) {
-    throw new Error(`Missing service account file: ${serviceAccountPath}`);
-  }
-
-  const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, "utf8"));
-
   initializeApp({
-    credential: cert(serviceAccount),
+    credential: applicationDefault(),
+    projectId: "wrestle-well-2",
   });
 
   return getFirestore();

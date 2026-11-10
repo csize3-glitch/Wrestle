@@ -4,7 +4,12 @@
   "private": true,
   "main": "src/client.ts",
   "types": "src/client.ts",
+  "exports": {
+    ".": "./src/client.ts",
+    "./client": "./src/client.ts"
+  },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
     "firebase": "^12.1.0"
   }
 }

@@ -167,34 +167,12 @@ const NON_TECHNIQUE_EXCLUDE_KEYWORDS = [
   "#shorts",
 ];
 
-function getServiceAccount() {
-  const fromEnv = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-
-  if (fromEnv?.trim()) {
-    return JSON.parse(fromEnv);
-  }
-
-  const envPath = path.resolve(process.cwd(), ".env");
-
-  if (!fs.existsSync(envPath)) {
-    throw new Error("Missing FIREBASE_SERVICE_ACCOUNT_JSON and no root .env file was found.");
-  }
-
-  const envText = fs.readFileSync(envPath, "utf8");
-  const match = envText.match(/FIREBASE_SERVICE_ACCOUNT_JSON=(\{[\s\S]*?\n\})/);
-
-  if (!match?.[1]) {
-    throw new Error("Could not find FIREBASE_SERVICE_ACCOUNT_JSON JSON block in root .env.");
-  }
-
-  return JSON.parse(match[1]);
-}
-
 function initFirebase() {
   if (admin.apps.length > 0) return;
 
   admin.initializeApp({
-    credential: admin.credential.cert(getServiceAccount()),
+    credential: admin.credential.applicationDefault(),
+    projectId: "wrestle-well-2",
   });
 }
 

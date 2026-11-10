@@ -9,10 +9,18 @@
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@wrestlewell/types/*": ["packages/types/src/*"],
-      "@wrestlewell/firebase/*": ["packages/firebase/src/*"],
-      "@wrestlewell/lib/*": ["packages/lib/src/*"],
-      "@wrestlewell/ui/*": ["packages/ui/src/*"]
+      "@wrestlewell/types/*": [
+        "packages/types/src/*"
+      ],
+      "@wrestlewell/firebase/*": [
+        "packages/firebase/src/*"
+      ],
+      "@wrestlewell/lib/*": [
+        "packages/lib/src/*"
+      ],
+      "@wrestlewell/ui/*": [
+        "packages/ui/src/*"
+      ]
     }
   }
 }

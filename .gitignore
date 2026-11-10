@@ -24,3 +24,11 @@ service-account.json
 test-results/
 playwright-report/
 .uat-mobile-resolved/
+
+# Temporary migration backups
+*.before-adc
+*.before-env-fix
+
+# Local source-code backups
+*.before-*
+*.backup-*
