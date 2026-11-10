@@ -124,7 +124,14 @@ function normalizeAppUser(id: string, value: Record<string, unknown>): AppUser {
     email: typeof value.email === "string" ? value.email : "",
     displayName: typeof value.displayName === "string" ? value.displayName : "",
     role: normalizeRole(value.role),
-    currentTeamId: typeof value.currentTeamId === "string" ? value.currentTeamId : undefined,
+    currentTeamId:
+      typeof value.currentTeamId === "string"
+        ? value.currentTeamId
+        : undefined,
+    activeTeamId:
+      typeof value.activeTeamId === "string"
+        ? value.activeTeamId
+        : undefined,
     linkedWrestlerIds: Array.isArray(value.linkedWrestlerIds)
       ? value.linkedWrestlerIds.filter((entry): entry is string => typeof entry === "string")
       : undefined,
@@ -136,6 +143,18 @@ function normalizeAppUser(id: string, value: Record<string, unknown>): AppUser {
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
   };
+}
+
+/**
+ * Returns the team currently selected in the interface.
+ *
+ * Existing accounts continue to use currentTeamId until they are migrated.
+ * This helper does not prove that the user has an active membership.
+ */
+export function getActiveTeamId(
+  user?: Pick<AppUser, "activeTeamId" | "currentTeamId"> | null
+): string {
+  return user?.activeTeamId?.trim() || user?.currentTeamId?.trim() || "";
 }
 
 function normalizeTeam(id: string, value: Record<string, unknown>): Team {

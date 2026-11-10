@@ -15,8 +15,65 @@ import {
   COLLECTIONS,
   type TeamMember,
   type TeamMemberRecord,
+  type TeamMembershipRole,
+  type TeamMembershipStatus,
   type UserRole,
 } from "@wrestlewell/types/index";
+
+const MEMBERSHIP_ROLES: TeamMembershipRole[] = [
+  "owner",
+  "head_coach",
+  "assistant_coach",
+  "athlete",
+  "parent",
+];
+
+const MEMBERSHIP_STATUSES: TeamMembershipStatus[] = [
+  "active",
+  "suspended",
+  "removed",
+];
+
+export function normalizeMembershipRole(
+  value: unknown,
+  legacyRole?: UserRole,
+  isOwner = false
+): TeamMembershipRole {
+  if (isOwner) {
+    return "owner";
+  }
+
+  if (
+    typeof value === "string" &&
+    MEMBERSHIP_ROLES.includes(value as TeamMembershipRole)
+  ) {
+    return value as TeamMembershipRole;
+  }
+
+  if (legacyRole === "coach") {
+    return "assistant_coach";
+  }
+
+  if (legacyRole === "parent") {
+    return "parent";
+  }
+
+  return "athlete";
+}
+
+export function normalizeMembershipStatus(
+  value: unknown
+): TeamMembershipStatus {
+  if (
+    typeof value === "string" &&
+    MEMBERSHIP_STATUSES.includes(value as TeamMembershipStatus)
+  ) {
+    return value as TeamMembershipStatus;
+  }
+
+  // Existing membership documents do not have a status yet.
+  return "active";
+}
 
 function normalizeTeamMember(id: string, value: Record<string, unknown>): TeamMember {
   const nextRole: UserRole =
@@ -27,6 +84,23 @@ function normalizeTeamMember(id: string, value: Record<string, unknown>): TeamMe
     teamId: typeof value.teamId === "string" ? value.teamId : "",
     userId: typeof value.userId === "string" ? value.userId : "",
     role: nextRole,
+    membershipRole: normalizeMembershipRole(
+      value.membershipRole,
+      nextRole
+    ),
+    status: normalizeMembershipStatus(value.status),
+    wrestlerProfileId:
+      typeof value.wrestlerProfileId === "string"
+        ? value.wrestlerProfileId
+        : undefined,
+    approvedByUserId:
+      typeof value.approvedByUserId === "string"
+        ? value.approvedByUserId
+        : undefined,
+    joinedAt:
+      typeof value.joinedAt === "string"
+        ? value.joinedAt
+        : undefined,
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
   };
