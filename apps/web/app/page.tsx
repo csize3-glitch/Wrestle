@@ -13,6 +13,8 @@ import {
   listTournamentEntries,
   listTournaments,
   listWrestlers,
+  PILOT_ACCESS_MESSAGE,
+  PILOT_SELF_SERVICE_ENABLED,
   registerAccount,
   signInAccount,
 } from "@wrestlewell/lib/index";
@@ -131,7 +133,14 @@ function formatDurationLabel(totalSeconds: number) {
 
 export default function HomePage() {
   const router = useRouter();
-  const { firebaseUser, appUser, currentTeam, loading, refreshAppState } = useAuthState();
+  const {
+    firebaseUser,
+    appUser,
+    currentTeam,
+    loading,
+    refreshAppState,
+    signOut,
+  } = useAuthState();
 
   const [mode, setMode] = useState<AuthMode>("sign_in");
   const [form, setForm] = useState<AuthFormState>(createInitialAuthForm);
@@ -214,6 +223,16 @@ export default function HomePage() {
 
   async function handleSubmit() {
     setError(null);
+
+    if (
+      mode === "sign_up" &&
+      !PILOT_SELF_SERVICE_ENABLED
+    ) {
+      setMode("sign_in");
+      setError(PILOT_ACCESS_MESSAGE);
+      return;
+    }
+
     setBusy(true);
 
     try {
@@ -461,6 +480,48 @@ export default function HomePage() {
     );
   }
 
+  if (
+    needsSetup &&
+    !PILOT_SELF_SERVICE_ENABLED
+  ) {
+    return (
+      <div className="dashboard-grid">
+        <section className="content-card">
+          <div className="eyebrow">
+            Invite-only pilot
+          </div>
+
+          <h1
+            className="hero-title"
+            style={{
+              fontSize:
+                "clamp(2rem, 4vw, 3.2rem)",
+            }}
+          >
+            Your account needs pilot provisioning.
+          </h1>
+
+          <p className="hero-copy">
+            {PILOT_ACCESS_MESSAGE}
+          </p>
+
+          <div
+            className="hero-actions"
+            style={{ marginTop: 20 }}
+          >
+            <button
+              className="button-secondary"
+              type="button"
+              onClick={signOut}
+            >
+              Sign Out
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   if (needsSetup) {
     return (
       <div className="dashboard-grid">
@@ -571,14 +632,43 @@ export default function HomePage() {
                 >
                   Sign In
                 </button>
-                <button
-                  className={mode === "sign_up" ? "is-active" : ""}
-                  onClick={() => setMode("sign_up")}
-                  type="button"
-                >
-                  Create Account
-                </button>
+                {PILOT_SELF_SERVICE_ENABLED ? (
+                  <button
+                    className={
+                      mode === "sign_up"
+                        ? "is-active"
+                        : ""
+                    }
+                    onClick={() =>
+                      setMode("sign_up")
+                    }
+                    type="button"
+                  >
+                    Create Account
+                  </button>
+                ) : null}
               </div>
+
+              {!PILOT_SELF_SERVICE_ENABLED ? (
+                <div
+                  className="content-card"
+                  style={{
+                    marginTop: 18,
+                    padding: 16,
+                    borderRadius: 16,
+                  }}
+                >
+                  <div className="eyebrow">
+                    Invite-only pilot
+                  </div>
+                  <p
+                    className="content-card__copy"
+                    style={{ margin: 0 }}
+                  >
+                    {PILOT_ACCESS_MESSAGE}
+                  </p>
+                </div>
+              ) : null}
 
               <div className="form-grid" style={{ marginTop: 22 }}>
                 {mode === "sign_up" ? (
