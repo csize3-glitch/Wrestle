@@ -4,6 +4,8 @@ import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import { auth, db } from "@wrestlewell/firebase/client";
 import {
   completeAccountSetup,
+  PILOT_ACCESS_MESSAGE,
+  PILOT_SELF_SERVICE_ENABLED,
   registerAccount,
   signInAccount,
 } from "@wrestlewell/lib/index";
@@ -58,7 +60,107 @@ export default function JoinScreen() {
     return role === "coach" ? "Join as Coach" : "Join as Athlete";
   }, [role]);
 
+  if (!PILOT_SELF_SERVICE_ENABLED) {
+    return (
+      <MobileScreenShell
+        title={title}
+        subtitle="Invite-only WrestleWell pilot access."
+        eyebrow="TEAM INVITE"
+      >
+        <View style={{ gap: 14 }}>
+          <WWCard>
+            <WWBadge
+              label="INVITE-ONLY PILOT"
+              tone="blue"
+            />
+
+            <Text
+              style={{
+                color: "#ffffff",
+                fontSize: 28,
+                fontWeight: "900",
+                letterSpacing: -0.7,
+                marginTop: 14,
+              }}
+            >
+              Pilot access must be provisioned.
+            </Text>
+
+            <Text
+              style={{
+                color: "#b7c9df",
+                fontSize: 15,
+                lineHeight: 22,
+                marginTop: 10,
+              }}
+            >
+              {PILOT_ACCESS_MESSAGE}
+            </Text>
+
+            {inviteCode ? (
+              <View
+                style={{
+                  marginTop: 18,
+                  borderRadius: 20,
+                  borderWidth: 1,
+                  borderColor: "#315c86",
+                  backgroundColor: "#102f52",
+                  padding: 16,
+                }}
+              >
+                <Text
+                  style={{
+                    color: "#93c5fd",
+                    fontSize: 12,
+                    fontWeight: "900",
+                    letterSpacing: 1,
+                    marginBottom: 8,
+                  }}
+                >
+                  INVITE REFERENCE
+                </Text>
+
+                <Text
+                  selectable
+                  style={{
+                    color: "#ffffff",
+                    fontSize: 22,
+                    fontWeight: "900",
+                    letterSpacing: 1,
+                  }}
+                >
+                  {inviteCode}
+                </Text>
+              </View>
+            ) : null}
+          </WWCard>
+
+          <PrimaryButton
+            label={
+              firebaseUser
+                ? "Return to Dashboard"
+                : "Go to Sign In"
+            }
+            onPress={() =>
+              router.replace(
+                firebaseUser ? "/" : "/sign-in"
+              )
+            }
+          />
+        </View>
+      </MobileScreenShell>
+    );
+  }
+
   async function handleJoin() {
+    if (!PILOT_SELF_SERVICE_ENABLED) {
+      Alert.alert(
+        "Invite-only pilot",
+        PILOT_ACCESS_MESSAGE
+      );
+      return;
+    }
+
     if (!inviteCode) {
       Alert.alert(
         "Invite missing",
