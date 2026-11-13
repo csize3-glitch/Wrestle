@@ -5,6 +5,8 @@ import { db } from "@wrestlewell/firebase/client";
 import {
   listTeamMembers,
   listWrestlers,
+  PILOT_ACCESS_MESSAGE,
+  PILOT_SELF_SERVICE_ENABLED,
   regenerateCoachInviteCode,
   regenerateTeamCode,
   removeTeamMember,
@@ -357,11 +359,14 @@ export default function TeamPage() {
                         >
                           {copiedField === "team" ? "Copied" : "Copy Code"}
                         </button>
-                        {isOwner ? (
+                        {isOwner &&
+                        PILOT_SELF_SERVICE_ENABLED ? (
                           <button
                             className="button-secondary"
                             type="button"
-                            onClick={() => handleRegenerateCode("team")}
+                            onClick={() =>
+                              handleRegenerateCode("team")
+                            }
                             disabled={savingTeam}
                           >
                             Refresh
@@ -390,14 +395,19 @@ export default function TeamPage() {
                               ? "Copied"
                               : "Copy Code"}
                         </button>
-                        {isOwner ? (
+                        {isOwner &&
+                        PILOT_SELF_SERVICE_ENABLED ? (
                           <button
                             className="button-secondary"
                             type="button"
-                            onClick={() => handleRegenerateCode("coach")}
+                            onClick={() =>
+                              handleRegenerateCode("coach")
+                            }
                             disabled={savingTeam}
                           >
-                            {currentTeam?.coachInviteCode ? "Refresh" : "Generate"}
+                            {currentTeam?.coachInviteCode
+                              ? "Refresh"
+                              : "Generate"}
                           </button>
                         ) : null}
                       </div>
@@ -419,16 +429,57 @@ export default function TeamPage() {
               </section>
 
               <section className="content-card">
-                <h2 className="content-card__title">How coach access works</h2>
-                <p className="content-card__copy">
-                  Share the coach invite code with assistant coaches. Once they join, you can promote or demote roles and keep the active staff list under control here.
-                </p>
+                <h2 className="content-card__title">
+                  Pilot access management
+                </h2>
 
-                <div className="feature-list" style={{ marginTop: 18 }}>
-                  <span>Head coach stays protected and cannot be demoted or removed.</span>
-                  <span>Assistant coaches can manage day-to-day roster access without creating a separate team.</span>
-                  <span>Removing a member disconnects them from this team without deleting their WrestleWell account.</span>
-                </div>
+                {!PILOT_SELF_SERVICE_ENABLED ? (
+                  <>
+                    <div className="eyebrow">
+                      Administrator-managed pilot
+                    </div>
+
+                    <p className="content-card__copy">
+                      {PILOT_ACCESS_MESSAGE}
+                    </p>
+
+                    <div
+                      className="feature-list"
+                      style={{ marginTop: 18 }}
+                    >
+                      <span>
+                        The roster remains available for review.
+                      </span>
+                      <span>
+                        The team owner may update the team name.
+                      </span>
+                      <span>
+                        Roles, membership, parent links, and invite codes are managed by the pilot administrator.
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="content-card__copy">
+                      Share the coach invite code with assistant coaches. Once they join, you can promote or demote roles and keep the active staff list under control here.
+                    </p>
+
+                    <div
+                      className="feature-list"
+                      style={{ marginTop: 18 }}
+                    >
+                      <span>
+                        Head coach stays protected and cannot be demoted or removed.
+                      </span>
+                      <span>
+                        Assistant coaches can manage day-to-day roster access without creating a separate team.
+                      </span>
+                      <span>
+                        Removing a member disconnects them from this team without deleting their WrestleWell account.
+                      </span>
+                    </div>
+                  </>
+                )}
               </section>
             </div>
 
@@ -496,45 +547,102 @@ export default function TeamPage() {
                           </div>
 
                           {member.isOwner ? (
-                            <p className="content-card__copy" style={{ margin: 0, maxWidth: 280 }}>
+                            <p
+                              className="content-card__copy"
+                              style={{
+                                margin: 0,
+                                maxWidth: 280,
+                              }}
+                            >
                               The team owner keeps permanent control of the team profile and invite system.
                             </p>
-                          ) : (
-                            <div className="hero-actions" style={{ marginTop: 0 }}>
+                          ) : PILOT_SELF_SERVICE_ENABLED ? (
+                            <div
+                              className="hero-actions"
+                              style={{ marginTop: 0 }}
+                            >
                               <button
-                                className={member.role === "coach" ? "button-primary" : "button-secondary"}
+                                className={
+                                  member.role === "coach"
+                                    ? "button-primary"
+                                    : "button-secondary"
+                                }
                                 type="button"
-                                onClick={() => handleRoleChange(member, "coach")}
+                                onClick={() =>
+                                  handleRoleChange(
+                                    member,
+                                    "coach"
+                                  )
+                                }
                                 disabled={memberBusy}
                               >
                                 Make Coach
                               </button>
+
                               <button
-                                className={member.role === "athlete" ? "button-primary" : "button-secondary"}
+                                className={
+                                  member.role === "athlete"
+                                    ? "button-primary"
+                                    : "button-secondary"
+                                }
                                 type="button"
-                                onClick={() => handleRoleChange(member, "athlete")}
+                                onClick={() =>
+                                  handleRoleChange(
+                                    member,
+                                    "athlete"
+                                  )
+                                }
                                 disabled={memberBusy}
                               >
                                 Make Athlete
                               </button>
+
                               <button
-                                className={member.role === "parent" ? "button-primary" : "button-secondary"}
+                                className={
+                                  member.role === "parent"
+                                    ? "button-primary"
+                                    : "button-secondary"
+                                }
                                 type="button"
-                                onClick={() => handleRoleChange(member, "parent")}
+                                onClick={() =>
+                                  handleRoleChange(
+                                    member,
+                                    "parent"
+                                  )
+                                }
                                 disabled={memberBusy}
                               >
                                 Make Parent
                               </button>
+
                               <button
                                 className="button-secondary"
                                 type="button"
-                                onClick={() => handleRemove(member)}
+                                onClick={() =>
+                                  handleRemove(member)
+                                }
                                 disabled={memberBusy}
-                                style={{ borderColor: "rgba(191, 16, 41, 0.28)", color: "#911022" }}
+                                style={{
+                                  borderColor:
+                                    "rgba(191, 16, 41, 0.28)",
+                                  color: "#911022",
+                                }}
                               >
                                 Remove
                               </button>
                             </div>
+                          ) : (
+                            <span
+                              className="eyebrow"
+                              style={{
+                                marginBottom: 0,
+                                background:
+                                  "rgba(15, 39, 72, 0.08)",
+                                color: "#0f2748",
+                              }}
+                            >
+                              Pilot administrator managed
+                            </span>
                           )}
                         </div>
                       </article>
@@ -595,16 +703,37 @@ export default function TeamPage() {
                             </div>
                           </div>
 
-                          <div className="hero-actions" style={{ marginTop: 0 }}>
-                            <button
-                              className="button-primary"
-                              type="button"
-                              onClick={() => handleSaveParentLinks(member)}
-                              disabled={memberBusy}
+                          {PILOT_SELF_SERVICE_ENABLED ? (
+                            <div
+                              className="hero-actions"
+                              style={{ marginTop: 0 }}
                             >
-                              {memberBusy ? "Saving..." : "Save Links"}
-                            </button>
-                          </div>
+                              <button
+                                className="button-primary"
+                                type="button"
+                                onClick={() =>
+                                  handleSaveParentLinks(member)
+                                }
+                                disabled={memberBusy}
+                              >
+                                {memberBusy
+                                  ? "Saving..."
+                                  : "Save Links"}
+                              </button>
+                            </div>
+                          ) : (
+                            <span
+                              className="eyebrow"
+                              style={{
+                                marginBottom: 0,
+                                background:
+                                  "rgba(15, 39, 72, 0.08)",
+                                color: "#0f2748",
+                              }}
+                            >
+                              Read-only during pilot
+                            </span>
+                          )}
                         </div>
 
                         {wrestlers.length === 0 ? (
@@ -656,7 +785,10 @@ export default function TeamPage() {
                                       onChange={(event) =>
                                         handleParentLinkToggle(member, wrestler.id, event.target.checked)
                                       }
-                                      disabled={memberBusy}
+                                      disabled={
+                                        memberBusy ||
+                                        !PILOT_SELF_SERVICE_ENABLED
+                                      }
                                     />
                                     {getFullName(wrestler)}
                                   </span>
