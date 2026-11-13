@@ -21,6 +21,9 @@ importers:
         specifier: ^0.18.5
         version: 0.18.5
     devDependencies:
+      '@firebase/rules-unit-testing':
+        specifier: ^6.0.0
+        version: 6.0.0(firebase@12.12.0(@react-native-async-storage/async-storage@2.2.0(react-native@0.86.3(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.3))))
       '@playwright/test':
         specifier: ^1.59.1
         version: 1.59.1
@@ -1321,6 +1324,12 @@ packages:
     resolution: {integrity: sha512-5EXqOThV4upjK9D38d/qOSVwOqRhemlaOFk9vCkMNNALeIlwr+4pLjtLNo4qoY8etQmU/1q4aIATE9N8PFqg0g==}
     peerDependencies:
       '@firebase/app': 0.x
+
+  '@firebase/rules-unit-testing@6.0.0':
+    resolution: {integrity: sha512-BsBqAoClN55cj9rVIruzA1vHzxl2WyS2+G/r93hjp7wM0UatlVHblvp5SPLCKylWBFMHWL4/JdFnFnYwrLdJjg==}
+    engines: {node: '>=24.12.0'}
+    peerDependencies:
+      firebase: ^13.0.0
 
   '@firebase/storage-compat@0.4.2':
     resolution: {integrity: sha512-R+aB38wxCH5zjIO/xu9KznI7fgiPuZAG98uVm1NcidHyyupGgIDLKigGmRGBZMnxibe/m2oxNKoZpfEbUX2aQQ==}
@@ -9305,6 +9314,10 @@ snapshots:
       '@firebase/logger': 0.5.0
       '@firebase/util': 1.15.0
       tslib: 2.8.1
+
+  '@firebase/rules-unit-testing@6.0.0(firebase@12.12.0(@react-native-async-storage/async-storage@2.2.0(react-native@0.86.3(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.3))))':
+    dependencies:
+      firebase: 12.12.0(@react-native-async-storage/async-storage@2.2.0(react-native@0.86.3(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.3)))
 
   '@firebase/storage-compat@0.4.2(@firebase/app-compat@0.5.11)(@firebase/app-types@0.9.4)(@firebase/app@0.14.11)':
     dependencies:
