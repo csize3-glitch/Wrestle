@@ -32,10 +32,12 @@ const TEAM_A = "team-a";
 const TEAM_B = "team-b";
 
 const OWNER_A = "owner-a";
+const ASSISTANT_A = "assistant-a";
 const ATHLETE_A = "athlete-a";
 const PARENT_A = "parent-a";
 const ATHLETE_B = "athlete-b";
 const SUSPENDED_A = "suspended-a";
+const LEGACY_A = "legacy-a";
 
 async function seedData(): Promise<void> {
   await testEnv.withSecurityRulesDisabled(
@@ -62,6 +64,26 @@ async function seedData(): Promise<void> {
         email: "owner-a@example.test",
         displayName: "Owner A",
         role: "coach",
+        currentTeamId: TEAM_A,
+        activeTeamId: TEAM_A,
+        createdAt: "seed",
+        updatedAt: "seed",
+      });
+
+      await setDoc(doc(db, "users", ASSISTANT_A), {
+        email: "assistant-a@example.test",
+        displayName: "Assistant A",
+        role: "coach",
+        currentTeamId: TEAM_A,
+        activeTeamId: TEAM_A,
+        createdAt: "seed",
+        updatedAt: "seed",
+      });
+
+      await setDoc(doc(db, "users", LEGACY_A), {
+        email: "legacy-a@example.test",
+        displayName: "Legacy A",
+        role: "athlete",
         currentTeamId: TEAM_A,
         activeTeamId: TEAM_A,
         createdAt: "seed",
@@ -120,6 +142,23 @@ async function seedData(): Promise<void> {
           userId: OWNER_A,
           role: "coach",
           membershipRole: "owner",
+          status: "active",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(
+          db,
+          "team_members",
+          `${TEAM_A}_${ASSISTANT_A}`
+        ),
+        {
+          teamId: TEAM_A,
+          userId: ASSISTANT_A,
+          role: "coach",
+          membershipRole: "assistant_coach",
           status: "active",
           createdAt: "seed",
           updatedAt: "seed",
@@ -198,7 +237,7 @@ async function seedData(): Promise<void> {
         doc(db, "team_members", "legacy-random-id"),
         {
           teamId: TEAM_A,
-          userId: "legacy-user",
+          userId: LEGACY_A,
           role: "athlete",
           createdAt: "seed",
           updatedAt: "seed",
@@ -495,5 +534,87 @@ test(
     );
 
     assert.ok(result.size >= 1);
+  }
+);
+
+test(
+  "athlete cannot promote self to coach",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertFails(
+      updateDoc(doc(db, "users", ATHLETE_A), {
+        role: "coach",
+        updatedAt: "client",
+      })
+    );
+  }
+);
+
+test(
+  "athlete cannot select a team without active membership",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertFails(
+      updateDoc(doc(db, "users", ATHLETE_A), {
+        activeTeamId: TEAM_B,
+        updatedAt: "client",
+      })
+    );
+  }
+);
+
+test(
+  "athlete can keep selected team within active membership",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertSucceeds(
+      updateDoc(doc(db, "users", ATHLETE_A), {
+        activeTeamId: TEAM_A,
+        displayName: "Athlete A Updated",
+        updatedAt: "client",
+      })
+    );
+  }
+);
+
+test(
+  "owner can update safe team fields",
+  async () => {
+    const db = authedDb(OWNER_A);
+
+    await assertSucceeds(
+      updateDoc(doc(db, "teams", TEAM_A), {
+        name: "Team A Updated",
+        updatedAt: "client",
+      })
+    );
+  }
+);
+
+test(
+  "assistant coach cannot replace team owner",
+  async () => {
+    const db = authedDb(ASSISTANT_A);
+
+    await assertFails(
+      updateDoc(doc(db, "teams", TEAM_A), {
+        ownerUserId: ASSISTANT_A,
+        updatedAt: "client",
+      })
+    );
+  }
+);
+
+test(
+  "legacy random-ID membership alone grants no team access",
+  async () => {
+    const db = authedDb(LEGACY_A);
+
+    await assertFails(
+      getDoc(doc(db, "practice_plans", "plan-a"))
+    );
   }
 );

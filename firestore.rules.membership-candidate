@@ -201,16 +201,45 @@ service cloud.firestore {
 
       allow create: if signedIn() && request.auth.uid == userId;
 
+      /*
+       * Users may update only ordinary profile and preference fields.
+       * Identity, role, currentTeamId, parent links, and creation metadata
+       * cannot be edited by the account owner.
+       */
       allow update: if signedIn() &&
+        request.auth.uid == userId &&
+        request.resource.data.diff(resource.data)
+          .changedKeys()
+          .hasOnly([
+            "displayName",
+            "activeTeamId",
+            "notificationPreferences",
+            "lastSeenNotificationsAt",
+            "varkCompleted",
+            "varkProfile",
+            "updatedAt"
+          ]) &&
         (
-          request.auth.uid == userId ||
-          (
-            hasUserDoc() &&
-            exists(/databases/$(database)/documents/users/$(userId)) &&
-            canManageTeamMember(resource.data.currentTeamId, userId) &&
-            validManagedUserUpdate()
+          !("activeTeamId" in request.resource.data) ||
+          request.resource.data.activeTeamId == "" ||
+          hasActiveMembership(
+            request.resource.data.activeTeamId,
+            userId
           )
         );
+
+      /*
+       * Preserve the existing coach-managed user workflow temporarily.
+       */
+      allow update: if signedIn() &&
+        request.auth.uid != userId &&
+        hasUserDoc() &&
+        exists(/databases/$(database)/documents/users/$(userId)) &&
+        canManageTeamMember(
+          resource.data.currentTeamId,
+          userId
+        ) &&
+        validManagedUserUpdate();
 
       allow delete: if false;
     }
