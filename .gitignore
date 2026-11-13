@@ -40,3 +40,6 @@ firestore-membership-backup-*.json
 firebase-debug.log
 firestore-debug.log
 *-debug.log
+
+# Local pilot review reports
+wrestlewell-pilot-review*.txt
