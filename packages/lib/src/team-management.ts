@@ -1,4 +1,7 @@
 import {
+  requirePilotSelfService,
+} from "./pilot-access";
+import {
   collection,
   deleteDoc,
   doc,
@@ -224,6 +227,7 @@ export async function updateTeamMemberRole(
   member: TeamMemberRecord,
   role: UserRole
 ): Promise<void> {
+  requirePilotSelfService();
   const batch = writeBatch(db);
 
   batch.update(doc(db, COLLECTIONS.TEAM_MEMBERS, member.id), {
@@ -244,6 +248,7 @@ export async function updateParentLinkedWrestlers(
   member: TeamMemberRecord,
   linkedWrestlerIds: string[]
 ): Promise<void> {
+  requirePilotSelfService();
   await updateDoc(doc(db, COLLECTIONS.USERS, member.userId), {
     linkedWrestlerIds,
     updatedAt: serverTimestamp(),
@@ -254,6 +259,7 @@ export async function removeTeamMember(
   db: Firestore,
   member: TeamMemberRecord
 ): Promise<void> {
+  requirePilotSelfService();
   const batch = writeBatch(db);
 
   batch.delete(doc(db, COLLECTIONS.TEAM_MEMBERS, member.id));
@@ -280,6 +286,7 @@ export async function regenerateCoachInviteCode(
   db: Firestore,
   teamId: string
 ): Promise<string> {
+  requirePilotSelfService();
   const nextCode = `COACH-${Math.random().toString(36).slice(2, 6).toUpperCase()}-${Math.random()
     .toString(36)
     .slice(2, 7)
@@ -294,6 +301,7 @@ export async function regenerateCoachInviteCode(
 }
 
 export async function regenerateTeamCode(db: Firestore, teamId: string): Promise<string> {
+  requirePilotSelfService();
   const nextCode = `${Math.random().toString(36).slice(2, 8).toUpperCase()}-${Math.random()
     .toString(36)
     .slice(2, 6)

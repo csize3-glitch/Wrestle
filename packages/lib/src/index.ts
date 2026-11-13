@@ -23,3 +23,4 @@ export * from "./settings";
 export * from "./vark-question-bank";
 export * from "./tournament-matches";
 export * from "./team-memberships";
+export * from "./pilot-access";

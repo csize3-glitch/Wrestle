@@ -1,4 +1,7 @@
 import {
+  requirePilotSelfService,
+} from "./pilot-access";
+import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
@@ -358,6 +361,8 @@ export async function registerAccount(
   db: Firestore,
   input: AuthAccountInput
 ): Promise<void> {
+  requirePilotSelfService();
+
   const credential = await createUserWithEmailAndPassword(auth, input.email.trim(), input.password);
 
   await createAccountRecords(db, {
@@ -379,6 +384,8 @@ export async function completeAccountSetup(
   db: Firestore,
   args: { uid: string; email: string } & AccountSetupInput
 ): Promise<void> {
+  requirePilotSelfService();
+
   await createAccountRecords(db, {
     uid: args.uid,
     email: args.email,
