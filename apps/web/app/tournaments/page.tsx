@@ -11,6 +11,8 @@ import {
   listTournaments,
   listTournamentEntries,
   listWrestlers,
+  listWrestlersByIds,
+  listWrestlersByOwnerUserId,
   sendTeamPushDelivery,
   updateTournament,
   updateTournamentEntry,
@@ -150,7 +152,40 @@ export default function TournamentsPage() {
     setActiveTournamentId(requestedTournamentId);
   }, []);
 
-  async function refreshTournaments(nextSelectedId?: string | null) {
+  async function loadVisibleWrestlers(): Promise<WrestlerProfile[]> {
+    if (
+      !currentTeam?.id ||
+      !appUser ||
+      !firebaseUser
+    ) {
+      return [];
+    }
+
+    if (appUser.role === "coach") {
+      return listWrestlers(
+        db,
+        currentTeam.id
+      );
+    }
+
+    if (appUser.role === "parent") {
+      return listWrestlersByIds(
+        db,
+        appUser.linkedWrestlerIds || []
+      );
+    }
+
+    return listWrestlersByOwnerUserId(
+      db,
+      firebaseUser.uid,
+      currentTeam.id
+    );
+  }
+
+  async function refreshTournaments(
+    nextSelectedId?: string | null,
+    visibleWrestlers: WrestlerProfile[] = wrestlers
+  ) {
     if (!currentTeam?.id) {
       setTournaments([]);
       setActiveTournamentId(null);
@@ -161,14 +196,49 @@ export default function TournamentsPage() {
     const rows = await listTournaments(db, currentTeam.id);
     setTournaments(rows);
 
-    const nextEntriesByTournament = Object.fromEntries(
-      await Promise.all(
-        rows.map(async (tournament) => [
-          tournament.id,
-          await listTournamentEntries(db, { teamId: currentTeam.id, tournamentId: tournament.id }),
-        ] as const)
-      )
-    );
+    const nextEntriesByTournament =
+      Object.fromEntries(
+        await Promise.all(
+          rows.map(async (tournament) => {
+            if (appUser?.role === "coach") {
+              return [
+                tournament.id,
+                await listTournamentEntries(
+                  db,
+                  {
+                    teamId: currentTeam.id,
+                    tournamentId:
+                      tournament.id,
+                  }
+                ),
+              ] as const;
+            }
+
+            const entryBatches =
+              await Promise.all(
+                visibleWrestlers.map(
+                  (wrestler) =>
+                    listTournamentEntries(
+                      db,
+                      {
+                        teamId:
+                          currentTeam.id,
+                        tournamentId:
+                          tournament.id,
+                        wrestlerId:
+                          wrestler.id,
+                      }
+                    )
+                )
+              );
+
+            return [
+              tournament.id,
+              entryBatches.flat(),
+            ] as const;
+          })
+        )
+      );
     setEntriesByTournament(nextEntriesByTournament);
 
     const selectedId = nextSelectedId ?? activeTournamentId;
@@ -194,31 +264,88 @@ export default function TournamentsPage() {
     setForm(createEmptyForm());
   }
 
-  async function refreshWrestlers() {
+  async function refreshWrestlers(): Promise<WrestlerProfile[]> {
     if (!currentTeam?.id) {
       setWrestlers([]);
-      return;
+      return [];
     }
 
-    setWrestlers(await listWrestlers(db, currentTeam.id));
+    const rows =
+      await loadVisibleWrestlers();
+
+    setWrestlers(rows);
+
+    if (
+      selectedWrestlerId &&
+      !rows.some(
+        (wrestler) =>
+          wrestler.id ===
+          selectedWrestlerId
+      )
+    ) {
+      setSelectedWrestlerId("");
+    }
+
+    return rows;
   }
 
-  async function refreshEntries(tournamentId: string | null) {
-    if (!currentTeam?.id || !tournamentId) {
+  async function refreshEntries(
+    tournamentId: string | null
+  ) {
+    if (
+      !currentTeam?.id ||
+      !tournamentId
+    ) {
       setEntries([]);
       return;
     }
 
-    const nextEntries = await listTournamentEntries(db, { teamId: currentTeam.id, tournamentId });
+    const nextEntries =
+      appUser?.role === "coach"
+        ? await listTournamentEntries(
+            db,
+            {
+              teamId: currentTeam.id,
+              tournamentId,
+            }
+          )
+        : (
+            await Promise.all(
+              wrestlers.map(
+                (wrestler) =>
+                  listTournamentEntries(
+                    db,
+                    {
+                      teamId:
+                        currentTeam.id,
+                      tournamentId,
+                      wrestlerId:
+                        wrestler.id,
+                    }
+                  )
+              )
+            )
+          ).flat();
+
     setEntries(nextEntries);
-    setEntriesByTournament((prev) => ({ ...prev, [tournamentId]: nextEntries }));
+    setEntriesByTournament(
+      (prev) => ({
+        ...prev,
+        [tournamentId]: nextEntries,
+      })
+    );
   }
 
   useEffect(() => {
     async function load() {
       try {
-        await refreshTournaments(null);
-        await refreshWrestlers();
+        const visibleWrestlers =
+          await refreshWrestlers();
+
+        await refreshTournaments(
+          null,
+          visibleWrestlers
+        );
       } catch (error) {
         console.error("Failed to load tournaments:", error);
       } finally {
@@ -227,13 +354,23 @@ export default function TournamentsPage() {
     }
 
     load();
-  }, [currentTeam?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    currentTeam?.id,
+    appUser?.role,
+    firebaseUser?.uid,
+    appUser?.linkedWrestlerIds,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     refreshEntries(activeTournamentId).catch((error) => {
       console.error("Failed to load tournament entries:", error);
     });
-  }, [activeTournamentId, currentTeam?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    activeTournamentId,
+    currentTeam?.id,
+    appUser?.role,
+    wrestlers,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function startNewTournament() {
     setActiveTournamentId(null);
