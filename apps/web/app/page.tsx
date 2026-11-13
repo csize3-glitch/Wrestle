@@ -13,6 +13,8 @@ import {
   listTournamentEntries,
   listTournaments,
   listWrestlers,
+  listWrestlersByIds,
+  listWrestlersByOwnerUserId,
   PILOT_ACCESS_MESSAGE,
   PILOT_SELF_SERVICE_ENABLED,
   registerAccount,
@@ -313,10 +315,28 @@ export default function HomePage() {
 
       try {
         setDashboardLoading(true);
-        const roster = await listWrestlers(db, currentTeam.id);
+        const roster =
+          appUser.role === "coach"
+            ? await listWrestlers(
+                db,
+                currentTeam.id
+              )
+            : appUser.role === "parent"
+              ? await listWrestlersByIds(
+                  db,
+                  appUser.linkedWrestlerIds || []
+                )
+              : firebaseUser
+                ? await listWrestlersByOwnerUserId(
+                    db,
+                    firebaseUser.uid,
+                    currentTeam.id
+                  )
+                : [];
+
         const dashboardOwnWrestler =
-          appUser.role === "athlete" && firebaseUser
-            ? roster.find((wrestler) => wrestler.ownerUserId === firebaseUser.uid) || null
+          appUser.role === "athlete"
+            ? roster[0] || null
             : null;
 
         const [
@@ -326,11 +346,18 @@ export default function HomePage() {
           announcementRows,
           notificationRows,
         ] = await Promise.all([
-          appUser.role === "athlete"
-            ? dashboardOwnWrestler
-              ? listCalendarEvents(db, currentTeam.id, dashboardOwnWrestler)
-              : Promise.resolve([])
-            : listCalendarEvents(db, currentTeam.id),
+          appUser.role === "coach"
+            ? listCalendarEvents(
+                db,
+                currentTeam.id
+              )
+            : roster[0]
+              ? listCalendarEvents(
+                  db,
+                  currentTeam.id,
+                  roster[0]
+                )
+              : Promise.resolve([]),
           getDocs(query(collection(db, COLLECTIONS.PRACTICE_PLANS), where("teamId", "==", currentTeam.id))),
           listTournaments(db, currentTeam.id),
           listTeamAnnouncements(db, currentTeam.id),
@@ -347,21 +374,65 @@ export default function HomePage() {
           (tournament) => tournament.eventDate && tournament.eventDate >= todayKey
         );
 
-        const pendingEntryBatches = await Promise.all(
-          tournamentRows.map((tournament) =>
-            listTournamentEntries(db, { teamId: currentTeam.id, tournamentId: tournament.id })
-          )
-        );
+        const allowedWrestlerIds =
+          appUser.role === "coach"
+            ? []
+            : roster.map(
+                (wrestler) => wrestler.id
+              );
+
+        const pendingEntryBatches =
+          appUser.role === "coach"
+            ? await Promise.all(
+                tournamentRows.map(
+                  (tournament) =>
+                    listTournamentEntries(db, {
+                      teamId: currentTeam.id,
+                      tournamentId:
+                        tournament.id,
+                    })
+                )
+              )
+            : await Promise.all(
+                tournamentRows.map(
+                  async (tournament) => {
+                    const batches =
+                      await Promise.all(
+                        allowedWrestlerIds.map(
+                          (wrestlerId) =>
+                            listTournamentEntries(
+                              db,
+                              {
+                                teamId:
+                                  currentTeam.id,
+                                tournamentId:
+                                  tournament.id,
+                                wrestlerId,
+                              }
+                            )
+                        )
+                      );
+
+                    return batches.flat();
+                  }
+                )
+              );
 
         const allEntries = pendingEntryBatches.flat();
 
-        const upcomingTournamentEntries = tournamentRows
-          .filter((tournament) => tournament.eventDate && tournament.eventDate >= todayKey)
-          .flatMap((tournament, index) =>
-            pendingEntryBatches[index].map((entry) => ({
-              ...entry,
-              tournamentName: tournament.name,
-            }))
+        const upcomingTournamentEntries =
+          tournamentRows.flatMap(
+            (tournament, index) =>
+              tournament.eventDate &&
+              tournament.eventDate >= todayKey
+                ? pendingEntryBatches[index].map(
+                    (entry) => ({
+                      ...entry,
+                      tournamentName:
+                        tournament.name,
+                    })
+                  )
+                : []
           );
 
         const practicePlans = practicePlanSnapshot.docs.map(
