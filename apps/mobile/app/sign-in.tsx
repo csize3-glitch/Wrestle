@@ -12,6 +12,8 @@ import {
 } from "react-native";
 import { auth, db } from "@wrestlewell/firebase/client";
 import {
+  PILOT_ACCESS_MESSAGE,
+  PILOT_SELF_SERVICE_ENABLED,
   registerAccount,
   signInAccount,
 } from "@wrestlewell/lib/index";
@@ -40,6 +42,18 @@ export default function SignInScreen() {
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit() {
+    if (
+      mode === "sign_up" &&
+      !PILOT_SELF_SERVICE_ENABLED
+    ) {
+      setMode("sign_in");
+      Alert.alert(
+        "Invite-only pilot",
+        PILOT_ACCESS_MESSAGE
+      );
+      return;
+    }
+
     if (!email.trim() || !password) {
       Alert.alert("Missing info", "Enter your email and password.");
       return;
@@ -159,12 +173,53 @@ export default function SignInScreen() {
                   active={mode === "sign_in"}
                   onPress={() => setMode("sign_in")}
                 />
-                <ToggleButton
-                  label="Create Account"
-                  active={mode === "sign_up"}
-                  onPress={() => setMode("sign_up")}
-                />
+                {PILOT_SELF_SERVICE_ENABLED ? (
+                  <ToggleButton
+                    label="Create Account"
+                    active={mode === "sign_up"}
+                    onPress={() =>
+                      setMode("sign_up")
+                    }
+                  />
+                ) : null}
               </View>
+
+              {!PILOT_SELF_SERVICE_ENABLED ? (
+                <View
+                  style={{
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: "#315c86",
+                    backgroundColor: "#102f52",
+                    padding: 14,
+                    gap: 8,
+                    marginBottom: 14,
+                  }}
+                >
+                  <WWBadge
+                    label="INVITE-ONLY PILOT"
+                    tone="blue"
+                  />
+                  <Text
+                    style={{
+                      color: "#ffffff",
+                      fontSize: 17,
+                      fontWeight: "900",
+                    }}
+                  >
+                    Sign in with a provisioned account.
+                  </Text>
+                  <Text
+                    style={{
+                      color: "#b7c9df",
+                      fontSize: 14,
+                      lineHeight: 20,
+                    }}
+                  >
+                    {PILOT_ACCESS_MESSAGE}
+                  </Text>
+                </View>
+              ) : null}
 
               {mode === "sign_up" ? (
                 <View style={{ gap: 14, marginBottom: 14 }}>
