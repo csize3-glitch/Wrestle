@@ -383,6 +383,152 @@ async function seedData(): Promise<void> {
       );
 
       await setDoc(
+        doc(db, "calendar_events", "event-a"),
+        {
+          teamId: TEAM_A,
+          title: "Team A Practice",
+          date: "2026-11-14",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "calendar_events", "event-b"),
+        {
+          teamId: TEAM_B,
+          title: "Team B Practice",
+          date: "2026-11-14",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "practice_attendance", "attendance-a"),
+        {
+          teamId: TEAM_A,
+          wrestlerId: "wrestler-a",
+          calendarEventId: "event-a",
+          status: "present",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "practice_attendance", "attendance-b"),
+        {
+          teamId: TEAM_B,
+          wrestlerId: "wrestler-b",
+          calendarEventId: "event-b",
+          status: "present",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "tournaments", "tournament-a"),
+        {
+          teamId: TEAM_A,
+          name: "Team A Tournament",
+          source: "manual",
+          registrationUrl: "",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "tournaments", "tournament-b"),
+        {
+          teamId: TEAM_B,
+          name: "Team B Tournament",
+          source: "manual",
+          registrationUrl: "",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "tournament_entries", "entry-a"),
+        {
+          teamId: TEAM_A,
+          tournamentId: "tournament-a",
+          wrestlerId: "wrestler-a",
+          wrestlerName: "Test Athlete",
+          style: "Folkstyle",
+          weightClass: "126",
+          status: "planned",
+          notes: "",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "tournament_entries", "entry-b"),
+        {
+          teamId: TEAM_B,
+          tournamentId: "tournament-b",
+          wrestlerId: "wrestler-b",
+          wrestlerName: "Other Athlete",
+          style: "Folkstyle",
+          weightClass: "132",
+          status: "planned",
+          notes: "",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "tournament_matches", "match-a"),
+        {
+          teamId: TEAM_A,
+          tournamentId: "tournament-a",
+          tournamentEntryId: "entry-a",
+          wrestlerId: "wrestler-a",
+          status: "upcoming",
+          boutNumber: "",
+          matNumber: "",
+          roundName: "",
+          opponentName: "",
+          opponentTeam: "",
+          result: "",
+          score: "",
+          method: "",
+          notes: "",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "tournament_matches", "match-b"),
+        {
+          teamId: TEAM_B,
+          tournamentId: "tournament-b",
+          tournamentEntryId: "entry-b",
+          wrestlerId: "wrestler-b",
+          status: "upcoming",
+          boutNumber: "",
+          matNumber: "",
+          roundName: "",
+          opponentName: "",
+          opponentTeam: "",
+          result: "",
+          score: "",
+          method: "",
+          notes: "",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
         doc(db, "private_unknown", "secret"),
         {
           value: "must remain private",
@@ -936,6 +1082,393 @@ test(
     await assertFails(
       updateDoc(
         doc(db, "athlete_goals", "goal-private-a"),
+        {
+          teamId: TEAM_B,
+          updatedAt: "client",
+        }
+      )
+    );
+  }
+);
+
+test(
+  "athlete can read own attendance record",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertSucceeds(
+      getDoc(
+        doc(
+          db,
+          "practice_attendance",
+          "attendance-a"
+        )
+      )
+    );
+  }
+);
+
+test(
+  "athlete cannot read another team's attendance",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertFails(
+      getDoc(
+        doc(
+          db,
+          "practice_attendance",
+          "attendance-b"
+        )
+      )
+    );
+  }
+);
+
+test(
+  "parent can read linked wrestler attendance",
+  async () => {
+    const db = authedDb(PARENT_A);
+
+    await assertSucceeds(
+      getDoc(
+        doc(
+          db,
+          "practice_attendance",
+          "attendance-a"
+        )
+      )
+    );
+  }
+);
+
+test(
+  "athlete can create own-team attendance",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertSucceeds(
+      setDoc(
+        doc(
+          db,
+          "practice_attendance",
+          "attendance-athlete-created"
+        ),
+        {
+          teamId: TEAM_A,
+          wrestlerId: "wrestler-a",
+          calendarEventId: "event-a",
+          status: "present",
+          createdAt: "client",
+          updatedAt: "client",
+        }
+      )
+    );
+  }
+);
+
+test(
+  "athlete cannot create attendance for another team",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertFails(
+      setDoc(
+        doc(
+          db,
+          "practice_attendance",
+          "attendance-cross-team"
+        ),
+        {
+          teamId: TEAM_B,
+          wrestlerId: "wrestler-b",
+          calendarEventId: "event-b",
+          status: "present",
+          createdAt: "client",
+          updatedAt: "client",
+        }
+      )
+    );
+  }
+);
+
+test(
+  "parent can create attendance for linked wrestler",
+  async () => {
+    const db = authedDb(PARENT_A);
+
+    await assertSucceeds(
+      setDoc(
+        doc(
+          db,
+          "practice_attendance",
+          "attendance-parent-created"
+        ),
+        {
+          teamId: TEAM_A,
+          wrestlerId: "wrestler-a",
+          calendarEventId: "event-a",
+          status: "present",
+          createdAt: "client",
+          updatedAt: "client",
+        }
+      )
+    );
+  }
+);
+
+test(
+  "parent cannot create attendance for unlinked wrestler",
+  async () => {
+    const db = authedDb(PARENT_A);
+
+    await assertFails(
+      setDoc(
+        doc(
+          db,
+          "practice_attendance",
+          "attendance-parent-unlinked"
+        ),
+        {
+          teamId: TEAM_A,
+          wrestlerId: "wrestler-a-other",
+          calendarEventId: "event-a",
+          status: "present",
+          createdAt: "client",
+          updatedAt: "client",
+        }
+      )
+    );
+  }
+);
+
+test(
+  "coach can update own-team attendance",
+  async () => {
+    const db = authedDb(OWNER_A);
+
+    await assertSucceeds(
+      updateDoc(
+        doc(
+          db,
+          "practice_attendance",
+          "attendance-a"
+        ),
+        {
+          status: "excused",
+          updatedAt: "client",
+        }
+      )
+    );
+  }
+);
+
+test(
+  "athlete can read own-team calendar event",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertSucceeds(
+      getDoc(
+        doc(db, "calendar_events", "event-a")
+      )
+    );
+  }
+);
+
+test(
+  "athlete cannot read another team's calendar event",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertFails(
+      getDoc(
+        doc(db, "calendar_events", "event-b")
+      )
+    );
+  }
+);
+
+test(
+  "athlete can read own-team tournament",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertSucceeds(
+      getDoc(
+        doc(db, "tournaments", "tournament-a")
+      )
+    );
+  }
+);
+
+test(
+  "athlete cannot read another team's private tournament",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertFails(
+      getDoc(
+        doc(db, "tournaments", "tournament-b")
+      )
+    );
+  }
+);
+
+test(
+  "athlete can read own tournament entry",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertSucceeds(
+      getDoc(
+        doc(db, "tournament_entries", "entry-a")
+      )
+    );
+  }
+);
+
+test(
+  "athlete cannot read another team's tournament entry",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertFails(
+      getDoc(
+        doc(db, "tournament_entries", "entry-b")
+      )
+    );
+  }
+);
+
+test(
+  "athlete can submit own planned tournament entry",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertSucceeds(
+      updateDoc(
+        doc(db, "tournament_entries", "entry-a"),
+        {
+          status: "submitted",
+          updatedAt: "client",
+        }
+      )
+    );
+  }
+);
+
+test(
+  "parent can create tournament entry for linked wrestler",
+  async () => {
+    const db = authedDb(PARENT_A);
+
+    await assertSucceeds(
+      setDoc(
+        doc(
+          db,
+          "tournament_entries",
+          "entry-parent-created"
+        ),
+        {
+          teamId: TEAM_A,
+          tournamentId: "tournament-a",
+          wrestlerId: "wrestler-a",
+          wrestlerName: "Test Athlete",
+          style: "Folkstyle",
+          weightClass: "126",
+          status: "planned",
+          notes: "",
+          createdAt: "client",
+          updatedAt: "client",
+        }
+      )
+    );
+  }
+);
+
+test(
+  "parent cannot create tournament entry for unlinked wrestler",
+  async () => {
+    const db = authedDb(PARENT_A);
+
+    await assertFails(
+      setDoc(
+        doc(
+          db,
+          "tournament_entries",
+          "entry-parent-unlinked"
+        ),
+        {
+          teamId: TEAM_A,
+          tournamentId: "tournament-a",
+          wrestlerId: "wrestler-a-other",
+          wrestlerName: "Other Team A Athlete",
+          style: "Folkstyle",
+          weightClass: "138",
+          status: "planned",
+          notes: "",
+          createdAt: "client",
+          updatedAt: "client",
+        }
+      )
+    );
+  }
+);
+
+test(
+  "athlete can read own tournament match",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertSucceeds(
+      getDoc(
+        doc(db, "tournament_matches", "match-a")
+      )
+    );
+  }
+);
+
+test(
+  "athlete cannot read another team's tournament match",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertFails(
+      getDoc(
+        doc(db, "tournament_matches", "match-b")
+      )
+    );
+  }
+);
+
+test(
+  "athlete can update allowed fields on own tournament match",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertSucceeds(
+      updateDoc(
+        doc(db, "tournament_matches", "match-a"),
+        {
+          boutNumber: "41",
+          matNumber: "3",
+          status: "onDeck",
+          updatedAt: "client",
+        }
+      )
+    );
+  }
+);
+
+test(
+  "athlete cannot move tournament match to another team",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertFails(
+      updateDoc(
+        doc(db, "tournament_matches", "match-a"),
         {
           teamId: TEAM_B,
           updatedAt: "client",
