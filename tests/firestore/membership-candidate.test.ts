@@ -291,6 +291,86 @@ async function seedData(): Promise<void> {
       );
 
       await setDoc(
+        doc(db, "wrestlers", "wrestler-a-other"),
+        {
+          teamId: TEAM_A,
+          ownerUserId: "other-athlete-a",
+          firstName: "Other",
+          lastName: "Team A Athlete",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "athlete_journal_entries", "journal-private-a"),
+        {
+          teamId: TEAM_A,
+          wrestlerId: "wrestler-a",
+          createdByUserId: ATHLETE_A,
+          coachVisible: false,
+          title: "Private entry",
+          notes: "Private",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "athlete_journal_entries", "journal-shared-a"),
+        {
+          teamId: TEAM_A,
+          wrestlerId: "wrestler-a",
+          createdByUserId: ATHLETE_A,
+          coachVisible: true,
+          title: "Coach-visible entry",
+          notes: "Shared",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "athlete_journal_entries", "journal-shared-b"),
+        {
+          teamId: TEAM_B,
+          wrestlerId: "wrestler-b",
+          createdByUserId: ATHLETE_B,
+          coachVisible: true,
+          title: "Other team entry",
+          notes: "Other team",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "athlete_goals", "goal-private-a"),
+        {
+          teamId: TEAM_A,
+          wrestlerId: "wrestler-a",
+          createdByUserId: ATHLETE_A,
+          coachVisible: false,
+          title: "Private goal",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "athlete_goals", "goal-shared-a"),
+        {
+          teamId: TEAM_A,
+          wrestlerId: "wrestler-a",
+          createdByUserId: ATHLETE_A,
+          coachVisible: true,
+          title: "Coach-visible goal",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
         doc(db, "device_push_registrations", "device-a"),
         {
           userId: ATHLETE_A,
@@ -615,6 +695,252 @@ test(
 
     await assertFails(
       getDoc(doc(db, "practice_plans", "plan-a"))
+    );
+  }
+);
+
+test(
+  "athlete can read owned wrestler profile",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertSucceeds(
+      getDoc(doc(db, "wrestlers", "wrestler-a"))
+    );
+  }
+);
+
+test(
+  "athlete cannot read another wrestler on the same team",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertFails(
+      getDoc(
+        doc(db, "wrestlers", "wrestler-a-other")
+      )
+    );
+  }
+);
+
+test(
+  "parent can read linked wrestler profile",
+  async () => {
+    const db = authedDb(PARENT_A);
+
+    await assertSucceeds(
+      getDoc(doc(db, "wrestlers", "wrestler-a"))
+    );
+  }
+);
+
+test(
+  "parent cannot read unlinked same-team wrestler",
+  async () => {
+    const db = authedDb(PARENT_A);
+
+    await assertFails(
+      getDoc(
+        doc(db, "wrestlers", "wrestler-a-other")
+      )
+    );
+  }
+);
+
+test(
+  "coach can read wrestler profile on own team",
+  async () => {
+    const db = authedDb(OWNER_A);
+
+    await assertSucceeds(
+      getDoc(
+        doc(db, "wrestlers", "wrestler-a-other")
+      )
+    );
+  }
+);
+
+test(
+  "coach cannot read wrestler profile from another team",
+  async () => {
+    const db = authedDb(OWNER_A);
+
+    await assertFails(
+      getDoc(doc(db, "wrestlers", "wrestler-b"))
+    );
+  }
+);
+
+test(
+  "athlete can read own private journal entry",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertSucceeds(
+      getDoc(
+        doc(
+          db,
+          "athlete_journal_entries",
+          "journal-private-a"
+        )
+      )
+    );
+  }
+);
+
+test(
+  "coach cannot read private athlete journal entry",
+  async () => {
+    const db = authedDb(OWNER_A);
+
+    await assertFails(
+      getDoc(
+        doc(
+          db,
+          "athlete_journal_entries",
+          "journal-private-a"
+        )
+      )
+    );
+  }
+);
+
+test(
+  "coach can read coach-visible journal entry on own team",
+  async () => {
+    const db = authedDb(OWNER_A);
+
+    await assertSucceeds(
+      getDoc(
+        doc(
+          db,
+          "athlete_journal_entries",
+          "journal-shared-a"
+        )
+      )
+    );
+  }
+);
+
+test(
+  "parent cannot read athlete journal entries",
+  async () => {
+    const db = authedDb(PARENT_A);
+
+    await assertFails(
+      getDoc(
+        doc(
+          db,
+          "athlete_journal_entries",
+          "journal-shared-a"
+        )
+      )
+    );
+  }
+);
+
+test(
+  "coach cannot read coach-visible journal from another team",
+  async () => {
+    const db = authedDb(OWNER_A);
+
+    await assertFails(
+      getDoc(
+        doc(
+          db,
+          "athlete_journal_entries",
+          "journal-shared-b"
+        )
+      )
+    );
+  }
+);
+
+test(
+  "athlete cannot move journal entry to another team",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertFails(
+      updateDoc(
+        doc(
+          db,
+          "athlete_journal_entries",
+          "journal-private-a"
+        ),
+        {
+          teamId: TEAM_B,
+          updatedAt: "client",
+        }
+      )
+    );
+  }
+);
+
+test(
+  "athlete can read own private goal",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertSucceeds(
+      getDoc(
+        doc(
+          db,
+          "athlete_goals",
+          "goal-private-a"
+        )
+      )
+    );
+  }
+);
+
+test(
+  "coach cannot read private athlete goal",
+  async () => {
+    const db = authedDb(OWNER_A);
+
+    await assertFails(
+      getDoc(
+        doc(
+          db,
+          "athlete_goals",
+          "goal-private-a"
+        )
+      )
+    );
+  }
+);
+
+test(
+  "coach can read coach-visible athlete goal on own team",
+  async () => {
+    const db = authedDb(OWNER_A);
+
+    await assertSucceeds(
+      getDoc(
+        doc(
+          db,
+          "athlete_goals",
+          "goal-shared-a"
+        )
+      )
+    );
+  }
+);
+
+test(
+  "athlete cannot move goal to another team",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertFails(
+      updateDoc(
+        doc(db, "athlete_goals", "goal-private-a"),
+        {
+          teamId: TEAM_B,
+          updatedAt: "client",
+        }
+      )
     );
   }
 );
