@@ -5,6 +5,60 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    /*
+     * Deterministic memberships use:
+     *
+     *   teamId_userId
+     *
+     * Only deterministic memberships with status "active" grant access.
+     * Legacy random-ID membership documents never grant authorization.
+     */
+    function membershipId(teamId, userId) {
+      return teamId + "_" + userId;
+    }
+
+    function membershipPath(teamId, userId) {
+      return /databases/$(database)/documents/team_members/$(membershipId(teamId, userId));
+    }
+
+    function hasActiveMembership(teamId, userId) {
+      return signedIn() &&
+        teamId is string &&
+        teamId != "" &&
+        exists(membershipPath(teamId, userId)) &&
+        get(membershipPath(teamId, userId)).data.teamId == teamId &&
+        get(membershipPath(teamId, userId)).data.userId == userId &&
+        get(membershipPath(teamId, userId)).data.status == "active";
+    }
+
+    function isActiveMember(teamId) {
+      return signedIn() &&
+        hasActiveMembership(teamId, request.auth.uid);
+    }
+
+    function activeMembershipRole(teamId) {
+      return get(
+        membershipPath(teamId, request.auth.uid)
+      ).data.membershipRole;
+    }
+
+    function isMembershipCoach(teamId) {
+      return isActiveMember(teamId) &&
+        (
+          activeMembershipRole(teamId) == "owner" ||
+          activeMembershipRole(teamId) == "head_coach" ||
+          activeMembershipRole(teamId) == "assistant_coach"
+        );
+    }
+
+    function isMembershipAdmin(teamId) {
+      return isActiveMember(teamId) &&
+        (
+          activeMembershipRole(teamId) == "owner" ||
+          activeMembershipRole(teamId) == "head_coach"
+        );
+    }
+
     function userDoc() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid));
     }
@@ -22,7 +76,7 @@ service cloud.firestore {
     }
 
     function sameTeam(teamId) {
-      return hasUserDoc() && currentTeamId() != null && currentTeamId() == teamId;
+      return isActiveMember(teamId);
     }
 
     function isCoach() {
@@ -147,41 +201,78 @@ service cloud.firestore {
 
       allow create: if signedIn() && request.auth.uid == userId;
 
+      /*
+       * Users may update only ordinary profile and preference fields.
+       * Identity, role, currentTeamId, parent links, and creation metadata
+       * cannot be edited by the account owner.
+       */
       allow update: if signedIn() &&
+        request.auth.uid == userId &&
+        request.resource.data.diff(resource.data)
+          .changedKeys()
+          .hasOnly([
+            "displayName",
+            "activeTeamId",
+            "notificationPreferences",
+            "lastSeenNotificationsAt",
+            "varkCompleted",
+            "varkProfile",
+            "updatedAt"
+          ]) &&
         (
-          request.auth.uid == userId ||
-          (
-            hasUserDoc() &&
-            exists(/databases/$(database)/documents/users/$(userId)) &&
-            canManageTeamMember(resource.data.currentTeamId, userId) &&
-            validManagedUserUpdate()
+          !("activeTeamId" in request.resource.data) ||
+          request.resource.data.activeTeamId == "" ||
+          hasActiveMembership(
+            request.resource.data.activeTeamId,
+            userId
           )
         );
+
+      /*
+       * Preserve the existing coach-managed user workflow temporarily.
+       */
+      allow update: if signedIn() &&
+        request.auth.uid != userId &&
+        hasUserDoc() &&
+        exists(/databases/$(database)/documents/users/$(userId)) &&
+        canManageTeamMember(
+          resource.data.currentTeamId,
+          userId
+        ) &&
+        validManagedUserUpdate();
 
       allow delete: if false;
     }
 
     match /teams/{teamId} {
-      allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.ownerUserId == request.auth.uid;
-      allow update: if signedIn() && resource.data.ownerUserId == request.auth.uid;
+      allow read: if isActiveMember(teamId);
+
+      allow create: if signedIn() &&
+        request.resource.data.ownerUserId == request.auth.uid;
+
+      allow update: if isMembershipAdmin(teamId) &&
+        request.resource.data.ownerUserId == resource.data.ownerUserId &&
+        request.resource.data.createdAt == resource.data.createdAt;
+
       allow delete: if false;
     }
 
     match /team_members/{memberId} {
+      /*
+       * Users can read their own membership.
+       * Membership coaches can read membership records for their team.
+       */
       allow read: if signedIn() &&
-        (resource.data.userId == request.auth.uid || sameTeam(resource.data.teamId));
+        (
+          resource.data.userId == request.auth.uid ||
+          isMembershipCoach(resource.data.teamId)
+        );
 
-      allow create: if signedIn() &&
-        request.resource.data.userId == request.auth.uid &&
-        (request.resource.data.role == "athlete" || request.resource.data.role == "coach" || request.resource.data.role == "parent");
-
-      allow update: if signedIn() &&
-        canManageTeamMember(resource.data.teamId, resource.data.userId) &&
-        validManagedTeamMemberUpdate();
-
-      allow delete: if signedIn() &&
-        canManageTeamMember(resource.data.teamId, resource.data.userId);
+      /*
+       * Pilot policy:
+       * all membership writes use trusted server/Admin SDK code.
+       */
+      allow create, update, delete: if false;
     }
 
     match /library_items/{itemId} {
@@ -372,9 +463,19 @@ service cloud.firestore {
     match /wrestlers/{wrestlerId} {
       allow read: if signedIn() &&
         (
-          (isCoach() && sameTeam(resource.data.teamId)) ||
-          (currentRole() == "athlete" && sameTeam(resource.data.teamId)) ||
-          (currentRole() == "parent" && sameTeam(resource.data.teamId) && isLinkedParentWrestler(wrestlerId))
+          (
+            isMembershipCoach(resource.data.teamId)
+          ) ||
+          (
+            currentRole() == "athlete" &&
+            sameTeam(resource.data.teamId) &&
+            resource.data.ownerUserId == request.auth.uid
+          ) ||
+          (
+            currentRole() == "parent" &&
+            sameTeam(resource.data.teamId) &&
+            isLinkedParentWrestler(wrestlerId)
+          )
         );
 
       allow create: if signedIn() &&
@@ -538,21 +639,21 @@ service cloud.firestore {
 
     match /device_push_registrations/{registrationId} {
       allow read: if signedIn() &&
-        (
-          resource.data.userId == request.auth.uid ||
-          sameTeam(resource.data.teamId)
-        );
+        resource.data.userId == request.auth.uid;
 
       allow create: if signedIn() &&
         request.resource.data.userId == request.auth.uid &&
-        request.resource.data.teamId == currentTeamId();
+        request.resource.data.teamId is string &&
+        isActiveMember(request.resource.data.teamId);
 
       allow update: if signedIn() &&
         resource.data.userId == request.auth.uid &&
-        request.resource.data.userId == request.auth.uid &&
-        request.resource.data.teamId == currentTeamId();
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.teamId == resource.data.teamId &&
+        isActiveMember(resource.data.teamId);
 
-      allow delete: if signedIn() && resource.data.userId == request.auth.uid;
+      allow delete: if signedIn() &&
+        resource.data.userId == request.auth.uid;
     }
   }
 }
