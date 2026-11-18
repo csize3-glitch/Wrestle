@@ -1,4 +1,7 @@
 import {
+  requirePilotSelfService,
+} from "./pilot-access";
+import {
   collection,
   deleteDoc,
   doc,
@@ -15,8 +18,65 @@ import {
   COLLECTIONS,
   type TeamMember,
   type TeamMemberRecord,
+  type TeamMembershipRole,
+  type TeamMembershipStatus,
   type UserRole,
 } from "@wrestlewell/types/index";
+
+const MEMBERSHIP_ROLES: TeamMembershipRole[] = [
+  "owner",
+  "head_coach",
+  "assistant_coach",
+  "athlete",
+  "parent",
+];
+
+const MEMBERSHIP_STATUSES: TeamMembershipStatus[] = [
+  "active",
+  "suspended",
+  "removed",
+];
+
+export function normalizeMembershipRole(
+  value: unknown,
+  legacyRole?: UserRole,
+  isOwner = false
+): TeamMembershipRole {
+  if (isOwner) {
+    return "owner";
+  }
+
+  if (
+    typeof value === "string" &&
+    MEMBERSHIP_ROLES.includes(value as TeamMembershipRole)
+  ) {
+    return value as TeamMembershipRole;
+  }
+
+  if (legacyRole === "coach") {
+    return "assistant_coach";
+  }
+
+  if (legacyRole === "parent") {
+    return "parent";
+  }
+
+  return "athlete";
+}
+
+export function normalizeMembershipStatus(
+  value: unknown
+): TeamMembershipStatus {
+  if (
+    typeof value === "string" &&
+    MEMBERSHIP_STATUSES.includes(value as TeamMembershipStatus)
+  ) {
+    return value as TeamMembershipStatus;
+  }
+
+  // Existing membership documents do not have a status yet.
+  return "active";
+}
 
 function normalizeTeamMember(id: string, value: Record<string, unknown>): TeamMember {
   const nextRole: UserRole =
@@ -27,9 +87,69 @@ function normalizeTeamMember(id: string, value: Record<string, unknown>): TeamMe
     teamId: typeof value.teamId === "string" ? value.teamId : "",
     userId: typeof value.userId === "string" ? value.userId : "",
     role: nextRole,
+    membershipRole: normalizeMembershipRole(
+      value.membershipRole,
+      nextRole
+    ),
+    status: normalizeMembershipStatus(value.status),
+    wrestlerProfileId:
+      typeof value.wrestlerProfileId === "string"
+        ? value.wrestlerProfileId
+        : undefined,
+    approvedByUserId:
+      typeof value.approvedByUserId === "string"
+        ? value.approvedByUserId
+        : undefined,
+    joinedAt:
+      typeof value.joinedAt === "string"
+        ? value.joinedAt
+        : undefined,
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
   };
+}
+
+function selectPreferredTeamMemberships(
+  members: TeamMember[]
+): TeamMember[] {
+  const preferredByPair = new Map<string, TeamMember>();
+
+  for (const member of members) {
+    if (!member.teamId || !member.userId) {
+      continue;
+    }
+
+    const pairKey = `${member.teamId}_${member.userId}`;
+    const existing = preferredByPair.get(pairKey);
+
+    if (!existing) {
+      preferredByPair.set(pairKey, member);
+      continue;
+    }
+
+    const memberIsDeterministic =
+      member.id === pairKey;
+
+    const existingIsDeterministic =
+      existing.id === pairKey;
+
+    if (
+      memberIsDeterministic &&
+      !existingIsDeterministic
+    ) {
+      preferredByPair.set(pairKey, member);
+      continue;
+    }
+
+    if (
+      member.status === "active" &&
+      existing.status !== "active"
+    ) {
+      preferredByPair.set(pairKey, member);
+    }
+  }
+
+  return Array.from(preferredByPair.values());
 }
 
 export async function listTeamMembers(
@@ -40,8 +160,13 @@ export async function listTeamMembers(
     query(collection(db, COLLECTIONS.TEAM_MEMBERS), where("teamId", "==", args.teamId))
   );
 
-  const members = snapshot.docs.map((memberDoc) =>
-    normalizeTeamMember(memberDoc.id, memberDoc.data() as Record<string, unknown>)
+  const members = selectPreferredTeamMemberships(
+    snapshot.docs.map((memberDoc) =>
+      normalizeTeamMember(
+        memberDoc.id,
+        memberDoc.data() as Record<string, unknown>
+      )
+    )
   );
 
   const userSnapshots = await Promise.all(
@@ -102,6 +227,7 @@ export async function updateTeamMemberRole(
   member: TeamMemberRecord,
   role: UserRole
 ): Promise<void> {
+  requirePilotSelfService();
   const batch = writeBatch(db);
 
   batch.update(doc(db, COLLECTIONS.TEAM_MEMBERS, member.id), {
@@ -122,6 +248,7 @@ export async function updateParentLinkedWrestlers(
   member: TeamMemberRecord,
   linkedWrestlerIds: string[]
 ): Promise<void> {
+  requirePilotSelfService();
   await updateDoc(doc(db, COLLECTIONS.USERS, member.userId), {
     linkedWrestlerIds,
     updatedAt: serverTimestamp(),
@@ -132,6 +259,7 @@ export async function removeTeamMember(
   db: Firestore,
   member: TeamMemberRecord
 ): Promise<void> {
+  requirePilotSelfService();
   const batch = writeBatch(db);
 
   batch.delete(doc(db, COLLECTIONS.TEAM_MEMBERS, member.id));
@@ -158,6 +286,7 @@ export async function regenerateCoachInviteCode(
   db: Firestore,
   teamId: string
 ): Promise<string> {
+  requirePilotSelfService();
   const nextCode = `COACH-${Math.random().toString(36).slice(2, 6).toUpperCase()}-${Math.random()
     .toString(36)
     .slice(2, 7)
@@ -172,6 +301,7 @@ export async function regenerateCoachInviteCode(
 }
 
 export async function regenerateTeamCode(db: Firestore, teamId: string): Promise<string> {
+  requirePilotSelfService();
   const nextCode = `${Math.random().toString(36).slice(2, 8).toUpperCase()}-${Math.random()
     .toString(36)
     .slice(2, 6)

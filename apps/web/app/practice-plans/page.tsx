@@ -1737,6 +1737,10 @@ function PracticePlansPageContent() {
                         >
                           {[item.style, position, item.category, item.subcategory, item.channelName]
                             .filter(Boolean)
+                            .filter(
+                              (label, index, labels) =>
+                                labels.indexOf(label) === index
+                            )
                             .map((label) => (
                               <span
                                 key={`${item.id}-${label}`}

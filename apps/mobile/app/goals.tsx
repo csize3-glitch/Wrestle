@@ -648,6 +648,7 @@ export default function GoalsScreen() {
               goal={practiceGoal}
               emptyCopy="No practice goal set yet."
               createLabel="Add Practice Goal"
+              createTestID="goal-add-practice-button"
               onCreate={() => openCreateGoal("practice_check_in")}
               onEdit={openEditGoal}
               onComplete={handleComplete}
@@ -661,6 +662,7 @@ export default function GoalsScreen() {
               goal={sessionGoal}
               emptyCopy="No active session goal yet."
               createLabel="Add Session Goal"
+              createTestID="goal-add-session-button"
               onCreate={() => openCreateGoal("session")}
               onEdit={openEditGoal}
               onComplete={handleComplete}
@@ -674,6 +676,7 @@ export default function GoalsScreen() {
               goal={yearGoal}
               emptyCopy="No active year goal yet."
               createLabel="Add Year Goal"
+              createTestID="goal-add-year-button"
               onCreate={() => openCreateGoal("year")}
               onEdit={openEditGoal}
               onComplete={handleComplete}
@@ -693,6 +696,7 @@ function GoalSection({
   goal,
   emptyCopy,
   createLabel,
+  createTestID,
   onCreate,
   onEdit,
   onComplete,
@@ -704,6 +708,7 @@ function GoalSection({
   goal: AthleteGoal | null;
   emptyCopy: string;
   createLabel: string;
+  createTestID: string;
   onCreate: () => void;
   onEdit: (goal: AthleteGoal) => void;
   onComplete: (goal: AthleteGoal) => void;
@@ -722,8 +727,8 @@ function GoalSection({
           <>
             <Text style={{ color: "#93c5fd" }}>{emptyCopy}</Text>
             <Pressable
-              testID="goals-create-button"
-              accessibilityLabel="goals-create-button"
+              testID={createTestID}
+              accessibilityLabel={createTestID}
               onPress={onCreate}
               style={({ pressed }) => ({
                 alignSelf: "flex-start",

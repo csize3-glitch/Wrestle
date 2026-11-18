@@ -1,0 +1,499 @@
+import fs from "node:fs";
+import test, {
+  after,
+  before,
+  beforeEach,
+} from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  assertFails,
+  assertSucceeds,
+  initializeTestEnvironment,
+  type RulesTestEnvironment,
+} from "@firebase/rules-unit-testing";
+
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  setDoc,
+  updateDoc,
+  where,
+} from "firebase/firestore";
+
+const PROJECT_ID = "wrestlewell-rules-test";
+
+let testEnv: RulesTestEnvironment;
+
+const TEAM_A = "team-a";
+const TEAM_B = "team-b";
+
+const OWNER_A = "owner-a";
+const ATHLETE_A = "athlete-a";
+const PARENT_A = "parent-a";
+const ATHLETE_B = "athlete-b";
+const SUSPENDED_A = "suspended-a";
+
+async function seedData(): Promise<void> {
+  await testEnv.withSecurityRulesDisabled(
+    async (context) => {
+      const db = context.firestore();
+
+      await setDoc(doc(db, "teams", TEAM_A), {
+        name: "Team A",
+        ownerUserId: OWNER_A,
+        teamCode: "TEAM-A",
+        createdAt: "seed",
+        updatedAt: "seed",
+      });
+
+      await setDoc(doc(db, "teams", TEAM_B), {
+        name: "Team B",
+        ownerUserId: "owner-b",
+        teamCode: "TEAM-B",
+        createdAt: "seed",
+        updatedAt: "seed",
+      });
+
+      await setDoc(doc(db, "users", OWNER_A), {
+        email: "owner-a@example.test",
+        displayName: "Owner A",
+        role: "coach",
+        currentTeamId: TEAM_A,
+        activeTeamId: TEAM_A,
+        createdAt: "seed",
+        updatedAt: "seed",
+      });
+
+      await setDoc(doc(db, "users", ATHLETE_A), {
+        email: "athlete-a@example.test",
+        displayName: "Athlete A",
+        role: "athlete",
+        currentTeamId: TEAM_A,
+        activeTeamId: TEAM_A,
+        createdAt: "seed",
+        updatedAt: "seed",
+      });
+
+      await setDoc(doc(db, "users", PARENT_A), {
+        email: "parent-a@example.test",
+        displayName: "Parent A",
+        role: "parent",
+        currentTeamId: TEAM_A,
+        activeTeamId: TEAM_A,
+        linkedWrestlerIds: ["wrestler-a"],
+        createdAt: "seed",
+        updatedAt: "seed",
+      });
+
+      await setDoc(doc(db, "users", ATHLETE_B), {
+        email: "athlete-b@example.test",
+        displayName: "Athlete B",
+        role: "athlete",
+        currentTeamId: TEAM_B,
+        activeTeamId: TEAM_B,
+        createdAt: "seed",
+        updatedAt: "seed",
+      });
+
+      await setDoc(doc(db, "users", SUSPENDED_A), {
+        email: "suspended-a@example.test",
+        displayName: "Suspended A",
+        role: "athlete",
+        currentTeamId: TEAM_A,
+        activeTeamId: TEAM_A,
+        createdAt: "seed",
+        updatedAt: "seed",
+      });
+
+      await setDoc(
+        doc(
+          db,
+          "team_members",
+          `${TEAM_A}_${OWNER_A}`
+        ),
+        {
+          teamId: TEAM_A,
+          userId: OWNER_A,
+          role: "coach",
+          membershipRole: "owner",
+          status: "active",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(
+          db,
+          "team_members",
+          `${TEAM_A}_${ATHLETE_A}`
+        ),
+        {
+          teamId: TEAM_A,
+          userId: ATHLETE_A,
+          role: "athlete",
+          membershipRole: "athlete",
+          status: "active",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(
+          db,
+          "team_members",
+          `${TEAM_A}_${PARENT_A}`
+        ),
+        {
+          teamId: TEAM_A,
+          userId: PARENT_A,
+          role: "parent",
+          membershipRole: "parent",
+          status: "active",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(
+          db,
+          "team_members",
+          `${TEAM_B}_${ATHLETE_B}`
+        ),
+        {
+          teamId: TEAM_B,
+          userId: ATHLETE_B,
+          role: "athlete",
+          membershipRole: "athlete",
+          status: "active",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(
+          db,
+          "team_members",
+          `${TEAM_A}_${SUSPENDED_A}`
+        ),
+        {
+          teamId: TEAM_A,
+          userId: SUSPENDED_A,
+          role: "athlete",
+          membershipRole: "athlete",
+          status: "suspended",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "team_members", "legacy-random-id"),
+        {
+          teamId: TEAM_A,
+          userId: "legacy-user",
+          role: "athlete",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "practice_plans", "plan-a"),
+        {
+          teamId: TEAM_A,
+          title: "Team A Plan",
+          createdBy: OWNER_A,
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "practice_plans", "plan-b"),
+        {
+          teamId: TEAM_B,
+          title: "Team B Plan",
+          createdBy: "owner-b",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "wrestlers", "wrestler-a"),
+        {
+          teamId: TEAM_A,
+          ownerUserId: ATHLETE_A,
+          firstName: "Test",
+          lastName: "Athlete",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "wrestlers", "wrestler-b"),
+        {
+          teamId: TEAM_B,
+          ownerUserId: ATHLETE_B,
+          firstName: "Other",
+          lastName: "Athlete",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "device_push_registrations", "device-a"),
+        {
+          userId: ATHLETE_A,
+          teamId: TEAM_A,
+          platform: "ios",
+          expoPushToken: "test-token-a",
+          createdAt: "seed",
+          updatedAt: "seed",
+        }
+      );
+
+      await setDoc(
+        doc(db, "private_unknown", "secret"),
+        {
+          value: "must remain private",
+        }
+      );
+    }
+  );
+}
+
+function authedDb(userId: string) {
+  return testEnv
+    .authenticatedContext(userId)
+    .firestore();
+}
+
+before(async () => {
+  testEnv = await initializeTestEnvironment({
+    projectId: PROJECT_ID,
+    firestore: {
+      rules: fs.readFileSync(
+        "firestore.rules",
+        "utf8"
+      ),
+      host: "127.0.0.1",
+      port: 8080,
+    },
+  });
+});
+
+beforeEach(async () => {
+  await testEnv.clearFirestore();
+  await seedData();
+});
+
+after(async () => {
+  await testEnv.cleanup();
+});
+
+test(
+  "anonymous user cannot read a team",
+  async () => {
+    const db = testEnv
+      .unauthenticatedContext()
+      .firestore();
+
+    await assertFails(
+      getDoc(doc(db, "teams", TEAM_A))
+    );
+  }
+);
+
+test(
+  "authenticated user can read own team",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertSucceeds(
+      getDoc(doc(db, "teams", TEAM_A))
+    );
+  }
+);
+
+test(
+  "CURRENT GAP: authenticated user can read another team",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertSucceeds(
+      getDoc(doc(db, "teams", TEAM_B))
+    );
+  }
+);
+
+test(
+  "athlete can read a practice plan for own team",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertSucceeds(
+      getDoc(doc(db, "practice_plans", "plan-a"))
+    );
+  }
+);
+
+test(
+  "athlete cannot read another team's practice plan",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertFails(
+      getDoc(doc(db, "practice_plans", "plan-b"))
+    );
+  }
+);
+
+test(
+  "parent can read linked wrestler",
+  async () => {
+    const db = authedDb(PARENT_A);
+
+    await assertSucceeds(
+      getDoc(doc(db, "wrestlers", "wrestler-a"))
+    );
+  }
+);
+
+test(
+  "parent cannot read unlinked wrestler",
+  async () => {
+    const db = authedDb(PARENT_A);
+
+    await assertFails(
+      getDoc(doc(db, "wrestlers", "wrestler-b"))
+    );
+  }
+);
+
+test(
+  "athlete cannot edit team practice plan",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertFails(
+      updateDoc(
+        doc(db, "practice_plans", "plan-a"),
+        {
+          title: "Unauthorized title",
+        }
+      )
+    );
+  }
+);
+
+test(
+  "coach can edit own team's practice plan",
+  async () => {
+    const db = authedDb(OWNER_A);
+
+    await assertSucceeds(
+      updateDoc(
+        doc(db, "practice_plans", "plan-a"),
+        {
+          title: "Updated Plan",
+        }
+      )
+    );
+  }
+);
+
+test(
+  "CURRENT GAP: suspended membership does not revoke access",
+  async () => {
+    const db = authedDb(SUSPENDED_A);
+
+    await assertSucceeds(
+      getDoc(doc(db, "practice_plans", "plan-a"))
+    );
+  }
+);
+
+test(
+  "CURRENT GAP: athlete can create own active team membership",
+  async () => {
+    const db = authedDb(ATHLETE_A);
+
+    await assertSucceeds(
+      setDoc(
+        doc(
+          db,
+          "team_members",
+          `${TEAM_B}_${ATHLETE_A}`
+        ),
+        {
+          teamId: TEAM_B,
+          userId: ATHLETE_A,
+          role: "athlete",
+          membershipRole: "athlete",
+          status: "active",
+          createdAt: "client",
+          updatedAt: "client",
+        }
+      )
+    );
+  }
+);
+
+test(
+  "CURRENT GAP: ordinary team member can read another member's push token",
+  async () => {
+    const db = authedDb(PARENT_A);
+
+    await assertSucceeds(
+      getDoc(
+        doc(
+          db,
+          "device_push_registrations",
+          "device-a"
+        )
+      )
+    );
+  }
+);
+
+test(
+  "unknown collection is denied",
+  async () => {
+    const db = authedDb(OWNER_A);
+
+    await assertFails(
+      getDoc(
+        doc(db, "private_unknown", "secret")
+      )
+    );
+  }
+);
+
+test(
+  "coach can query team membership records",
+  async () => {
+    const db = authedDb(OWNER_A);
+
+    const membershipQuery = query(
+      collection(db, "team_members"),
+      where("teamId", "==", TEAM_A)
+    );
+
+    const result = await assertSucceeds(
+      getDocs(membershipQuery)
+    );
+
+    assert.ok(result.size >= 1);
+  }
+);

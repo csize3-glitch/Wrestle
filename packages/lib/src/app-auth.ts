@@ -1,4 +1,7 @@
 import {
+  requirePilotSelfService,
+} from "./pilot-access";
+import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
@@ -25,6 +28,7 @@ import {
   type VarkProfile,
   type VarkStyle,
 } from "@wrestlewell/types/index";
+import { makeTeamMembershipId } from "./team-memberships";
 
 export type AuthAccountInput = {
   displayName: string;
@@ -124,7 +128,14 @@ function normalizeAppUser(id: string, value: Record<string, unknown>): AppUser {
     email: typeof value.email === "string" ? value.email : "",
     displayName: typeof value.displayName === "string" ? value.displayName : "",
     role: normalizeRole(value.role),
-    currentTeamId: typeof value.currentTeamId === "string" ? value.currentTeamId : undefined,
+    currentTeamId:
+      typeof value.currentTeamId === "string"
+        ? value.currentTeamId
+        : undefined,
+    activeTeamId:
+      typeof value.activeTeamId === "string"
+        ? value.activeTeamId
+        : undefined,
     linkedWrestlerIds: Array.isArray(value.linkedWrestlerIds)
       ? value.linkedWrestlerIds.filter((entry): entry is string => typeof entry === "string")
       : undefined,
@@ -136,6 +147,18 @@ function normalizeAppUser(id: string, value: Record<string, unknown>): AppUser {
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
   };
+}
+
+/**
+ * Returns the team currently selected in the interface.
+ *
+ * Existing accounts continue to use currentTeamId until they are migrated.
+ * This helper does not prove that the user has an active membership.
+ */
+export function getActiveTeamId(
+  user?: Pick<AppUser, "activeTeamId" | "currentTeamId"> | null
+): string {
+  return user?.activeTeamId?.trim() || user?.currentTeamId?.trim() || "";
 }
 
 function normalizeTeam(id: string, value: Record<string, unknown>): Team {
@@ -314,7 +337,13 @@ async function createAccountRecords(
   } satisfies Omit<AppUser, "id" | "createdAt" | "updatedAt"> & Record<string, unknown>);
 
   if (teamId) {
-    const memberRef = doc(collection(db, COLLECTIONS.TEAM_MEMBERS));
+    const membershipId = makeTeamMembershipId(teamId, args.uid);
+    const memberRef = doc(
+      db,
+      COLLECTIONS.TEAM_MEMBERS,
+      membershipId
+    );
+
     batch.set(memberRef, {
       teamId,
       userId: args.uid,
@@ -332,6 +361,8 @@ export async function registerAccount(
   db: Firestore,
   input: AuthAccountInput
 ): Promise<void> {
+  requirePilotSelfService();
+
   const credential = await createUserWithEmailAndPassword(auth, input.email.trim(), input.password);
 
   await createAccountRecords(db, {
@@ -353,6 +384,8 @@ export async function completeAccountSetup(
   db: Firestore,
   args: { uid: string; email: string } & AccountSetupInput
 ): Promise<void> {
+  requirePilotSelfService();
+
   await createAccountRecords(db, {
     uid: args.uid,
     email: args.email,

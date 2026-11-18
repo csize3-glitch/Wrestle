@@ -84,52 +84,56 @@ name: Coach Smoke
 
 - extendedWaitUntil:
     visible:
-      id: "open-match-day-button"
+      id: "nav-plans"
     timeout: 25000
-
 - assertVisible:
-    id: "open-match-day-button"
-
+    id: "nav-plans"
 - assertVisible:
-    id: "open-coach-journal-button"
-
-- assertVisible:
-    id: "open-coach-goals-button"
-
+    id: "nav-mat"
 # Athlete Reflections
 - openLink: "wrestlewell://coach-journal"
-- waitForAnimationToEnd
-- assertVisible: "Athlete Reflections"
+- extendedWaitUntil:
+    visible: "Athlete Reflections"
+    timeout: 25000
 
 # Shared Goals
 - openLink: "wrestlewell://coach-goals"
-- waitForAnimationToEnd
-- assertVisible:
-    id: "coach-goals-screen"
+- extendedWaitUntil:
+    visible:
+      id: "coach-goals-screen"
+    timeout: 25000
 
 # Plans
-- tapOn:
+- assertVisible:
     id: "nav-plans"
-- waitForAnimationToEnd
-- assertVisible: "Practice Plans"
+- openLink: "wrestlewell://practice-plans"
+- extendedWaitUntil:
+    visible: "Practice Plans"
+    timeout: 25000
 
 # Calendar
-- tapOn:
+- assertVisible:
     id: "nav-schedule"
-- waitForAnimationToEnd
-- assertVisible: "Calendar"
+- openLink: "wrestlewell://calendar"
+- extendedWaitUntil:
+    visible: "Calendar"
+    timeout: 25000
 
 # Match-Day / Mat
-- tapOn:
+- assertVisible:
     id: "nav-mat"
-- waitForAnimationToEnd
-- assertVisible: "Mat-Side"
+- openLink: "wrestlewell://mat-side"
+- extendedWaitUntil:
+    visible: "Mat-Side"
+    timeout: 25000
 
 # Alerts
-- tapOn:
+- assertVisible:
     id: "nav-alerts"
-- waitForAnimationToEnd
-- assertVisible: "Alert Inbox"
+- openLink: "wrestlewell://notifications"
+- extendedWaitUntil:
+    visible: "Alert Inbox"
+    timeout: 25000
 
 # Manual follow-up if stable:
 # - open Match-Day

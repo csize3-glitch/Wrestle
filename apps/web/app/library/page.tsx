@@ -352,6 +352,10 @@ export default function LibraryPage() {
                         labelSource(item.source),
                       ]
                         .filter(Boolean)
+                        .filter(
+                          (label, index, labels) =>
+                            labels.indexOf(label) === index
+                        )
                         .map((label) => (
                           <span
                             key={`${item.id}-${label}`}

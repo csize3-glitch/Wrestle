@@ -405,7 +405,19 @@ export interface AppUser {
   email: string;
   displayName: string;
   role: UserRole;
+
+  /**
+   * Legacy single-team field.
+   * Keep during the multi-team transition for backward compatibility.
+   */
   currentTeamId?: string;
+
+  /**
+   * Team currently selected in the interface.
+   * This is a navigation preference, not proof of membership.
+   */
+  activeTeamId?: string;
+
   linkedWrestlerIds?: string[];
   notificationPreferences?: NotificationPreferences;
   lastSeenNotificationsAt?: string;
@@ -434,11 +446,44 @@ export interface Team {
   updatedAt: string;
 }
 
+export type TeamMembershipRole =
+  | "owner"
+  | "head_coach"
+  | "assistant_coach"
+  | "athlete"
+  | "parent";
+
+export type TeamMembershipStatus =
+  | "active"
+  | "suspended"
+  | "removed";
+
 export interface TeamMember {
   id: string;
   teamId: string;
   userId: string;
+
+  /**
+   * Legacy role field used by the current application.
+   * Keep during the multi-team transition.
+   */
   role: UserRole;
+
+  /**
+   * New team-specific role.
+   * Optional until existing membership documents are migrated.
+   */
+  membershipRole?: TeamMembershipRole;
+
+  /**
+   * Missing legacy values are treated as active during migration.
+   */
+  status?: TeamMembershipStatus;
+
+  wrestlerProfileId?: string;
+  approvedByUserId?: string;
+  joinedAt?: string;
+
   createdAt: string;
   updatedAt: string;
 }
