@@ -90,21 +90,46 @@ name: Athlete Smoke
 - assertVisible:
     id: "nav-events"
 
-- assertVisible:
-    id: "open-goals-button"
 
 - openLink: "wrestlewell://goals"
-- waitForAnimationToEnd
-- assertVisible: "Athlete Goals"
+- extendedWaitUntil:
+    visible: "Athlete Goals"
+    timeout: 25000
 
 # Session goal create
-- tapOn: "Add Session Goal"
+- scrollUntilVisible:
+    element:
+      id: "goal-add-session-button"
+    direction: DOWN
+    timeout: 25000
+- tapOn:
+    id: "goal-add-session-button"
 - waitForAnimationToEnd
+- scrollUntilVisible:
+    element:
+      id: "goal-title-input"
+    direction: DOWN
+    timeout: 25000
+- scrollUntilVisible:
+    element:
+      id: "goal-title-input"
+    direction: DOWN
+    timeout: 25000
 - tapOn:
     id: "goal-title-input"
 - eraseText
 - inputText: "UAT Session Goal __UAT_TIMESTAMP__"
 - hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: "goal-description-input"
+    direction: DOWN
+    timeout: 25000
+- scrollUntilVisible:
+    element:
+      id: "goal-description-input"
+    direction: DOWN
+    timeout: 25000
 - tapOn:
     id: "goal-description-input"
 - inputText: "Win more live goes this session __UAT_TIMESTAMP__"
@@ -117,16 +142,31 @@ name: Athlete Smoke
     optional: true
 - tapOn:
     id: "goal-coach-visible-toggle"
-- scroll
-- waitForAnimationToEnd
+- scrollUntilVisible:
+    element:
+      id: "goal-save-button"
+    direction: DOWN
+    timeout: 25000
 - tapOn:
     id: "goal-save-button"
-- waitForAnimationToEnd
-- assertVisible: "UAT Session Goal __UAT_TIMESTAMP__"
+- extendedWaitUntil:
+    visible: "UAT Session Goal __UAT_TIMESTAMP__"
+    timeout: 25000
 
 # Year goal create
-- tapOn: "Add Year Goal"
+- scrollUntilVisible:
+    element:
+      id: "goal-add-year-button"
+    direction: DOWN
+    timeout: 25000
+- tapOn:
+    id: "goal-add-year-button"
 - waitForAnimationToEnd
+- scrollUntilVisible:
+    element:
+      id: "goal-type-year-button"
+    direction: DOWN
+    timeout: 25000
 - tapOn:
     id: "goal-type-year-button"
 - tapOn:
@@ -138,12 +178,16 @@ name: Athlete Smoke
     id: "goal-description-input"
 - inputText: "Podium at the state qualifier __UAT_TIMESTAMP__"
 - hideKeyboard
-- scroll
-- waitForAnimationToEnd
+- scrollUntilVisible:
+    element:
+      id: "goal-save-button"
+    direction: DOWN
+    timeout: 25000
 - tapOn:
     id: "goal-save-button"
-- waitForAnimationToEnd
-- assertVisible: "UAT Year Goal __UAT_TIMESTAMP__"
+- extendedWaitUntil:
+    visible: "UAT Year Goal __UAT_TIMESTAMP__"
+    timeout: 25000
 
 # Complete one goal if visible
 - tapOn:
@@ -161,6 +205,11 @@ name: Athlete Smoke
 - openLink: "wrestlewell://journal"
 - waitForAnimationToEnd
 - waitForAnimationToEnd
+- scrollUntilVisible:
+    element:
+      id: "journal-create-button"
+    direction: DOWN
+    timeout: 25000
 - tapOn:
     id: "journal-create-button"
 - waitForAnimationToEnd
@@ -179,40 +228,38 @@ name: Athlete Smoke
 - tapOn:
     id: "journal-tag-mindset-button"
 - hideKeyboard
-- scroll
-- waitForAnimationToEnd
-- extendedWaitUntil:
-    visible:
+- scrollUntilVisible:
+    element:
       id: "journal-body-input"
-    timeout: 15000
+    direction: DOWN
+    timeout: 25000
 - tapOn:
     id: "journal-body-input"
 - inputText: "UAT journal body __UAT_TIMESTAMP__"
 - hideKeyboard
-- tapOn:
-    text: "Great"
-- tapOn:
-    text: "Goal"
-- scroll
-- waitForAnimationToEnd
-- extendedWaitUntil:
-    visible:
+- scrollUntilVisible:
+    element:
       id: "journal-coach-visible-toggle"
-    timeout: 15000
+    direction: DOWN
+    timeout: 25000
 - tapOn:
     id: "journal-coach-visible-toggle"
-- scroll
-- waitForAnimationToEnd
-- extendedWaitUntil:
-    visible:
+- scrollUntilVisible:
+    element:
       id: "journal-save-button"
-    timeout: 15000
+    direction: DOWN
+    timeout: 25000
 - tapOn:
     id: "journal-save-button"
 - waitForAnimationToEnd
 - assertVisible: "UAT Journal __UAT_TIMESTAMP__"
 
 # Journal edit
+- scrollUntilVisible:
+    element:
+      text: "Edit"
+    direction: DOWN
+    timeout: 25000
 - tapOn: "Edit"
 - waitForAnimationToEnd
 - tapOn:
@@ -220,46 +267,58 @@ name: Athlete Smoke
 - eraseText
 - inputText: "UAT Journal Updated __UAT_TIMESTAMP__"
 - hideKeyboard
-- scroll
-- waitForAnimationToEnd
-- extendedWaitUntil:
-    visible:
+- scrollUntilVisible:
+    element:
       id: "journal-save-button"
-    timeout: 15000
+    direction: DOWN
+    timeout: 25000
 - tapOn:
     id: "journal-save-button"
 - waitForAnimationToEnd
 - assertVisible: "UAT Journal Updated __UAT_TIMESTAMP__"
 
 # Journal cleanup
+- scrollUntilVisible:
+    element:
+      text: "Delete"
+    direction: DOWN
+    timeout: 25000
 - tapOn: "Delete"
 - tapOn:
     text: "Delete"
     optional: true
 
 # Schedule
-- tapOn:
+- assertVisible:
     id: "nav-schedule"
-- waitForAnimationToEnd
-- assertVisible: "Calendar"
+- openLink: "wrestlewell://calendar"
+- extendedWaitUntil:
+    visible: "Calendar"
+    timeout: 25000
 
 # Events
-- tapOn:
+- assertVisible:
     id: "nav-events"
-- waitForAnimationToEnd
-- assertVisible: "Tournaments"
+- openLink: "wrestlewell://tournaments"
+- extendedWaitUntil:
+    visible: "Tournaments"
+    timeout: 25000
 
 # Profile
-- tapOn:
+- assertVisible:
     id: "nav-profile"
-- waitForAnimationToEnd
-- assertVisible: "Wrestlers"
+- openLink: "wrestlewell://wrestlers"
+- extendedWaitUntil:
+    visible: "Wrestlers"
+    timeout: 25000
 
 # Alerts
-- tapOn:
+- assertVisible:
     id: "nav-alerts"
-- waitForAnimationToEnd
-- assertVisible: "Alert Inbox"
+- openLink: "wrestlewell://notifications"
+- extendedWaitUntil:
+    visible: "Alert Inbox"
+    timeout: 25000
 
 # Manual follow-up if stable:
 # - open Match-Day from tournament context

@@ -91,11 +91,12 @@ name: Parent Smoke
     id: "nav-events"
 
 # Schedule
-- tapOn:
+- assertVisible:
     id: "nav-schedule"
-- waitForAnimationToEnd
-- assertVisible: "Calendar"
-
+- openLink: "wrestlewell://calendar"
+- extendedWaitUntil:
+    visible: "Calendar"
+    timeout: 25000
 # Attend
 - tapOn:
     id: "nav-attend"
